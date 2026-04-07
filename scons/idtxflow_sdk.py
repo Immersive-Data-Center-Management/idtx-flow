@@ -59,7 +59,11 @@ def _do_compose_sdk(target, source, env):
     sdk_libs = f"{sdk_root}/lib"
 
     open_usd_version = env.get('openusd_version', '')
-    open_usd_path = f"thirdparty/openusd-{open_usd_version}"
+    is_android = env.get('is_android', False)
+    if is_android:
+        open_usd_path = f"thirdparty/openusd-{open_usd_version}-android"
+    else:
+        open_usd_path = f"thirdparty/openusd-{open_usd_version}"
 
     # Ensure target directories exist
     os.makedirs(sdk_libs, exist_ok=True)
@@ -76,16 +80,32 @@ def _do_compose_sdk(target, source, env):
         shutil.copy(f"{env['ext_bootstrap_lib_dir']}/{env['ext_bootstrap_lib']}.a",f"{sdk_libs}")
         shutil.copy(f"{open_usd_path}/lib/libusd_ms.dylib", f"{sdk_libs}")
         shutil.copy(f"{open_usd_path}/lib/libtbb.12.dylib", f"{sdk_libs}")
+    elif platform_name == "android":
+        onetbb_android_root = "thirdparty/onetbb-android"
+        shutil.copy(f"{env['gdextension_lib_dir']}/{env['gdextension_lib']}.so", f"{sdk_libs}")
+        shutil.copy(f"{env['ext_bootstrap_lib_dir']}/{env['ext_bootstrap_lib']}.a", f"{sdk_libs}")
+        shutil.copy(f"{open_usd_path}/lib/libusd_ms.so", f"{sdk_libs}")
+        # oneTBB was built separately for Android
+        _tbb_so = os.path.join(onetbb_android_root, "lib", "libtbb.so")
+        if os.path.exists(_tbb_so):
+            shutil.copy(_tbb_so, f"{sdk_libs}")
     else:
-        shutil.copy(f"{env['gdextension_lib_dir']}/{env['gdextension_lib']}.se", f"{sdk_libs}")
+        # Linux
+        shutil.copy(f"{env['gdextension_lib_dir']}/{env['gdextension_lib']}.so", f"{sdk_libs}")
         shutil.copy(f"{env['ext_bootstrap_lib_dir']}/{env['ext_bootstrap_lib']}.a",f"{sdk_libs}")
         shutil.copy(f"{open_usd_path}/lib/libusd_ms.so", f"{sdk_libs}")
         shutil.copy(f"{open_usd_path}/lib/libtbb.12.so", f"{sdk_libs}")
 
     # Copy the header files into the SDK folder that will be required to compile the plugin
     shutil.copytree(f"{open_usd_path}/include/pxr", f"{sdk_includes}/pxr", dirs_exist_ok=True)
-    shutil.copytree(f"{open_usd_path}/include/tbb", f"{sdk_includes}/tbb", dirs_exist_ok=True)
-    shutil.copytree(f"{open_usd_path}/include/oneapi", f"{sdk_includes}/oneapi", dirs_exist_ok=True)
+    # oneTBB headers: on Android they live in a separate install prefix
+    if is_android:
+        onetbb_inc = "thirdparty/onetbb-android/include"
+        shutil.copytree(f"{onetbb_inc}/tbb", f"{sdk_includes}/tbb", dirs_exist_ok=True)
+        shutil.copytree(f"{onetbb_inc}/oneapi", f"{sdk_includes}/oneapi", dirs_exist_ok=True)
+    else:
+        shutil.copytree(f"{open_usd_path}/include/tbb", f"{sdk_includes}/tbb", dirs_exist_ok=True)
+        shutil.copytree(f"{open_usd_path}/include/oneapi", f"{sdk_includes}/oneapi", dirs_exist_ok=True)
 
     shutil.copytree(f"./shared/include/idtxflow", f"{sdk_includes}/idtxflow", dirs_exist_ok=True)
     shutil.copytree(f"./shared/include/idtxflow_godot", f"{sdk_includes}/idtxflow_godot", dirs_exist_ok=True)

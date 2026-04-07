@@ -43,6 +43,11 @@ def _extract_archive(archive_path, extract_to):
         raise RuntimeError(f"Unsupported archive: {archive_path}")
 
 def _downloadMdlSdk(env):
+    # MDL SDK is not available for Android — skip entirely
+    if env.get('is_android', False):
+        print("Skipping MDL SDK download (not available for Android).")
+        return
+
     platform_id = platform.system().lower()
     shared_deps_root = env.get('SHARED_DEPS_ROOT', '')
     mdl_root = os.path.join("./thirdparty", "mdl_sdk")

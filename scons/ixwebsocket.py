@@ -176,6 +176,7 @@ def _build_ixwebsocket(env):
 
     platform_name = env["platform_name"]
     build_target = env["target"]
+    is_android = env.get('is_android', False)
 
     # Build directory
     build_dir = f"{ixws_path}/build_{platform_name}_{build_target}"
@@ -191,50 +192,88 @@ def _build_ixwebsocket(env):
         return
 
     # Resolve OpenSSL: prefer system install, fall back to vcpkg
+    # Android: TLS is disabled for the initial build (no system OpenSSL on Android)
     use_vcpkg_toolchain = False
     vcpkg_root = None
     vcpkg_triplet = None
     openssl_root_dir = None
+    use_tls = not is_android  # Disable TLS on Android for now
 
-    if platform_name == "windows":
-        # Windows has no system OpenSSL - always use vcpkg
-        vcpkg_root = _ensure_vcpkg()
-        vcpkg_triplet = _get_vcpkg_triplet(platform_name)
-        _install_openssl_vcpkg(vcpkg_root, vcpkg_triplet)
-        use_vcpkg_toolchain = True
-    else:
-        # macOS / Linux: try system OpenSSL first
-        system_ssl = _find_system_openssl(platform_name)
-        if system_ssl:
-            inc_dir, lib_dir = system_ssl
-            # Derive the root dir (parent of include/) for CMake's FindOpenSSL
-            openssl_root_dir = os.path.dirname(inc_dir)
-            print(f"Using system OpenSSL: {openssl_root_dir}")
-        else:
-            print("System OpenSSL not found — installing via vcpkg...")
+    if not is_android:
+        if platform_name == "windows":
+            # Windows has no system OpenSSL - always use vcpkg
             vcpkg_root = _ensure_vcpkg()
             vcpkg_triplet = _get_vcpkg_triplet(platform_name)
             _install_openssl_vcpkg(vcpkg_root, vcpkg_triplet)
             use_vcpkg_toolchain = True
+        else:
+            # macOS / Linux: try system OpenSSL first
+            system_ssl = _find_system_openssl(platform_name)
+            if system_ssl:
+                inc_dir, lib_dir = system_ssl
+                # Derive the root dir (parent of include/) for CMake's FindOpenSSL
+                openssl_root_dir = os.path.dirname(inc_dir)
+                print(f"Using system OpenSSL: {openssl_root_dir}")
+            else:
+                print("System OpenSSL not found — installing via vcpkg...")
+                vcpkg_root = _ensure_vcpkg()
+                vcpkg_triplet = _get_vcpkg_triplet(platform_name)
+                _install_openssl_vcpkg(vcpkg_root, vcpkg_triplet)
+                use_vcpkg_toolchain = True
 
     # CMake configure
     if not os.path.exists(build_dir):
         os.makedirs(build_dir)
 
-    print(f"Building IXWebSocket for {platform_name}/{build_target} (TLS: OpenSSL)...")
+    tls_label = "OpenSSL" if use_tls else "OFF"
+    print(f"Building IXWebSocket for {platform_name}/{build_target} (TLS: {tls_label})...")
 
     cmake_args = [
         "cmake",
         f"-S{os.path.abspath(ixws_path)}",
         f"-B{os.path.abspath(build_dir)}",
         "-DBUILD_SHARED_LIBS=OFF",
-        "-DUSE_TLS=ON",
-        "-DUSE_OPEN_SSL=ON",
+        f"-DUSE_TLS={'ON' if use_tls else 'OFF'}",
+        f"-DUSE_OPEN_SSL={'ON' if use_tls else 'OFF'}",
         "-DUSE_ZLIB=OFF",
         "-DCMAKE_CXX_STANDARD=20",
     ]
 
-    if platform_name == "windows":
+    if is_android:
+        # Android cross-compilation via NDK CMake toolchain
+        ndk_root = env.get('android_ndk_root', os.environ.get('ANDROID_NDK_ROOT', ''))
+        api_level = env.get('android_api_level', 24)
+        ndk_toolchain_file = os.path.join(ndk_root, "build", "cmake", "android.toolchain.cmake")
+
+        # Must use Ninja (not Visual Studio) for Android cross-compilation.
+        # The Android SDK bundles Ninja; locate it via ANDROID_HOME / ANDROID_SDK_ROOT.
+        android_cmake_args = [
+            "-G", "Ninja",
+            f"-DCMAKE_TOOLCHAIN_FILE={ndk_toolchain_file}",
+            "-DANDROID_ABI=arm64-v8a",
+            f"-DANDROID_PLATFORM=android-{api_level}",
+            "-DANDROID_STL=c++_shared",
+            "-DCMAKE_CXX_FLAGS=-std=c++20 -fPIC",
+            "-DCMAKE_C_FLAGS=-fPIC",
+        ]
+
+        # Point CMake at the SDK-bundled Ninja so it doesn't fall back to MSBuild
+        sdk_root = env.get('android_sdk_root',
+                           os.environ.get('ANDROID_HOME',
+                           os.environ.get('ANDROID_SDK_ROOT', '')))
+        if sdk_root:
+            ninja_dir = os.path.join(sdk_root, "cmake")
+            if os.path.isdir(ninja_dir):
+                # Pick the newest CMake version directory that contains ninja
+                for entry in sorted(os.listdir(ninja_dir), reverse=True):
+                    ninja_candidate = os.path.join(ninja_dir, entry, "bin",
+                                                   "ninja.exe" if platform.system() == "Windows" else "ninja")
+                    if os.path.isfile(ninja_candidate):
+                        android_cmake_args.append(f"-DCMAKE_MAKE_PROGRAM={ninja_candidate}")
+                        break
+
+        cmake_args.extend(android_cmake_args)
+    elif platform_name == "windows":
         toolchain_file = os.path.join(vcpkg_root, "scripts", "buildsystems", "vcpkg.cmake")
         cmake_args.extend([
             "-G", "Visual Studio 17 2022",
