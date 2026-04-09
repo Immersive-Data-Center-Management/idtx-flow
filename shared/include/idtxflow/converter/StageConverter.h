@@ -553,6 +553,19 @@ namespace converter
             
             pxr::VtArray<class pxr::GfVec3f> colors;
             usdGprim.GetDisplayColorAttr().Get(&colors);
+            pxr::VtArray<float> opacities;
+            usdGprim.GetDisplayOpacityAttr().Get(&opacities);
+            
+            // color and opacity are authored in different properties to enable independent overwrites, however we pass
+            // this as RGBA color to downstream functions. Thus, we need to combine them into one rgba color
+            const size_t colorCount = std::max(colors.size(), opacities.size());
+            pxr::VtArray<class pxr::GfVec4f> displayColors(colorCount);
+            for (size_t i = 0; i < colorCount; ++i) {
+                const pxr::GfVec3f& rgb = i < colors.size() ? colors[i] : pxr::GfVec3f(1.0f);
+                const float a = i < opacities.size() ? opacities[i] : 1.0f;
+                displayColors[i] = pxr::GfVec4f(rgb[0], rgb[1], rgb[2], a);
+            }
+            
             class pxr::TfToken colorInterpolation = usdGprim.GetDisplayColorPrimvar().GetInterpolation();
             
             UsdAnimationConverter<TargetEngine> animationConverter;
@@ -561,7 +574,6 @@ namespace converter
             UsdMaterialConverter<TargetEngine> materialConverter;
             UsdMeshConverter<TargetEngine> meshConverter;
             std::optional<typename Types::Material> material = ConvertMaterial(meshConverter.GetUsdMaterial(usdGprim));
-            
             pxr::UsdPrim usdPrim = usdGprim.GetPrim();
             if (usdPrim.IsA<pxr::UsdGeomCube>())
             {
@@ -569,7 +581,7 @@ namespace converter
                 double cubeSize;
                 if (!usdCube.GetSizeAttr().Get(&cubeSize)) cubeSize = 1.0;
                 
-                return ConvertCube(TypeConverter::toTransform(matrix), gPrimAnimation, material, cubeSize, colors, colorInterpolation);
+                return ConvertCube(TypeConverter::toTransform(matrix), gPrimAnimation, material, cubeSize, displayColors, colorInterpolation);
 
             } else if (usdPrim.IsA<pxr::UsdGeomCone>())
             {
@@ -582,7 +594,7 @@ namespace converter
                 if (!usdCone.GetHeightAttr().Get(&coneHeight)) coneHeight = 1.0;
                 if (!usdCone.GetRadiusAttr().Get(&coneRadius)) coneRadius = 1.0;
                 
-                return ConvertCone(TypeConverter::toTransform(matrix, axis), gPrimAnimation, material, coneRadius, coneHeight, colors, colorInterpolation);
+                return ConvertCone(TypeConverter::toTransform(matrix, axis), gPrimAnimation, material, coneRadius, coneHeight, displayColors, colorInterpolation);
 
             } else if (usdPrim.IsA<pxr::UsdGeomCylinder>())
             {
@@ -595,21 +607,21 @@ namespace converter
                 class pxr::TfToken axis;
                 usdCylinder.GetAxisAttr().Get(&axis);
                     
-                return ConvertCylinder(TypeConverter::toTransform(matrix, axis), gPrimAnimation, material, cylinderRadius, cylinderHeight, colors, colorInterpolation);
+                return ConvertCylinder(TypeConverter::toTransform(matrix, axis), gPrimAnimation, material, cylinderRadius, cylinderHeight, displayColors, colorInterpolation);
 
             } else if (usdPrim.IsA<pxr::UsdGeomSphere>())
             {
                 pxr::UsdGeomSphere usdSphere(usdPrim);
                 double sphereRadius;
                 if (!usdSphere.GetRadiusAttr().Get(&sphereRadius)) sphereRadius = 0.5;
-                return ConvertSphere(TypeConverter::toTransform(matrix), gPrimAnimation, material, sphereRadius, colors, colorInterpolation);
+                return ConvertSphere(TypeConverter::toTransform(matrix), gPrimAnimation, material, sphereRadius, displayColors, colorInterpolation);
 
             } else if (usdPrim.IsA<pxr::UsdGeomMesh>())
             {
                 pxr::UsdGeomMesh usdMesh(usdPrim);
                 std::vector<MeshDescription<typename UsdMeshConverter<TargetEngine>::MeshDataType>> meshDescriptions = meshConverter.Convert(usdMesh);
                                 
-                return ConvertMesh(TypeConverter::toTransform(matrix), gPrimAnimation, meshDescriptions, colors, colorInterpolation);
+                return ConvertMesh(TypeConverter::toTransform(matrix), gPrimAnimation, meshDescriptions, displayColors, colorInterpolation);
             }
             
             return nullptr;
@@ -644,7 +656,7 @@ namespace converter
             const std::optional<AnimationDescription<TargetEngine>>& animation,
             const std::optional<typename Types::Material>& material,
             float cubeSize,
-            const pxr::VtArray<class pxr::GfVec3f>& displayColors,
+            const pxr::VtArray<class pxr::GfVec4f>& displayColors,
             const class pxr::TfToken& colorInterpolation);
 
         /**
@@ -665,7 +677,7 @@ namespace converter
             const std::optional<typename Types::Material>& material,
             float cylinderRadius,
             float cylinderHeight,
-            const pxr::VtArray<class pxr::GfVec3f>& displayColors,
+            const pxr::VtArray<class pxr::GfVec4f>& displayColors,
             const class pxr::TfToken& colorInterpolation);
 
         /**
@@ -686,7 +698,7 @@ namespace converter
             const std::optional<typename Types::Material>& material,
             float coneRadius,
             float coneHeight,
-            const pxr::VtArray<class pxr::GfVec3f>& displayColors,
+            const pxr::VtArray<class pxr::GfVec4f>& displayColors,
             const class pxr::TfToken& colorInterpolation);
 
         /**
@@ -704,7 +716,7 @@ namespace converter
             const std::optional<AnimationDescription<TargetEngine>>& animation,
             const std::optional<typename Types::Material>& material,
             float sphereRadius,
-            const pxr::VtArray<class pxr::GfVec3f>& displayColors,
+            const pxr::VtArray<class pxr::GfVec4f>& displayColors,
             const class pxr::TfToken& colorInterpolation);
 
         /**
@@ -720,7 +732,7 @@ namespace converter
             const typename Types::Transform& transform,
             const std::optional<AnimationDescription<TargetEngine>>& animation,
             const std::vector<MeshDescription<typename UsdMeshConverter<TargetEngine>::MeshDataType>>& meshDescriptions,
-            const pxr::VtArray<class pxr::GfVec3f>& displayColors,
+            const pxr::VtArray<class pxr::GfVec4f>& displayColors,
             const class pxr::TfToken& colorInterpolation);
 
         /**

@@ -8,13 +8,15 @@ respective SCons tools for those dependencies.
 Usage in SConstruct:
     env.BuildGdExtension()
 """
+import configparser
+import datetime
+import glob
 import os
 import platform
+import re
 import shutil
-import glob
+import stat
 from SCons.Script import Exit
-
-from SCons import __version__ as scons_raw_version
 
 def generate(env):
     env.AddMethod(_build_extension, 'BuildGdExtension')
@@ -260,6 +262,7 @@ def _build_extension(env):
     install_ext = extension_env.Install(install_dir, install_targets)
     install_libs = extension_env.Install(install_dir, _get_libs_to_install(platform_name, openusd_version, is_android))
     extension_env.AddPostAction(library, _copy_usd_plugins)
+    extension_env.AddPostAction(library, _copy_third_party_licenses)
 
     extension_env.Default(library, install_ext + install_libs)
 
@@ -336,4 +339,55 @@ def _copy_usd_plugins(target, source, env):
     if os.path.isdir(usd_plugin_dir):
         shutil.copytree(usd_plugin_dir, f"addon/IDTXFlow/bin/plugin/usd", dirs_exist_ok=True)
     shutil.copytree("usd/plugin/godot", "addon/IDTXFlow/bin/plugin/usd/godot", dirs_exist_ok=True)
+
+def _copy_third_party_licenses(target, source, env):
+    """Copy third-party LICENSE files to addon for distribution compliance."""
+    print("Copying third-party LICENSE files...")
+
+    license_dest_dir = "addon/IDTXFlow/LICENSES-THIRD-PARTY"
+    os.makedirs(license_dest_dir, exist_ok=True)
+
+    openusd_version = env.get('openusd_version', '')
+    license_files = [
+        ("thirdparty/godot-cpp/LICENSE.md", "godot-cpp-LICENSE.md"),
+        ("thirdparty/ixwebsocket/LICENSE.txt", "ixwebsocket-LICENSE.txt"),
+        ("thirdparty/mdl_sdk/LICENSE.md", "mdl-sdk-LICENSE.md"),
+        ("thirdparty/mdl_sdk/LICENSE_THIRDPARTY.md", "mdl-sdk-LICENSE_THIRDPARTY.md"),
+        (f"thirdparty/openusd-{openusd_version}-src/LICENSE.txt", "openusd-LICENSE.txt"),
+        (f"thirdparty/openusd-{openusd_version}-src/NOTICE.txt", "openusd-NOTICE.txt"),
+    ]
+
+    missing = []
+    for src, dest_name in license_files:
+        if os.path.exists(src):
+            dest_path = os.path.join(license_dest_dir, dest_name)
+            shutil.copy2(src, dest_path)
+            # copy2 preserves source permissions; some SDKs ship read-only files,
+            # which would cause a Permission denied error on the next incremental build.
+            os.chmod(dest_path, os.stat(dest_path).st_mode | stat.S_IRUSR | stat.S_IWUSR)
+            print(f"  Copied: {src} -> {dest_path}")
+        else:
+            missing.append(src)
+
+    if os.path.exists("THIRDPARTY.txt"):
+        cfg = configparser.ConfigParser()
+        cfg.read("addon/IDTXFlow/plugin.cfg")
+        version = cfg.get("plugin", "version", fallback="unknown").strip('"').strip("'")
+        if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[\w.]+)?(?:\+[\w.]+)?", version):
+            print(f"ERROR: Version '{version}' in plugin.cfg does not follow semver (MAJOR.MINOR.PATCH).")
+            return 1
+        today = datetime.date.today()
+        date_str = f"{today.strftime('%B')} {today.day}, {today.year}"
+        with open("THIRDPARTY.txt", "r") as f:
+            lines = f.read().splitlines(keepends=True)
+        lines[0] = f"IDTX Flow - Version {version} - {date_str}\n"
+        with open("addon/IDTXFlow/THIRDPARTY.txt", "w") as f:
+            f.writelines(lines)
+        print(f"  Stamped THIRDPARTY.txt with version {version} and date {date_str}")
+
+    if missing:
+        print("ERROR: The following LICENSE files are missing and must be present for distribution compliance:")
+        for f in missing:
+            print(f"  {f}")
+        return 1
 

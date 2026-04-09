@@ -19,3 +19,13 @@ macos.arm64.single.debug = "./bin/macos/libidtxflow.macos.template_debug.arm64.d
 macos.arm64.double.debug = "./bin/macos/libidtxflow.macos.template_debug.arm64.double.dylib"
 macos.arm64.single.release = "./bin/macos/libidtxflow.macos.template_release.arm64.dylib"
 macos.arm64.double.release = "./bin/macos/libidtxflow.macos.template_release.arm64.double.dylib"
+
+android.arm64.debug = "./bin/android/libidtxflow.android.template_debug.arm64.so"
+android.arm64.release = "./bin/android/libidtxflow.android.template_release.arm64.so"
+
+[dependencies]
+
+android.arm64 = {
+    "./bin/android/libtbb.so":"",
+    "./bin/android/libusd_ms.so":""
+}

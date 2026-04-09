@@ -1,15 +1,21 @@
 """
 SCons tool: ixwebsocket
-Builds the IXWebSocket library from source using CMake. This is required for HTTPClient andWebSocket support
+Builds the IXWebSocket library from source using CMake. This is required for HTTPClient and WebSocket support
 in the IDTXFlow GDExtension.
 
 Usage in SConstruct:
     env.BuildIXWebSocket()
 """
 import os
-import subprocess
 import platform
+import subprocess
 from SCons.Script import Exit
+
+from download_utils import download_file, extract_archive
+
+IXWEBSOCKET_VERSION = "v11.4.6"
+IXWEBSOCKET_SHA256 = "c024334f8e45980836c67008979a884d6dcc5ef067dd2eb1fa7241f4c17ddc32"
+BASE_URL = "https://github.com/machinezone/IXWebSocket/archive/refs/tags"
 
 
 def generate(env):
@@ -163,22 +169,29 @@ def _get_vcpkg_triplet(platform_name):
 def _build_ixwebsocket(env):
     ixws_path = "thirdparty/ixwebsocket"
 
-    # Clone IXWebSocket if not present
     if not os.path.exists(ixws_path):
-        print("Cloning IXWebSocket...")
-        result = subprocess.run([
-            "git", "clone", "--depth", "1",
-            "https://github.com/machinezone/IXWebSocket.git",
-            ixws_path
-        ])
-        if result.returncode != 0:
-            Exit(f"Failed to clone IXWebSocket (exit code: {result.returncode})")
+        print("Downloading IXWebSocket...")
+        os.makedirs("./thirdparty", exist_ok=True)
+
+        url = f"{BASE_URL}/{IXWEBSOCKET_VERSION}.tar.gz"
+        archive_path = os.path.join("./thirdparty", f"IXWebSocket-{IXWEBSOCKET_VERSION}.tar.gz")
+
+        download_file(url, archive_path, "IXWebSocket", IXWEBSOCKET_SHA256)
+        extract_archive(archive_path, "./thirdparty")
+
+        # GitHub strips the leading 'v' from tag names in archive directory names
+        # e.g. tag v11.4.6 -> extracts as IXWebSocket-11.4.6/
+        extracted_dir = os.path.join("./thirdparty", f"IXWebSocket-{IXWEBSOCKET_VERSION.lstrip('v')}")
+        if os.path.exists(extracted_dir):
+            os.rename(extracted_dir, ixws_path)
+
+        os.remove(archive_path)
+        print("IXWebSocket downloaded and extracted successfully.")
 
     platform_name = env["platform_name"]
     build_target = env["target"]
     is_android = env.get('is_android', False)
 
-    # Build directory
     build_dir = f"{ixws_path}/build_{platform_name}_{build_target}"
 
     # Expected output library path

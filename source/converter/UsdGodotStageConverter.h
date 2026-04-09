@@ -138,7 +138,7 @@ namespace converter
         const std::optional<AnimationDescription<types::TargetEngineGodot>>& animation,
         const std::optional<godot::Ref<godot::StandardMaterial3D>>& material,
         float cube_size,
-        const pxr::VtArray<class pxr::GfVec3f>& display_colors,
+        const pxr::VtArray<class pxr::GfVec4f>& display_colors,
         const class pxr::TfToken& color_interpolation)
     {
         godot::Ref<godot::BoxMesh> box;
@@ -156,8 +156,11 @@ namespace converter
             // if the current Mesh prim authored a display color as a constant value, pass this into the
             // default material as base albedo color.
             if (!display_colors.empty() && color_interpolation == pxr::UsdGeomTokens->constant)
-                standard_material->set_albedo(TypeConverter::toColor(display_colors[0])); 
-            else
+            {
+                godot::Color albedo = TypeConverter::toColor(display_colors[0]);
+                standard_material->set_albedo(albedo);
+                if (albedo.a < 1.0f) standard_material->set_transparency(godot::BaseMaterial3D::TRANSPARENCY_ALPHA);
+            } else
                 standard_material->set_flag(godot::BaseMaterial3D::FLAG_ALBEDO_FROM_VERTEX_COLOR, true);
         }
         
@@ -183,7 +186,7 @@ namespace converter
         const std::optional<godot::Ref<godot::StandardMaterial3D>>& material,
         float cylinder_radius,
         float cylinder_height,
-        const pxr::VtArray<class pxr::GfVec3f>& display_colors,
+        const pxr::VtArray<class pxr::GfVec4f>& display_colors,
         const class pxr::TfToken& color_interpolation)
     {
         godot::Ref<godot::CylinderMesh> cylinder;
@@ -204,8 +207,11 @@ namespace converter
             // if the current Mesh prim authored a display color as a constant value, pass this into the
             // default material as base albedo color.
             if (!display_colors.empty() && color_interpolation == pxr::UsdGeomTokens->constant)
-                standard_material->set_albedo(TypeConverter::toColor(display_colors[0])); 
-            else
+            {
+                godot::Color albedo = TypeConverter::toColor(display_colors[0]);
+                standard_material->set_albedo(albedo);
+                if (albedo.a < 1.0f) standard_material->set_transparency(godot::BaseMaterial3D::TRANSPARENCY_ALPHA);
+            } else
                 standard_material->set_flag(godot::BaseMaterial3D::FLAG_ALBEDO_FROM_VERTEX_COLOR, true);
         }
         
@@ -231,7 +237,7 @@ namespace converter
         const std::optional<godot::Ref<godot::StandardMaterial3D>>& material,
         float cone_radius,
         float cone_height,
-        const pxr::VtArray<class pxr::GfVec3f>& display_colors,
+        const pxr::VtArray<class pxr::GfVec4f>& display_colors,
         const class pxr::TfToken& color_interpolation)
     {
         godot::Ref<godot::CylinderMesh> cylinder;
@@ -252,8 +258,11 @@ namespace converter
             // if the current Mesh prim authored a display color as a constant value, pass this into the
             // default material as base albedo color.
             if (!display_colors.empty() && color_interpolation == pxr::UsdGeomTokens->constant)
-                standard_material->set_albedo(TypeConverter::toColor(display_colors[0])); 
-            else
+            {
+                godot::Color albedo = TypeConverter::toColor(display_colors[0]);
+                standard_material->set_albedo(albedo);
+                if (albedo.a < 1.0f) standard_material->set_transparency(godot::BaseMaterial3D::TRANSPARENCY_ALPHA);
+            } else
                 standard_material->set_flag(godot::BaseMaterial3D::FLAG_ALBEDO_FROM_VERTEX_COLOR, true);
         }
         
@@ -278,7 +287,7 @@ namespace converter
         const std::optional<AnimationDescription<types::TargetEngineGodot>>& animation,
         const std::optional<typename Types::Material>& material,
         float sphere_radius,
-        const pxr::VtArray<class pxr::GfVec3f>& display_colors,
+        const pxr::VtArray<class pxr::GfVec4f>& display_colors,
         const class pxr::TfToken& color_interpolation)
     {
         godot::Ref<godot::SphereMesh> sphere;
@@ -297,8 +306,11 @@ namespace converter
             // if the current Mesh prim authored a display color as a constant value, pass this into the
             // default material as base albedo color.
             if (!display_colors.empty() && color_interpolation == pxr::UsdGeomTokens->constant)
-                standard_material->set_albedo(TypeConverter::toColor(display_colors[0])); 
-            else
+            {
+                godot::Color albedo = TypeConverter::toColor(display_colors[0]);
+                standard_material->set_albedo(albedo);
+                if (albedo.a < 1.0f) standard_material->set_transparency(godot::BaseMaterial3D::TRANSPARENCY_ALPHA);
+            } else
                 standard_material->set_flag(godot::BaseMaterial3D::FLAG_ALBEDO_FROM_VERTEX_COLOR, true);
         }
         
@@ -322,7 +334,7 @@ namespace converter
         const godot::Transform3D& transform,
         const std::optional<AnimationDescription<types::TargetEngineGodot>>& animation,
         const std::vector<MeshDescription<UsdMeshConverter<types::TargetEngineGodot>::MeshDataType>>& mesh_descriptions,
-        const pxr::VtArray<class pxr::GfVec3f>& display_colors,
+        const pxr::VtArray<class pxr::GfVec4f>& display_colors,
         const class pxr::TfToken& color_interpolation)
     {
         godot::Ref<godot::ArrayMesh> mesh;
@@ -354,8 +366,11 @@ namespace converter
                 // if the current Mesh prim authored a display color as a constant value, pass this into the
                 // default material as base albedo color.
                 if (!display_colors.empty() && color_interpolation == pxr::UsdGeomTokens->constant)
-                    standard_material->set_albedo(TypeConverter::toColor(display_colors[0])); 
-                else
+                {
+                    godot::Color albedo = TypeConverter::toColor(display_colors[0]);
+                    standard_material->set_albedo(albedo);
+                    if (albedo.a < 1.0f) standard_material->set_transparency(godot::BaseMaterial3D::TRANSPARENCY_ALPHA);
+                } else
                     standard_material->set_flag(godot::BaseMaterial3D::FLAG_ALBEDO_FROM_VERTEX_COLOR, true);
             }
             

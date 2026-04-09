@@ -1,0 +1,31 @@
+IDTX Flow - Version 0.1.1 - April 7, 2026
+
+Dependency: toml++
+Version: v3.4.0
+License: MIT
+Homepage: https://github.com/marzer/tomlplusplus
+Description: Header-only TOML config file parser and serializer for C++ 17.
+
+Dependency: godot-cpp
+Version: godot-4.5-stable
+License: MIT
+Homepage: https://github.com/godotengine/godot-cpp
+Description: C++ bindings for Godot Engine's GDExtensions API for developing GDExtensions targeting Godot 4.x.
+
+Dependency: IXWebSocket
+Version: v11.4.6
+License: BSD-3-Clause
+Homepage: https://github.com/machinezone/IXWebSocket
+Description: C++ library for WebSocket client/server development with minimal dependencies. Supports SSL, deflate compression, and multiple platforms.
+
+Dependency: MDL SDK
+Version: 2025.0.0-387700.1252
+License: BSD-3-Clause
+Homepage: https://github.com/NVIDIA/MDL-SDK
+Description: NVIDIA Material Definition Language SDK - Open source tools for integrating physically-based materials into rendering applications. See thirdparty/mdl_sdk/LICENSE_THIRDPARTY.md for 40+ sub-dependencies.
+
+Dependency: OpenUSD
+Version: v25.11
+License: Tomorrow Open Source Technology License 1.0 (Apache-2.0 variant)
+Homepage: https://github.com/PixarAnimationStudios/OpenUSD
+Description: Pixar Universal Scene Description - Efficient, scalable system for authoring, reading, and streaming scene descriptions for 3D applications.

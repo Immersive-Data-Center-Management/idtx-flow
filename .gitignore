@@ -4,6 +4,8 @@
 /venv
 .sconsign.dblite
 /addon/*/**/bin
+/addon/IDTXFlow/LICENSES-THIRD-PARTY
+/addon/IDTXFlow/THIRDPARTY.txt
 */**/__pycache__
 /source/gen
 /templates/extension_template/thirdparty

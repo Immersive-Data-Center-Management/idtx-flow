@@ -3,6 +3,7 @@
 #include <string>
 
 #include <godot_cpp/classes/project_settings.hpp>
+#include <godot_cpp/classes/file_access.hpp>
 
 #include <pxr/base/tf/pathUtils.h>
 #include <pxr/base/tf/stringUtils.h>
@@ -22,6 +23,30 @@ using namespace godot;
 using namespace pxr;
 
 AR_DEFINE_RESOLVER(UsdGodotAssetResolver, ArResolver);
+
+#ifdef __ANDROID__
+class GodotBufferedAsset : public ArAsset {
+    std::shared_ptr<const char> _buffer;
+    size_t _size;
+public:
+    GodotBufferedAsset(std::shared_ptr<const char> buffer, size_t size)
+        : _buffer(std::move(buffer)), _size(size) {}
+    
+    size_t GetSize() const override { return _size; }
+    
+    std::shared_ptr<const char> GetBuffer() const override { return _buffer; }
+    
+    size_t Read(void* buffer, size_t count, size_t offset) const override {
+        size_t bytesToRead = std::min(count, _size - std::min(offset, _size));
+        memcpy(buffer, _buffer.get() + offset, bytesToRead);
+        return bytesToRead;
+    }
+    
+    std::pair<FILE*, size_t> GetFileUnsafe() const override {
+        return {nullptr, 0}; // Not backed by a FILE*
+    }
+};
+#endif
 
 std::string UsdGodotAssetResolver::_GetExtension(const std::string& path) const
 {
@@ -99,15 +124,43 @@ std::shared_ptr<ArAsset> UsdGodotAssetResolver::_OpenAsset(const ArResolvedPath&
     // we retrieve the resolved path of the asset to open the same
     // this is essentially a "res://path/to/file.usd". So calculate a real local path openUSD is capable of finding
     // and open the file from there
+    const std::string assetPath = resolvedPath.GetPathString();
+        
+    print_error("TEST:" + String("open stage at: ") + assetPath.c_str());
 
-    if (ProjectSettings *project_settings = ProjectSettings::get_singleton())
+    // path resolution for user:// and res:// need to be treated differently, especialy on android
+    // as assets accessed with "res://" are usually packed inside the APK binary and could not be accessed with openUSD
+    // default file access
+#ifdef __ANDROID__
+    if (TfStringStartsWith(assetPath, GodotResolverTokens->userScheme.GetString() + "://"))
     {
-        // Convert the res:// path to an absolute path
-        String absolute_path = project_settings->globalize_path(resolvedPath.GetPathString().c_str());
-
-        return ArFilesystemAsset::Open(ArResolvedPath(absolute_path.utf8().get_data()));
+#endif
+        if (ProjectSettings *project_settings = ProjectSettings::get_singleton())
+        {
+            // Convert the user:// path to an absolute path
+            String absolute_path = project_settings->globalize_path(resolvedPath.GetPathString().c_str());
+            return ArFilesystemAsset::Open(ArResolvedPath(absolute_path.utf8().get_data()));
+        }
+        
+        return nullptr;
+#ifdef __ANDROID__        
+    }
+    // special handling for android if the file is located in the package (res:// case)
+    // Godot's FileAccess abstraction is able to read the file contents even when inside a APK/PCK
+    Ref<FileAccess> file = FileAccess::open(String(assetPath.c_str()), FileAccess::READ);
+    if (!file.is_valid())
+    {
+        print_error("TEST: Unable to open file: " + String(assetPath.c_str()));
+        return nullptr;
     }
     
+    size_t size = file->get_length();
+    std::shared_ptr<char> buffer(new char[size], std::default_delete<char[]>());
+    PackedByteArray data = file->get_buffer(size);
+    memcpy(buffer.get(), data.ptr(), size);
+    print_error("TEST: Stage opened and contents passed to BufferedAsset");
+    return std::make_shared<GodotBufferedAsset>(std::move(buffer), size);
+#endif
     return nullptr;
 }
 
@@ -115,6 +168,13 @@ std::shared_ptr<ArWritableAsset> UsdGodotAssetResolver::_OpenAssetForWrite(
     const ArResolvedPath& resolvedPath,
     WriteMode writeMode) const
 {
+    const std::string assetPath = resolvedPath.GetPathString();
+    if (TfStringStartsWith(assetPath, GodotResolverTokens->resScheme.GetString() + "://"))
+    {
+        // res:// asset path is usually packed with the application and should not be writeable at all
+        return nullptr;
+    }
+    
     // we retrieve the resolved path of the asset to open the same
     // this is essentially a "res://path/to/file.usd". So calculate a real local path openUSD is capable of finding
     // and open the file for write there
