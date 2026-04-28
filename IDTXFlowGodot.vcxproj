@@ -87,6 +87,7 @@
     <ClInclude Include="shared\include\idtxflow\converter\IPrimConverter.h" />
     <ClInclude Include="shared\include\idtxflow\converter\MdlMaterialConverter.h" />
     <ClInclude Include="shared\include\idtxflow\converter\PrimConverterRegistry.h" />
+    <ClInclude Include="shared\include\idtxflow\exec\ExecBridgeManager.h" />
     <ClInclude Include="shared\include\idtxflow\resolver\detail\Sha256.h" />
     <ClInclude Include="shared\include\idtxflow\resolver\HttpAssetCache.h" />
     <ClInclude Include="shared\include\idtxflow\resolver\HttpResolver.h" />
@@ -165,10 +166,14 @@
     <Content Include="templates\extension_template\scons\gdextension.py" />    
     <Content Include="templates\extension_template\scons\godotcpp.py" />    
     <Content Include="usd\generated\plugInfo.json" />    
-    <Content Include="usd\plugin\godot\resources\plugInfo.json" />
-    <Content Include="usd\plugin\idtx\resources\generatedSchema.usda" />
+    <Content Include="usd\plugin\godot\resources\plugInfo.json" />    
+    <Content Include="usd\plugin\idtx\resources\generatedSchema.usda" />    
     <Content Include="usd\plugin\idtx\resources\plugInfo.json" />
     <Content Include="usd\source\schema.usda" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="source\exec\" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

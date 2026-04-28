@@ -49,6 +49,7 @@
 #include "AnimationConverter.h"
 #include "PrimConverterRegistry.h"
 #include "SkeletonConverter.h"
+#include "idtxflow/exec/ExecBridgeManager.h"
 
 namespace idtxflow
 {
@@ -203,6 +204,19 @@ namespace converter
                         // if not available choose the root as parent
                         convertedParent = rootEntity;
                     }
+                    
+                    // with the converted prim in place we check if any of the prims attributes has authored a connection
+                    // and if so, we register it for the computation bridge, assuming the connection is a hint, that this
+                    // is a computed attribute
+                    for (const pxr::UsdAttribute& attribute : usdPrim.GetAttributes())
+                    {
+                        if (attribute.HasAuthoredConnections())
+                        {
+                            exec::ExecBridge& bridge = exec::ExecBridgeManager::Instance().GetExecBridge(stage);
+                            bridge.RegisterAttributeWithConnection(attribute);
+                        }
+                    }
+                    
                     
                     // this method shall be specialized for each GameEngine if individual post processing is required
                     // this includes maintaining the parent-child relationship of converted nodes
