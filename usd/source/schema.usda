@@ -14,29 +14,15 @@ over "GLOBAL" (
 {
 }
 
-class StaticDataWidget "StaticDataWidget" (  
-    doc = "Fixed value display metadata for Data visualization dialogs"
-    inherits = </Typed> 
-)
-{
-    string labelName = "UNNAMED_LABEL" (
-        doc = "Display label/title"
-    )
-    
-    string fixedValue = "UNDEFINED_VALUE" (
-        doc = "Fixed string value to display (e.g., '100/150')"
-    )
-    
-    color4f colorMod = (1.0, 1.0, 1.0, 1.0) (
-        doc = "Color modification (RGBA), white=neutral with full opacity by default"
-    )
-}
-
 class "CollisionAPI" (
 	doc = "Collision-related metadata attachable to geometry prims"
     inherits = </APISchemaBase>
     customData = {
         string apiSchemaType = "singleApply"
+        token[] apiSchemaCanOnlyApplyTo = ["Cube", 
+										   "Sphere", 
+										   "Cylinder",
+										   "Capsule"]
     }
 )
 {
@@ -64,7 +50,7 @@ class "CollisionAPI" (
 }
 
 class "InteractionAPI" (
-	doc = "Interaction-related metadata attachable to prims"
+	doc = "Interaction-related metadata attachable to prims."
     inherits = </APISchemaBase>
     customData = {
         string apiSchemaType = "singleApply"
@@ -73,12 +59,20 @@ class "InteractionAPI" (
 {
 	token[] interaction:interactionTypes = ["Select"] (
 		allowedTokens = ["Select", "Grab"]
-		doc = "How interaction colliders participate in interaction"
+		doc = "How interaction colliders participate in interaction."
 	)
 	
-	bool interaction:enabled = true
-	bool interaction:highlightable = true
-	color3f interaction:highlightColor = (1.0, 0.0, 0.0)
+	bool interaction:enabled = true (
+		doc = "Define if colliders participate in interaction."
+	)
+	
+	bool interaction:highlightable = true (
+		doc = "Define if the asset shall display a highlight effect when selected. Actual implementation needs to be done on the engine side."
+	)
+	
+	color3f interaction:highlightColor = (1.0, 0.0, 0.0) (
+		doc = "Color for the highlight effect."
+	)
 	
 	uniform token interaction:identifier = "NO_VALUE" (
 		doc = "Used to link the asset to a specific interaction behavior in the engine. E.g. passing to the implemented interaction handler methods."
@@ -99,7 +93,7 @@ class "CollisionSetAPI" (
 		)
     
     rel physics:collider:querry (
-		doc = "If the collider used for interaction raycasting is different from the one used for physics simulation, we can define a separate relationship for it."
+		doc = "If the collider used for interaction raycasting is different from the ones used for physics simulation, this should be authored here. Entries in this list overrule the entries in the physics:collider list for interaction queries."
 	)
 	
 }

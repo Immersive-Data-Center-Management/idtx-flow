@@ -35,7 +35,7 @@ class SdfAssetPath;
 
 /// \class IDTXInteractionAPI
 ///
-/// Interaction-related metadata attachable to prims
+/// Interaction-related metadata attachable to prims.
 ///
 /// For any described attribute \em Fallback \em Value or \em Allowed \em Values below
 /// that are text/tokens, the actual token is published and defined in \ref IDTXTokens.
@@ -154,7 +154,7 @@ public:
     // --------------------------------------------------------------------- //
     // INTERACTIONINTERACTIONTYPES 
     // --------------------------------------------------------------------- //
-    /// How interaction colliders participate in interaction
+    /// How interaction colliders participate in interaction.
     ///
     /// | ||
     /// | -- | -- |
@@ -177,7 +177,7 @@ public:
     // --------------------------------------------------------------------- //
     // INTERACTIONENABLED 
     // --------------------------------------------------------------------- //
-    /// 
+    /// Define if colliders participate in interaction.
     ///
     /// | ||
     /// | -- | -- |
@@ -199,7 +199,7 @@ public:
     // --------------------------------------------------------------------- //
     // INTERACTIONHIGHLIGHTABLE 
     // --------------------------------------------------------------------- //
-    /// 
+    /// Define if the asset shall display a highlight effect when selected. Actual implementation needs to be done on the engine side.
     ///
     /// | ||
     /// | -- | -- |
@@ -221,7 +221,7 @@ public:
     // --------------------------------------------------------------------- //
     // INTERACTIONHIGHLIGHTCOLOR 
     // --------------------------------------------------------------------- //
-    /// 
+    /// Color for the highlight effect.
     ///
     /// | ||
     /// | -- | -- |

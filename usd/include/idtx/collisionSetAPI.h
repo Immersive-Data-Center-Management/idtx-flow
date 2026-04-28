@@ -163,7 +163,7 @@ public:
     // --------------------------------------------------------------------- //
     // PHYSICSCOLLIDERQUERRY 
     // --------------------------------------------------------------------- //
-    /// If the collider used for interaction raycasting is different from the one used for physics simulation, we can define a separate relationship for it.
+    /// If the collider used for interaction raycasting is different from the ones used for physics simulation, this should be authored here. Entries in this list overrule the entries in the physics:collider list for interaction queries.
     ///
     IDTX_API
     UsdRelationship GetPhysicsColliderQuerryRel() const;

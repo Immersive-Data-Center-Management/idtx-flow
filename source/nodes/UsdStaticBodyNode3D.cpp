@@ -1,4 +1,4 @@
-#include "UsdCollisionNode3D.h"
+#include "UsdStaticBodyNode3D.h"
 
 #include "pxr/pxr.h"
 
@@ -18,20 +18,20 @@
 using namespace godot;
 
 // Mappings
-static const std::unordered_map<std::string, UsdCollisionNode3D::CollisionRole> kInteractionTypeMap = {
-    {"Collide",    UsdCollisionNode3D::CollisionRole::ROLE_COLLIDE},
-    {"Select",    UsdCollisionNode3D::CollisionRole::ROLE_SELECT},
+static const std::unordered_map<std::string, UsdStaticBodyNode3D::CollisionRole> kInteractionTypeMap = {
+    {"Collide",    UsdStaticBodyNode3D::CollisionRole::ROLE_COLLIDE},
+    {"Select",    UsdStaticBodyNode3D::CollisionRole::ROLE_SELECT},
 };
 
-static const std::unordered_map<std::string, UsdCollisionNode3D::ShapeType> kShapeTypeMap = {
-    {"Cube", UsdCollisionNode3D::ShapeType::SHAPE_CUBE},
-    {"Sphere", UsdCollisionNode3D::ShapeType::SHAPE_SPHERE},
-    {"Capsule", UsdCollisionNode3D::ShapeType::SHAPE_CAPSULE},
-    {"Cylinder", UsdCollisionNode3D::ShapeType::SHAPE_CYLINDER},
+static const std::unordered_map<std::string, UsdStaticBodyNode3D::ShapeType> kShapeTypeMap = {
+    {"Cube", UsdStaticBodyNode3D::ShapeType::SHAPE_CUBE},
+    {"Sphere", UsdStaticBodyNode3D::ShapeType::SHAPE_SPHERE},
+    {"Capsule", UsdStaticBodyNode3D::ShapeType::SHAPE_CAPSULE},
+    {"Cylinder", UsdStaticBodyNode3D::ShapeType::SHAPE_CYLINDER},
 };
 
 // Wrapper shape for inspector display
-void UsdCollisionNode3D::set_collision_shape_int(const int shape) {
+void UsdStaticBodyNode3D::set_collision_shape_int(const int shape) {
     switch (shape) {
         case 0: set_collision_shape("Cube"); break;
         case 1: set_collision_shape("Sphere"); break;
@@ -41,12 +41,12 @@ void UsdCollisionNode3D::set_collision_shape_int(const int shape) {
 }
 
 // Wrapper type for inspector display
-int UsdCollisionNode3D::get_collision_shape_int() const {
+int UsdStaticBodyNode3D::get_collision_shape_int() const {
     return collision_shape_;
 }
 
 
-void UsdCollisionNode3D::_enter_tree()
+void UsdStaticBodyNode3D::_enter_tree()
 {
     Node3D::_enter_tree();
     
@@ -54,7 +54,7 @@ void UsdCollisionNode3D::_enter_tree()
     create_collision_static(transform_data_);
 }
 
-void UsdCollisionNode3D::set_collision_type(const godot::PackedStringArray& type)
+void UsdStaticBodyNode3D::set_collision_type(const godot::PackedStringArray& type)
 {
     for (const godot::String& entry : type)
     {
@@ -70,7 +70,7 @@ void UsdCollisionNode3D::set_collision_type(const godot::PackedStringArray& type
     }
 }
 
-void UsdCollisionNode3D::set_collision_shape(const std::string& shape)
+void UsdStaticBodyNode3D::set_collision_shape(const std::string& shape)
 {
     if (auto it = kShapeTypeMap.find(shape); it != kShapeTypeMap.end())
     {
@@ -82,7 +82,7 @@ void UsdCollisionNode3D::set_collision_shape(const std::string& shape)
     }
 }
 
-Ref<Shape3D> UsdCollisionNode3D::create_collision_shape(const ShapeType& shape) const
+Ref<Shape3D> UsdStaticBodyNode3D::create_collision_shape(const ShapeType& shape) const
 {
     Vector3 scale = transform_data_.basis.get_scale_abs();
 
@@ -135,7 +135,7 @@ Ref<Shape3D> UsdCollisionNode3D::create_collision_shape(const ShapeType& shape) 
     }
 }
 
-void UsdCollisionNode3D::apply_collision_type(const int& type)
+void UsdStaticBodyNode3D::apply_collision_type(const int& type)
 {
     // clear collision mask
     set_collision_mask(0);
@@ -156,7 +156,7 @@ void UsdCollisionNode3D::apply_collision_type(const int& type)
     set_collision_layer(collision_interaction_type);
 }
 
-void UsdCollisionNode3D::create_collision_static(const godot::Transform3D& trans)
+void UsdStaticBodyNode3D::create_collision_static(const godot::Transform3D& trans)
 {
     set_transform(trans);
     set_scale(
@@ -192,14 +192,14 @@ void UsdCollisionNode3D::create_collision_static(const godot::Transform3D& trans
     }
 }
 
-void UsdCollisionNode3D::_bind_methods()
+void UsdStaticBodyNode3D::_bind_methods()
 {
     // bind methods from the inherited interface here
-    IUSDNODE_IMPLEMENT_BINDINGS(UsdCollisionNode3D)
+    IUSDNODE_IMPLEMENT_BINDINGS(UsdStaticBodyNode3D)
     
     // Bind the transform 
-    ClassDB::bind_method(D_METHOD("set_transformData", "trans"), &UsdCollisionNode3D::set_transformData);
-    ClassDB::bind_method(D_METHOD("get_transformData"), &UsdCollisionNode3D::get_transformData);
+    ClassDB::bind_method(D_METHOD("set_transformData", "trans"), &UsdStaticBodyNode3D::set_transformData);
+    ClassDB::bind_method(D_METHOD("get_transformData"), &UsdStaticBodyNode3D::get_transformData);
     ADD_PROPERTY(
         PropertyInfo(Variant::TRANSFORM3D, "transform_data_",
             PROPERTY_HINT_NONE, "" ,
@@ -207,38 +207,38 @@ void UsdCollisionNode3D::_bind_methods()
         "set_transformData", "get_transformData");
     
     // Bind enums via wrapper 
-    ClassDB::bind_method(D_METHOD("_set_collision_shape_int", "shape"), &UsdCollisionNode3D::set_collision_shape_int);
-    ClassDB::bind_method(D_METHOD("_get_collision_shape_int"), &UsdCollisionNode3D::get_collision_shape_int);
+    ClassDB::bind_method(D_METHOD("_set_collision_shape_int", "shape"), &UsdStaticBodyNode3D::set_collision_shape_int);
+    ClassDB::bind_method(D_METHOD("_get_collision_shape_int"), &UsdStaticBodyNode3D::get_collision_shape_int);
     ADD_PROPERTY(
         PropertyInfo(Variant::INT,"collision_shape_",
             PROPERTY_HINT_ENUM,"Box,Sphere,Capsule,Cylinder"),
         "_set_collision_shape_int", "_get_collision_shape_int");
     
-    ClassDB::bind_method(D_METHOD("set_collision_type", "type"), &UsdCollisionNode3D::set_collision_type);
-    ClassDB::bind_method(D_METHOD("get_collision_type"), &UsdCollisionNode3D::get_collision_type);
+    ClassDB::bind_method(D_METHOD("set_collision_type", "type"), &UsdStaticBodyNode3D::set_collision_type);
+    ClassDB::bind_method(D_METHOD("get_collision_type"), &UsdStaticBodyNode3D::get_collision_type);
     ADD_PROPERTY(
         PropertyInfo(Variant::INT, "collision_interaction_type",
             PROPERTY_HINT_FLAGS, "Collide,Select"),
             "set_collision_type", "get_collision_type");
     
-    ClassDB::bind_method(D_METHOD("set_axis", "axis"), &UsdCollisionNode3D::set_axis);
-    ClassDB::bind_method(D_METHOD("get_axis"), &UsdCollisionNode3D::get_axis);
+    ClassDB::bind_method(D_METHOD("set_axis", "axis"), &UsdStaticBodyNode3D::set_axis);
+    ClassDB::bind_method(D_METHOD("get_axis"), &UsdStaticBodyNode3D::get_axis);
     ADD_PROPERTY(
         PropertyInfo(Variant::VECTOR3, "axis",
             PROPERTY_HINT_NONE, "",
             PROPERTY_USAGE_READ_ONLY | PROPERTY_USAGE_DEFAULT ),
             "set_axis", "get_axis");
     
-    ClassDB::bind_method(D_METHOD("set_height", "height"), &UsdCollisionNode3D::set_height);
-    ClassDB::bind_method(D_METHOD("get_height"), &UsdCollisionNode3D::get_height);
+    ClassDB::bind_method(D_METHOD("set_height", "height"), &UsdStaticBodyNode3D::set_height);
+    ClassDB::bind_method(D_METHOD("get_height"), &UsdStaticBodyNode3D::get_height);
     ADD_PROPERTY(
         PropertyInfo(Variant::FLOAT, "height",
             PROPERTY_HINT_NONE, "",
             PROPERTY_USAGE_READ_ONLY| PROPERTY_USAGE_DEFAULT ),
             "set_height", "get_height");
     
-    ClassDB::bind_method(D_METHOD("set_radius", "radius"), &UsdCollisionNode3D::set_radius);
-    ClassDB::bind_method(D_METHOD("get_radius"), &UsdCollisionNode3D::get_radius);    
+    ClassDB::bind_method(D_METHOD("set_radius", "radius"), &UsdStaticBodyNode3D::set_radius);
+    ClassDB::bind_method(D_METHOD("get_radius"), &UsdStaticBodyNode3D::get_radius);    
     ADD_PROPERTY(
         PropertyInfo(Variant::FLOAT, "radius",
             PROPERTY_HINT_NONE, "",

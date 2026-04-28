@@ -21,10 +21,8 @@ void wrapIDTXTokens()
     _ADD_TOKEN(cls, Capsule);
     _ADD_TOKEN(cls, collisionShape);
     _ADD_TOKEN(cls, collisionType);
-    _ADD_TOKEN(cls, colorMod);
     _ADD_TOKEN(cls, Convex);
     _ADD_TOKEN(cls, Cylinder);
-    _ADD_TOKEN(cls, fixedValue);
     _ADD_TOKEN(cls, Grab);
     _ADD_TOKEN(cls, guide);
     _ADD_TOKEN(cls, interactionEnabled);
@@ -33,7 +31,6 @@ void wrapIDTXTokens()
     _ADD_TOKEN(cls, interactionIdentifier);
     _ADD_TOKEN(cls, interactionInteractionTypes);
     _ADD_TOKEN(cls, invisible);
-    _ADD_TOKEN(cls, labelName);
     _ADD_TOKEN(cls, NO_VALUE);
     _ADD_TOKEN(cls, physicsCollider);
     _ADD_TOKEN(cls, physicsColliderQuerry);
@@ -46,5 +43,4 @@ void wrapIDTXTokens()
     _ADD_TOKEN(cls, CollisionAPI);
     _ADD_TOKEN(cls, CollisionSetAPI);
     _ADD_TOKEN(cls, InteractionAPI);
-    _ADD_TOKEN(cls, StaticDataWidget);
 }

@@ -16,11 +16,11 @@ namespace godot{
     class CollisionObject3D;
 }
 
-class UsdCollisionNode3D: public godot::StaticBody3D, public IUsdNode3D
+class UsdStaticBodyNode3D: public godot::StaticBody3D, public IUsdNode3D
 {
-    IDTX_LOG_CATEGORY("UsdCollisionNode3D")
-    GDCLASS(UsdCollisionNode3D, StaticBody3D)
-    IUSDNODE(UsdCollisionNode3D)
+    IDTX_LOG_CATEGORY("UsdStaticBodyNode3D")
+    GDCLASS(UsdStaticBodyNode3D, StaticBody3D)
+    IUSDNODE(UsdStaticBodyNode3D)
     
 public:
     

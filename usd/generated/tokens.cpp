@@ -13,10 +13,8 @@ IDTXTokensType::IDTXTokensType() :
     Capsule("Capsule", TfToken::Immortal),
     collisionShape("collision:shape", TfToken::Immortal),
     collisionType("collision:type", TfToken::Immortal),
-    colorMod("colorMod", TfToken::Immortal),
     Convex("Convex", TfToken::Immortal),
     Cylinder("Cylinder", TfToken::Immortal),
-    fixedValue("fixedValue", TfToken::Immortal),
     Grab("Grab", TfToken::Immortal),
     guide("guide", TfToken::Immortal),
     interactionEnabled("interaction:enabled", TfToken::Immortal),
@@ -25,7 +23,6 @@ IDTXTokensType::IDTXTokensType() :
     interactionIdentifier("interaction:identifier", TfToken::Immortal),
     interactionInteractionTypes("interaction:interactionTypes", TfToken::Immortal),
     invisible("invisible", TfToken::Immortal),
-    labelName("labelName", TfToken::Immortal),
     NO_VALUE("NO_VALUE", TfToken::Immortal),
     physicsCollider("physics:collider", TfToken::Immortal),
     physicsColliderQuerry("physics:collider:querry", TfToken::Immortal),
@@ -38,16 +35,13 @@ IDTXTokensType::IDTXTokensType() :
     CollisionAPI("CollisionAPI", TfToken::Immortal),
     CollisionSetAPI("CollisionSetAPI", TfToken::Immortal),
     InteractionAPI("InteractionAPI", TfToken::Immortal),
-    StaticDataWidget("StaticDataWidget", TfToken::Immortal),
     allTokens({
         Box,
         Capsule,
         collisionShape,
         collisionType,
-        colorMod,
         Convex,
         Cylinder,
-        fixedValue,
         Grab,
         guide,
         interactionEnabled,
@@ -56,7 +50,6 @@ IDTXTokensType::IDTXTokensType() :
         interactionIdentifier,
         interactionInteractionTypes,
         invisible,
-        labelName,
         NO_VALUE,
         physicsCollider,
         physicsColliderQuerry,
@@ -68,8 +61,7 @@ IDTXTokensType::IDTXTokensType() :
         visibility,
         CollisionAPI,
         CollisionSetAPI,
-        InteractionAPI,
-        StaticDataWidget
+        InteractionAPI
     })
 {
 }

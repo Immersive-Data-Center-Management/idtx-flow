@@ -19,7 +19,7 @@
 
 #include <idtxflow_godot/types/GodotTypes.h>
 
-#include "nodes/UsdCollisionNode3D.h"
+#include "nodes/UsdStaticBodyNode3D.h"
 #include "nodes/UsdMeshInstanceNode3D.h"
 #include "nodes/UsdXFormNode3D.h"
 #include "nodes/UsdMultiMeshInstanceNode3D.h"
@@ -115,9 +115,7 @@ namespace helper
 }
 
 namespace converter
-{
-    IDTX_LOG_CATEGORY("GodotStageConverter")
-    
+{    
     template<>
     inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertXform(
         const godot::Transform3D& transform,
@@ -362,7 +360,7 @@ namespace converter
         const double height,
         const double radius)
     {
-        UsdCollisionNode3D* collisionNode = memnew(UsdCollisionNode3D);
+        UsdStaticBodyNode3D* collisionNode = memnew(UsdStaticBodyNode3D);
         
         collisionNode->set_transformData(transform);
         collisionNode->set_collision_shape(shape.GetString().c_str());  // Set shape

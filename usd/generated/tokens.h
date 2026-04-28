@@ -61,10 +61,6 @@ struct IDTXTokensType {
     /// 
     /// IDTXCollisionAPI
     const TfToken collisionType;
-    /// \brief "colorMod"
-    /// 
-    /// IDTXStaticDataWidget
-    const TfToken colorMod;
     /// \brief "Convex"
     /// 
     /// Possible value for IDTXCollisionAPI::GetCollisionShapeAttr()
@@ -73,10 +69,6 @@ struct IDTXTokensType {
     /// 
     /// Possible value for IDTXCollisionAPI::GetCollisionShapeAttr()
     const TfToken Cylinder;
-    /// \brief "fixedValue"
-    /// 
-    /// IDTXStaticDataWidget
-    const TfToken fixedValue;
     /// \brief "Grab"
     /// 
     /// Possible value for IDTXInteractionAPI::GetInteractionInteractionTypesAttr()
@@ -109,10 +101,6 @@ struct IDTXTokensType {
     /// 
     /// Fallback value for IDTXCollisionAPI schema attribute visibility
     const TfToken invisible;
-    /// \brief "labelName"
-    /// 
-    /// IDTXStaticDataWidget
-    const TfToken labelName;
     /// \brief "NO_VALUE"
     /// 
     /// Fallback value for IDTXInteractionAPI::GetInteractionIdentifierAttr()
@@ -161,10 +149,6 @@ struct IDTXTokensType {
     /// 
     /// Schema identifer and family for IDTXInteractionAPI
     const TfToken InteractionAPI;
-    /// \brief "StaticDataWidget"
-    /// 
-    /// Schema identifer and family for IDTXStaticDataWidget
-    const TfToken StaticDataWidget;
     /// A vector of all of the tokens listed above.
     const std::vector<TfToken> allTokens;
 };
