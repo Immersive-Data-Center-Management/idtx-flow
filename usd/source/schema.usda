@@ -1,0 +1,106 @@
+#usda 1.0
+(
+    subLayers = [
+        @usdGeom/schema.usda@
+    ]
+)
+
+over "GLOBAL" (
+    customData = {
+        string libraryName       = "IDTX"
+        string libraryPath       = "."
+    }
+)
+{
+}
+
+class StaticDataWidget "StaticDataWidget" (  
+    doc = "Fixed value display metadata for Data visualization dialogs"
+    inherits = </Typed> 
+)
+{
+    string labelName = "UNNAMED_LABEL" (
+        doc = "Display label/title"
+    )
+    
+    string fixedValue = "UNDEFINED_VALUE" (
+        doc = "Fixed string value to display (e.g., '100/150')"
+    )
+    
+    color4f colorMod = (1.0, 1.0, 1.0, 1.0) (
+        doc = "Color modification (RGBA), white=neutral with full opacity by default"
+    )
+}
+
+class "CollisionAPI" (
+	doc = "Collision-related metadata attachable to geometry prims"
+    inherits = </APISchemaBase>
+    customData = {
+        string apiSchemaType = "singleApply"
+    }
+)
+{
+	token collision:shape = "Box" (
+		allowedTokens = ["Box", "Sphere", "Capsule", "Cylinder", "Convex"]
+		doc = "Collision shape override"
+	)
+	
+	token collision:type = "Static" (
+		allowedTokens = ["Static", "Rigidbody"]
+		doc = "Collision behavior type"
+	)
+	
+	token purpose = "guide" (
+		customData = {
+                bool apiSchemaOverride = true
+            }
+	)
+	
+	token visibility = "invisible" (
+		customData = {
+                bool apiSchemaOverride = true
+            }
+	)	
+}
+
+class "InteractionAPI" (
+	doc = "Interaction-related metadata attachable to prims"
+    inherits = </APISchemaBase>
+    customData = {
+        string apiSchemaType = "singleApply"
+    }
+)
+{
+	token[] interaction:interactionTypes = ["Select"] (
+		allowedTokens = ["Select", "Grab"]
+		doc = "How interaction colliders participate in interaction"
+	)
+	
+	bool interaction:enabled = true
+	bool interaction:highlightable = true
+	color3f interaction:highlightColor = (1.0, 0.0, 0.0)
+	
+	uniform token interaction:identifier = "NO_VALUE" (
+		doc = "Used to link the asset to a specific interaction behavior in the engine. E.g. passing to the implemented interaction handler methods."
+	)
+	
+}
+
+class "CollisionSetAPI" (
+	doc = "The collision set contains a list of relationships to the actual colliders."
+    inherits = </APISchemaBase>
+    customData = {
+        string apiSchemaType = "singleApply"
+    }
+)
+{
+	rel physics:collider (
+		doc = "Define which prims are used as colliders."
+		)
+    
+    rel physics:collider:querry (
+		doc = "If the collider used for interaction raycasting is different from the one used for physics simulation, we can define a separate relationship for it."
+	)
+	
+}
+
