@@ -421,6 +421,31 @@ namespace converter
                 ConvertMaterial(usdMaterial);
                 // a material conversion does not create an entity but adds the converted material to the ResourceCache
                 convertedEntity = nullptr;
+            } else if (usdPrim.IsA<pxr::UsdGeomXform>() && usdPrim.HasAPI(pxr::TfToken("InteractionAPI")))
+            {
+                // Convert a collision root prim that holds additional information
+                pxr::UsdAttribute collision_enabled = usdPrim.GetAttribute(pxr::TfToken("interaction:enabled"));
+                pxr::UsdAttribute highlight_enabled = usdPrim.GetAttribute(pxr::TfToken("interaction:highlightable"));
+                pxr::UsdAttribute identifier_attribute = usdPrim.GetAttribute(pxr::TfToken("interaction:identifier"));
+                pxr::UsdAttribute color_attribute = usdPrim.GetAttribute(pxr::TfToken("interaction:highlightColor"));
+                
+                bool enabled;
+                bool highlightable;
+                pxr::TfToken identifier;
+                pxr::GfVec3f color;
+                
+                collision_enabled.Get(&enabled);
+                highlight_enabled.Get(&highlightable);
+                identifier_attribute.Get(&identifier);
+                color_attribute.Get(&color);
+                
+                pxr::UsdGeomXform usdXform(usdPrim);
+                pxr::GfMatrix4d matrix;
+                bool resets;
+                if (!usdXform.GetLocalTransformation(&matrix, &resets)) matrix.SetIdentity();
+                
+                convertedEntity = ConvertCollisionRoot(TypeConverter::toTransform(matrix), color ,identifier.GetString(), enabled, highlightable);
+                
             } else if (usdPrim.IsA<pxr::UsdGeomXform>())
             {
                 // convert a simple transform prim that does only author transform info but no visual apperance
@@ -575,7 +600,45 @@ namespace converter
             UsdMeshConverter<TargetEngine> meshConverter;
             std::optional<typename Types::Material> material = ConvertMaterial(meshConverter.GetUsdMaterial(usdGprim));
             pxr::UsdPrim usdPrim = usdGprim.GetPrim();
-            if (usdPrim.IsA<pxr::UsdGeomCube>())
+            
+            // Handle colliders
+            if (usdPrim.HasAPI(pxr::TfToken("CollisionAPI")))
+            {
+                pxr::UsdGeomGprim usd_gprim(usdPrim);
+                class pxr::GfMatrix4d matrix;
+                bool resets;
+                if (!usd_gprim.GetLocalTransformation(&matrix, &resets)) matrix.SetIdentity();
+                
+                pxr::UsdAttribute typeAttribute = usdPrim.GetAttribute(pxr::TfToken("collision:interactionTypes"));
+                pxr::UsdAttribute axisAttribute = usdPrim.GetAttribute(pxr::TfToken("axis"));
+                pxr::UsdAttribute heightAttribute = usdPrim.GetAttribute(pxr::TfToken("height"));
+                pxr::UsdAttribute radiusAttribute = usdPrim.GetAttribute(pxr::TfToken("radius"));
+                    
+                pxr::TfToken shape = usdPrim.GetTypeName();
+                pxr::VtArray<pxr::TfToken> types;
+                pxr::TfToken axis;
+                double height;
+                double radius;
+                    
+                typeAttribute.Get(&types);
+                axisAttribute.Get(&axis);
+                radiusAttribute.Get(&radius);
+                heightAttribute.Get(&height);
+                
+                pxr::GfVec3f main_axis = pxr::GfVec3f(0,0,0);
+                if (!axis.IsEmpty())
+                {
+                    // Define main axis
+                    std::string s = axis.GetString().c_str();
+                    if (s == "X") { main_axis = pxr::GfVec3f::XAxis(); }
+                    else if (s == "Y") { main_axis = pxr::GfVec3f::YAxis(); }
+                    else if (s == "Z") { main_axis = pxr::GfVec3f::ZAxis(); }
+                }
+            
+                return ConvertCollision(TypeConverter::toTransform(matrix), shape, types, main_axis, height, radius);
+            }
+            // Convert to visual representation
+            else if (usdPrim.IsA<pxr::UsdGeomCube>())
             {
                 pxr::UsdGeomCube usdCube(usdPrim);
                 double cubeSize;
@@ -585,7 +648,6 @@ namespace converter
 
             } else if (usdPrim.IsA<pxr::UsdGeomCone>())
             {
-
                 pxr::UsdGeomCone usdCone(usdPrim);
                 class pxr::TfToken axis;
                 usdCone.GetAxisAttr().Get(&axis);
@@ -719,6 +781,38 @@ namespace converter
             const pxr::VtArray<class pxr::GfVec4f>& displayColors,
             const class pxr::TfToken& colorInterpolation);
 
+        /**
+         * Convert a collision prim 
+         * @param transform The transform of the collider
+         * @param highlightColor Color to display when the according collider is selected
+         * @param identifier Link specific interaction behavior in-engine
+         * @return 
+         */
+        typename Types::ConvertedEntity* ConvertCollisionRoot(
+            const typename Types::Transform& transform,
+            const pxr::GfVec3f highlightColor,
+            const std::string identifier,
+            const bool enabled,
+            const bool highlightable);
+        
+        /**
+         * Convert a collision prim 
+         * @param transform The transform of the collider
+         * @param shape The shape of the collider
+         * @param types The type of the collider (static, interaction, etc.). 
+         * @param axis The authored main axis
+         * @param height The shape height
+         * @param radius The shape radius
+         * @return 
+         */
+        typename Types::ConvertedEntity* ConvertCollision(
+            const typename Types::Transform& transform,
+            const pxr::TfToken shape, 
+            const pxr::VtArray<pxr::TfToken> types,
+            const pxr::GfVec3f axis,
+            const double height,
+            const double radius);
+        
         /**
          * Convert a Mesh
          * @param transform The transform of the mesh
