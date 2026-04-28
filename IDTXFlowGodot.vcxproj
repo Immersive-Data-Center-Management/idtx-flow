@@ -112,6 +112,8 @@
     <ClInclude Include="templates\extension_template\source\converters\ExamplePrimConverter.h" />
     <ClInclude Include="templates\extension_template\source\register_types.h" />
     <ClInclude Include="source\utils\IDTXFlowGodotLogger.h" />
+    <ClInclude Include="usd\generated\compute_ValueFromJson.h" />
+    <ClInclude Include="usd\generated\tokens.h" />
   </ItemGroup>
 
   <ItemGroup>
@@ -126,6 +128,8 @@
     <ClCompile Include="source\resolver\UsdGodotAssetResolver.cpp" />
     <ClCompile Include="source\resolver\UsdHttpAssetResolver.cpp" />
     <ClCompile Include="templates\extension_template\source\register_types.cpp" />
+    <ClCompile Include="usd\generated\compute_ValueFromJson.cpp" />
+    <ClCompile Include="usd\generated\valuefromjson_computation.cpp" />
   </ItemGroup>
 
   <ItemGroup>
@@ -151,6 +155,7 @@
     <Content Include="scons\godotcpp.py" />
     <Content Include="scons\idtxflow_ext.py" />
     <Content Include="scons\idtxflow_sdk.py" />
+    <Content Include="scons\openusdextension.py" />
     <Content Include="templates\extension_template\addon\MyIdtxflowExtension\my_idtxflow_extension.gdextension" />
     <Content Include="templates\extension_template\README.md" />
     <Content Include="templates\extension_template\SConstruct" />
@@ -159,7 +164,11 @@
     <Content Include="scons\openusd.py" />    
     <Content Include="templates\extension_template\scons\gdextension.py" />    
     <Content Include="templates\extension_template\scons\godotcpp.py" />    
+    <Content Include="usd\generated\plugInfo.json" />    
     <Content Include="usd\plugin\godot\resources\plugInfo.json" />
+    <Content Include="usd\plugin\idtx\resources\generatedSchema.usda" />
+    <Content Include="usd\plugin\idtx\resources\plugInfo.json" />
+    <Content Include="usd\source\schema.usda" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
