@@ -48,6 +48,7 @@ def _build_extension(env):
     mdl_sdk_path = "./thirdparty/mdl_sdk"
     ixws_path = "thirdparty/ixwebsocket"
     shared_include_path = "./shared/include"
+    usd_extension_path = "usd"
 
     platform_name = env["platform_name"]
     build_target = env["target"]
@@ -68,6 +69,7 @@ def _build_extension(env):
         f"{godot_cpp_path}/gen/include",
         f"{shared_include_path}",
         f"{ixws_path}",
+        f"{usd_extension_path}/include",
     ])
 
     # Library paths
@@ -76,6 +78,7 @@ def _build_extension(env):
         f"{godot_cpp_path}/bin",
         f"{mdl_sdk_path}/lib",
         f"{ixws_build_dir}/Release" if platform_name == "windows" else f"{ixws_build_dir}",
+        f"{usd_extension_path}/libs/{platform_name}",
     ])
 
     # OpenSSL library/include paths (platform-specific)
@@ -123,6 +126,7 @@ def _build_extension(env):
         "usd_ms", "tbb12" if platform_name == "windows" else "tbb.12",        
         f"libgodot-cpp.{platform_name}.{build_target}.{build_arch}",
         "ixwebsocket",
+        "libidtx_usd",  # USD extension library
     ]
 
     # OpenSSL static libs (all platforms)
@@ -237,6 +241,7 @@ def _get_libs_to_install(platform_name, openusd_version=""):
     print("Getting libs to install...")
     usd_root = f"./thirdparty/openusd-{openusd_version}"
     mdl_sdk_root = "./thirdparty/mdl_sdk"
+    usd_extension = "usd"
     if platform_name == "windows":
         libs_to_install = [
             f"{usd_root}/lib/usd_ms.dll",
@@ -245,7 +250,8 @@ def _get_libs_to_install(platform_name, openusd_version=""):
             f"{mdl_sdk_root}/bin/libmdl_sdk.dll",
             f"{mdl_sdk_root}/bin/dds.dll",
             f"{mdl_sdk_root}/bin/nv_openimageio.dll",
-            f"{mdl_sdk_root}/bin/mdl_distiller.dll"
+            f"{mdl_sdk_root}/bin/mdl_distiller.dll",
+            f"{usd_extension}/libs/{platform_name}/libidtx_usd.dll",
         ]
     elif platform_name == "macos":
         libs_to_install = [
@@ -255,7 +261,8 @@ def _get_libs_to_install(platform_name, openusd_version=""):
             f"{mdl_sdk_root}/lib/libmdl_sdk.so",
             f"{mdl_sdk_root}/lib/dds.so",
             f"{mdl_sdk_root}/lib/nv_openimageio.so",
-            f"{mdl_sdk_root}/lib/mdl_distiller.so"
+            f"{mdl_sdk_root}/lib/mdl_distiller.so",
+            f"{usd_extension}/libs/{platform_name}/libidtx_usd.dylib",
         ]
     else:
         libs_to_install = [
@@ -265,7 +272,8 @@ def _get_libs_to_install(platform_name, openusd_version=""):
             f"{mdl_sdk_root}/lib/libmdl_sdk.so",
             f"{mdl_sdk_root}/lib/dds.so",
             f"{mdl_sdk_root}/lib/nv_openimageio.so",
-            f"{mdl_sdk_root}/lib/mdl_distiller.so"
+            f"{mdl_sdk_root}/lib/mdl_distiller.so",
+            f"{usd_extension}/libs/{platform_name}/libidtx_usd.so",
         ]
 
     return libs_to_install
@@ -275,6 +283,7 @@ def _copy_usd_plugins(target, source, env):
     shutil.copytree(f"./thirdparty/openusd-{env.get('openusd_version', '')}/lib/usd", f"addon/IDTXFlow/bin/{env['platform_name']}/usd", dirs_exist_ok=True)
     shutil.copytree(f"./thirdparty/openusd-{env.get('openusd_version', '')}/plugin/usd", "addon/IDTXFlow/bin/plugin/usd", dirs_exist_ok=True)
     shutil.copytree("usd/plugin/godot", "addon/IDTXFlow/bin/plugin/usd/godot", dirs_exist_ok=True)
+    shutil.copytree("usd/plugin/idtx", "addon/IDTXFlow/bin/plugin/usd/idtx", dirs_exist_ok=True)
 
 def _copy_third_party_licenses(target, source, env):
     """Copy third-party LICENSE files to addon for distribution compliance."""
@@ -326,4 +335,3 @@ def _copy_third_party_licenses(target, source, env):
         for f in missing:
             print(f"  {f}")
         return 1
-

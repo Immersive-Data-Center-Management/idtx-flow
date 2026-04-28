@@ -11,7 +11,17 @@ openusd_version = "25.11"
 # configure the main environment to use the different tools to build all we need
 env = Environment(
     ENV=os.environ.copy(),
-    tools=["default", "mdlsdk", "godotcpp", "gdextension", "openusd", "ixwebsocket", "idtxflow_ext", "idtxflow_sdk"],
+    tools=[
+    	"default",
+    	"mdlsdk",
+    	"godotcpp",
+    	"gdextension",
+    	"openusd",
+    	"openusdextension",
+    	"ixwebsocket",
+    	"idtxflow_ext",
+    	"idtxflow_sdk"
+    ],
     toolpath=["scons"],
     MSVC_VERSION='14.3',
     PATH=os.environ.get("PATH", "")
@@ -45,6 +55,11 @@ env['openusd_version'] = openusd_version
 env.BuildIXWebSocket()
 # download and build openUSD from source without python support, as we don't need it and it will speed up the build process significantly
 env.BuildOpenUSD(with_python_support=False)
+env.BuildOpenUSD(with_python_support=True)  # with python support, to be able to generate the usd plugin code
+# generate the openUSD extension (plugin) code
+env.GenerateUsdExtensionCode()
+# compile the openUSD extension into it's library
+env.BuildUsdExtension()
 # download NVIDIA's mdlSdk
 env.DownloadMdlSdk()
 # download and build the Godot C++ bindings
