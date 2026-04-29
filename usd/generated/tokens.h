@@ -53,6 +53,10 @@ struct IDTXTokensType {
     /// 
     /// Possible value for IDTXCompute_ValueFromJson::GetInputsJsonValueTypeAttr()
     const TfToken float_;
+    /// \brief "inputs:interval"
+    /// 
+    /// IDTXMockDatasource_RandomFloat
+    const TfToken inputsInterval;
     /// \brief "inputs:jsonData"
     /// 
     /// IDTXCompute_ValueFromJson
@@ -69,6 +73,10 @@ struct IDTXTokensType {
     /// 
     /// Possible value for IDTXCompute_ValueFromJson::GetInputsJsonValueTypeAttr()
     const TfToken none;
+    /// \brief "outputs:data"
+    /// 
+    /// IDTXDatasource
+    const TfToken outputsData;
     /// \brief "outputs:jsonValue:double"
     /// 
     /// IDTXCompute_ValueFromJson
@@ -89,6 +97,14 @@ struct IDTXTokensType {
     /// 
     /// Schema identifer and family for IDTXCompute_ValueFromJson
     const TfToken Compute_ValueFromJson;
+    /// \brief "Datasource"
+    /// 
+    /// Schema identifer and family for IDTXDatasource
+    const TfToken Datasource;
+    /// \brief "MockDatasource_RandomFloat"
+    /// 
+    /// Schema identifer and family for IDTXMockDatasource_RandomFloat
+    const TfToken MockDatasource_RandomFloat;
     /// A vector of all of the tokens listed above.
     const std::vector<TfToken> allTokens;
 };

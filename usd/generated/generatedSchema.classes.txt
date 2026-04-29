@@ -2,11 +2,15 @@
 
 # Public Classes
 compute_ValueFromJson
+datasource
+mockDatasource_RandomFloat
 tokens
 
 # Python Module Files
 module.cpp
 wrapCompute_ValueFromJson.cpp
+wrapDatasource.cpp
+wrapMockDatasource_RandomFloat.cpp
 wrapTokens.cpp
 
 # Resource Files

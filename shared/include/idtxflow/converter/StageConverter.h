@@ -16,7 +16,10 @@
 #include <array>
 #include <string>
 
+#include <idtx/datasource.h>
+
 #include <idtxflow/utils/Logger.h>
+#include <idtxflow/exec/ExecBridgeManager.h>
 
 #include <pxr/base/tf/token.h>
 #include <pxr/base/tf/pathUtils.h>
@@ -49,7 +52,7 @@
 #include "AnimationConverter.h"
 #include "PrimConverterRegistry.h"
 #include "SkeletonConverter.h"
-#include "idtxflow/exec/ExecBridgeManager.h"
+
 
 namespace idtxflow
 {
@@ -484,6 +487,10 @@ namespace converter
                         break;
                     }
                 }
+            } else if (usdPrim.IsA<pxr::IDTXDatasource>())
+            {
+                pxr::IDTXDatasource usdDatasource(usdPrim);
+                convertedEntity = ConvertDatasource(usdDatasource);
             }
             
             return convertedEntity;
@@ -746,6 +753,15 @@ namespace converter
             const typename Types::Transform& transform,
             const std::optional<AnimationDescription<TargetEngine>>& animation,
             const SkeletonDescription<TargetEngine>& skeletonDescription);
+
+        /**
+         * 
+         * @param usdDatasource The usd data source prim. The prim is quite likely a custom prim that inherits the base
+         * class / prim type and would be handled by the custom prim type registry already. However, built-in data sources
+         * are converted here, from the target engine specialized implementation
+         * @return 
+         */
+        typename Types::ConvertedEntity* ConvertDatasource(const pxr::IDTXDatasource& usdDatasource);
         
         /**
          * Checks, if the actual prim that shall be converted can be treated as an instance of a prototype without actually

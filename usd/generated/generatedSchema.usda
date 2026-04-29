@@ -42,3 +42,34 @@ class Compute_ValueFromJson "Compute_ValueFromJson" (
     )
 }
 
+class "Datasource" (
+    customData = {
+        string userDocBrief = "Base class for all data source primitives."
+    }
+)
+{
+    string outputs:data = "{}" (
+        customData = {
+            string userDocBrief = "The data output of the data source as JSON string."
+        }
+    )
+}
+
+class MockDatasource_RandomFloat "MockDatasource_RandomFloat" (
+    customData = {
+        string userDocBrief = "This is an example mock data source that produces random float values."
+    }
+)
+{
+    float inputs:interval = 1 (
+        customData = {
+            string userDocBrief = "The update interval in seconds the mock datasource shall provide data and author the \\sa outputs:data attribute in the current usd stage this prim is authored."
+        }
+    )
+    string outputs:data = "{}" (
+        customData = {
+            string userDocBrief = "The data output of the data source as JSON string."
+        }
+    )
+}
+

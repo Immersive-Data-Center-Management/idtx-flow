@@ -48,6 +48,7 @@ def _build_extension(env):
     mdl_sdk_path = "./thirdparty/mdl_sdk"
     ixws_path = "thirdparty/ixwebsocket"
     shared_include_path = "./shared/include"
+    shared_lib_path = "./shared/libs"
     usd_extension_path = "usd"
 
     platform_name = env["platform_name"]
@@ -78,7 +79,7 @@ def _build_extension(env):
         f"{godot_cpp_path}/bin",
         f"{mdl_sdk_path}/lib",
         f"{ixws_build_dir}/Release" if platform_name == "windows" else f"{ixws_build_dir}",
-        f"{usd_extension_path}/libs/{platform_name}",
+        f"{shared_lib_path}/{platform_name}",
     ])
 
     # OpenSSL library/include paths (platform-specific)
@@ -251,7 +252,7 @@ def _get_libs_to_install(platform_name, openusd_version=""):
             f"{mdl_sdk_root}/bin/dds.dll",
             f"{mdl_sdk_root}/bin/nv_openimageio.dll",
             f"{mdl_sdk_root}/bin/mdl_distiller.dll",
-            f"{usd_extension}/libs/{platform_name}/libidtx_usd.dll",
+            f"./shared/libs/{platform_name}/libidtx_usd.dll",
         ]
     elif platform_name == "macos":
         libs_to_install = [
@@ -262,7 +263,7 @@ def _get_libs_to_install(platform_name, openusd_version=""):
             f"{mdl_sdk_root}/lib/dds.so",
             f"{mdl_sdk_root}/lib/nv_openimageio.so",
             f"{mdl_sdk_root}/lib/mdl_distiller.so",
-            f"{usd_extension}/libs/{platform_name}/libidtx_usd.dylib",
+            f"./shared/libs/{platform_name}/libidtx_usd.dylib",
         ]
     else:
         libs_to_install = [
@@ -273,7 +274,7 @@ def _get_libs_to_install(platform_name, openusd_version=""):
             f"{mdl_sdk_root}/lib/dds.so",
             f"{mdl_sdk_root}/lib/nv_openimageio.so",
             f"{mdl_sdk_root}/lib/mdl_distiller.so",
-            f"{usd_extension}/libs/{platform_name}/libidtx_usd.so",
+            f"./shared/libs/{platform_name}/libidtx_usd.so",
         ]
 
     return libs_to_install

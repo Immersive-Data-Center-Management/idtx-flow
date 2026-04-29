@@ -19,13 +19,17 @@ void wrapIDTXTokens()
         cls("Tokens", pxr_boost::python::no_init);
     _ADD_TOKEN(cls, double_);
     _ADD_TOKEN(cls, float_);
+    _ADD_TOKEN(cls, inputsInterval);
     _ADD_TOKEN(cls, inputsJsonData);
     _ADD_TOKEN(cls, inputsJsonPath);
     _ADD_TOKEN(cls, inputsJsonValueType);
     _ADD_TOKEN(cls, none);
+    _ADD_TOKEN(cls, outputsData);
     _ADD_TOKEN(cls, outputsJsonValueDouble);
     _ADD_TOKEN(cls, outputsJsonValueFloat);
     _ADD_TOKEN(cls, outputsJsonValueString);
     _ADD_TOKEN(cls, string);
     _ADD_TOKEN(cls, Compute_ValueFromJson);
+    _ADD_TOKEN(cls, Datasource);
+    _ADD_TOKEN(cls, MockDatasource_RandomFloat);
 }
