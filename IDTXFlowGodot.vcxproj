@@ -105,8 +105,15 @@
     <ClInclude Include="shared\include\idtxflow_godot\PrimConverterRegistryGodot.h" />
     <ClInclude Include="shared\include\idtxflow_godot\types\GodotTypes.h" />
     <ClInclude Include="shared\include\idtxflow_godot\version.h" />
+    <ClInclude Include="shared\include\idtx\api.h" />
+    <ClInclude Include="shared\include\idtx\compute_ValueFromJson.h" />
+    <ClInclude Include="shared\include\idtx\datasource.h" />
+    <ClInclude Include="shared\include\idtx\generatedSchema.module.h" />
+    <ClInclude Include="shared\include\idtx\mockDatasource_RandomFloat.h" />
+    <ClInclude Include="shared\include\idtx\tokens.h" />
     <ClInclude Include="source\converter\UsdGodotStageConverter.h" />
     <ClInclude Include="source\nodes\UsdMeshInstanceNode3D.h" />
+    <ClInclude Include="source\nodes\UsdMockDatasourceFloatNode3D.h" />
     <ClInclude Include="source\nodes\UsdMultiMeshInstanceNode3D.h" />
     <ClInclude Include="source\nodes\UsdSkeletonNode3D.h" />
     <ClInclude Include="source\nodes\UsdXFormNode3D.h" />
@@ -116,6 +123,8 @@
     <ClInclude Include="templates\extension_template\source\register_types.h" />
     <ClInclude Include="source\utils\IDTXFlowGodotLogger.h" />
     <ClInclude Include="usd\generated\compute_ValueFromJson.h" />
+    <ClInclude Include="usd\generated\datasource.h" />
+    <ClInclude Include="usd\generated\mockDatasource_RandomFloat.h" />
     <ClInclude Include="usd\generated\tokens.h" />
   </ItemGroup>
 
@@ -123,6 +132,7 @@
     <ClCompile Include="source\converter\PrimConverterRegistryGodot.cpp" />
     <ClCompile Include="source\nodes\IUsdNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdMeshInstanceNode3D.cpp" />
+    <ClCompile Include="source\nodes\UsdMockDatasourceFloatNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdMultiMeshInstanceNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdSkeletonNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdStageNode3D.cpp" />
@@ -132,6 +142,8 @@
     <ClCompile Include="source\resolver\UsdHttpAssetResolver.cpp" />
     <ClCompile Include="templates\extension_template\source\register_types.cpp" />
     <ClCompile Include="usd\generated\compute_ValueFromJson.cpp" />
+    <ClCompile Include="usd\generated\datasource.cpp" />
+    <ClCompile Include="usd\generated\mockDatasource_RandomFloat.cpp" />
     <ClCompile Include="usd\generated\valuefromjson_computation.cpp" />
   </ItemGroup>
 
@@ -172,10 +184,6 @@
     <Content Include="usd\plugin\idtx\resources\generatedSchema.usda" />    
     <Content Include="usd\plugin\idtx\resources\plugInfo.json" />
     <Content Include="usd\source\schema.usda" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="source\exec\" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

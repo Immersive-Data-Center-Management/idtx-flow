@@ -13,6 +13,9 @@
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdGeom/xformCache.h>
 
+#include <idtx/datasource.h>
+#include <idtx/mockDatasource_RandomFloat.h>
+
 #include <idtxflow/converter/TypeConverter.h>
 #include <idtxflow/converter/StageConverter.h>
 #include <idtxflow/converter/PrimConverterRegistry.h>
@@ -20,6 +23,7 @@
 #include <idtxflow_godot/types/GodotTypes.h>
 
 #include "nodes/UsdMeshInstanceNode3D.h"
+#include "nodes/UsdMockDatasourceFloatNode3D.h"
 #include "nodes/UsdXFormNode3D.h"
 #include "nodes/UsdMultiMeshInstanceNode3D.h"
 
@@ -576,6 +580,24 @@ namespace converter
         // override layer!
         
         return stage_node;
+    }
+    
+    template<>
+    inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertDatasource(const pxr::IDTXDatasource& usdDatasource)
+    {
+        if (usdDatasource.GetPrim().IsA<pxr::IDTXMockDatasource_RandomFloat>())
+        {
+            pxr::IDTXMockDatasource_RandomFloat usd_mock_source(usdDatasource.GetPrim());
+            
+            // from the data source prim create a mock data source node that will be added to the scene tree and
+            // use it's _process() method to request fresh data and author it into the prim's "outputs:data" property
+            UsdMockDatasourceFloatNode3D* data_source = memnew(UsdMockDatasourceFloatNode3D);
+            usd_mock_source.GetInputsIntervalAttr().Get<float>(&data_source->refresh_interval_);
+            
+            return data_source;
+        }
+        
+        return nullptr;
     }
     
     template<>
