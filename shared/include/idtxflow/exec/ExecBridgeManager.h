@@ -16,6 +16,7 @@
  * 
  */
 
+#include <assert.h>
 #include <map>
 
 #include <pxr/usd/usd/stage.h>
@@ -27,50 +28,18 @@
 
 #include <idtxflow/utils/Logger.h>
 
+#include "ExecBridgeHandler.h"
+#include "ExecComputeResult.h"
+
 namespace idtxflow
 {
 namespace exec
 {
-    class ExecBridge;
-
-    class ExecBridgeManager
-    {
-    public:
-        /**
-         * Singleton Accessor
-         * @return The ExecBridgeManager
-         */
-        static ExecBridgeManager& Instance() {
-            static ExecBridgeManager instance;
-            return instance;
-        }
-
-        /**
-         * Get or instantiate the execution bridge for the stage provided. To actually run a computation
-         * first the requested attributes that are connected to compute-nodes need to be registered using
-         * ExecBridge->RegisterAttributeWithConnection, once all attributes are registered ExecBridge->BuildRequest()
-         * need to be called. Then ExecBridge->ComputeAndDispatch() can be invoked (e.g. repeatedly time based) to run
-         * computation and dispatch the result to the respective registered handlers.
-         * @param stage The stage the usd exec system shall be instantiated and the exec bridge provided for.
-         * @return 
-         */
-        ExecBridge& GetExecBridge(const pxr::UsdStageRefPtr& stage) {
-            auto [it, bridge] = stage_exec_bridges_.try_emplace(stage);
-            if (bridge) it->second = std::make_shared<ExecBridge>(stage);
-        
-            return *it->second;
-        }
-        
-    private:
-        // don't allow manual construction or copy assignments of this singleton instance
-        ExecBridgeManager() = default;
-        ExecBridgeManager(const ExecBridgeManager&) = delete;
-        ExecBridgeManager& operator=(const ExecBridgeManager&) = delete;
-        
-        // the ExecBridgeManager manages the ExecBridges for individual stages
-        std::map<pxr::UsdStageRefPtr, std::shared_ptr<ExecBridge>> stage_exec_bridges_;
-    };
-
+    /**
+     * @class ExecBridge
+     * @brief This class provides the functional glue between the openExec computation system and the game engine
+     * specific notification handlers.
+     */
     class ExecBridge
     {
     public:
@@ -157,6 +126,13 @@ namespace exec
             // tree for performance optimized execution
             exec_system_->PrepareRequest(*exec_request_);
         }
+        
+        void RegisterComputeResultHandler(const pxr::SdfPath& primPath, std::shared_ptr<IExecBridgeHandler> handler)
+        {
+            if (!handler) return;
+            
+            result_handlers_[primPath].push_back(handler);
+        }
 
         /**
          * Executes the computation for this stage and dispatches the results to the registered handlers
@@ -172,6 +148,10 @@ namespace exec
             // that did not require recomputation, where provided from the cache. We could use the invalidation callback
             // to collect all the indices that has been really recalculated.
             pxr::ExecUsdCacheView view = exec_system_->Compute(*exec_request_);
+            
+            //collect the computation results grouped by their primPath to dispatch them in one batch to their
+            // respective handler
+            std::unordered_map<pxr::SdfPath, std::vector<ExecComputeResult>, pxr::SdfPath::Hash> computationResults;
     
             // as the cache view does not allow any traversal and only index access, we use the metadata array whose index
             // matches the val key array passed to the computation
@@ -188,29 +168,56 @@ namespace exec
                 IDTX_LOG(IDTX_DEBUG, "Compute result of Attribute {} using Computation {} = {}",
                      metadata.attributePath.GetText(), metadata.computationName.GetText(), pxr::TfStringify(computedValue).c_str());
         
-                // TODO: with the new value in place, dispatch the data to the registered handler
+                ExecComputeResult result = {
+                    metadata.attributePath.GetPrimPath(),
+                    metadata.computationName,
+                    computedValue,
+                    static_cast<int>(i)
+                };
+                
+                computationResults[metadata.handlerPath].push_back(result);
+            }
+            
+            // once all updated attributes have been collected, invoke the registered handler for them
+            for (const auto& result: computationResults)
+            {
+                auto it = result_handlers_.find(result.first);
+                if (it != result_handlers_.end())
+                {
+                    for (const auto& handler: it->second)
+                        handler->OnComputeComplete(result.second);
+                }
             }
         }
 
     protected:
-        /// The usd execution system only stores ValueKeys and uses an index into an array of the same when providing the
-        /// result of a computation. We need to maintain metadata for those ValueKeys in a parallel array to be able to
-        /// bridge the results back to their original prim attribute
+        // The usd execution system only stores ValueKeys and uses an index into an array of the same when providing the
+        // results of a computation. We need to maintain metadata for those ValueKeys in a parallel array to be able to
+        // bridge the results back to their original prim attribute
         struct ValueKeyMetadata
         {
-            pxr::SdfPath attributePath; // the origin of the computation
-            pxr::TfToken computationName; // the name of the computation
-            pxr::VtValue lastComputedValue; // the last computed value for change detection and dispatch optimization
+            // The origin of the computation. This is the complete path to the attribute in the stage including its
+            // prim path
+            pxr::SdfPath attributePath;
+            // The name of the computation. This is in most cases the pure attribute name
+            pxr::TfToken computationName; 
+            // The last computed value for change detection and dispatch optimization
+            pxr::VtValue lastComputedValue; 
+            // The prim path at which the handler for this attribute computation result will be invoked.
+            // This is usually the prim path of the one whos converted entity will handle the changed value
+            pxr::SdfPath handlerPath; 
         };
         
-        /// The Execution system used to build the execution request and pull the execution results
+        // The Execution system used to build the execution request and pull the execution results
         std::unique_ptr<pxr::ExecUsdSystem> exec_system_;
-        /// The Execution request, this "owns" the ValueKey's that will be registerd for computation
+        // The Execution request, this "owns" the ValueKey's that will be registerd for computation
         std::unique_ptr<pxr::ExecUsdRequest> exec_request_;
-        /// The list of value keys that will be consumed by BuildRequest via move
+        // The list of value keys that will be consumed by BuildRequest via move
         std::vector<pxr::ExecUsdValueKey> exec_value_keys_;
-        /// The parallel list, having the same indices for their matching exec_value_keys_ entry
+        // The parallel list, having the same indices for their matching exec_value_keys_ entry
         std::vector<ValueKeyMetadata> value_key_metas_;
+        // The list of handlers that will be invoked to handle the updated computation results
+        std::unordered_map<pxr::SdfPath, std::vector<std::shared_ptr<IExecBridgeHandler>>, pxr::SdfPath::Hash> result_handlers_;
         
     private:
         // disallow copy construct on the ExecBridge 
@@ -218,6 +225,97 @@ namespace exec
         ExecBridge& operator=(const ExecBridge&) = delete;
         
         IDTX_LOG_CATEGORY("ExecBridge");
+    };
+
+    /**
+     * @class ExecBridgeManager
+     * @brief This singleton instance class manages the execution bridges for each stage. It provides a convenient way
+     * to retrieve the ExecBridge instance for a stage.
+     */
+    class ExecBridgeManager
+    {
+    public:
+        /**
+         * Singleton Accessor
+         * @return The ExecBridgeManager
+         */
+        static ExecBridgeManager& Instance() {
+            static ExecBridgeManager instance;
+            return instance;
+        }
+
+        /**
+         * Get or instantiate the execution bridge for the stage provided. To actually run a computation
+         * first the requested attributes that are connected to compute-nodes need to be registered using
+         * ExecBridge->RegisterAttributeWithConnection, once all attributes are registered ExecBridge->BuildRequest()
+         * need to be called. Then ExecBridge->ComputeAndDispatch() can be invoked (e.g. repeatedly time based) to run
+         * computation and dispatch the result to the respective registered handlers.
+         * @param stage The stage the usd exec system shall be instantiated and the exec bridge provided for.
+         * @return 
+         */
+        std::shared_ptr<ExecBridge> GetExecBridgeForStage(const pxr::UsdStageRefPtr& stage) {
+            auto [it, bridge] = stage_exec_bridges_.try_emplace(stage);
+            if (bridge) it->second = std::make_shared<ExecBridge>(stage);
+        
+            return it->second;
+        }
+
+        /**
+         * Activate an ExecBridge of a stage to be considerde in the worker thread to trigger computations.
+         * @param bridge The ExecBridge that shall be activated and run it's ComputeAndDispatch cycles
+         */
+        void ActivateBridge(std::shared_ptr<ExecBridge> bridge)
+        {
+            if (!bridge) return;
+            bridge->BuildRequest();
+            // when activating an ExecBridge run the first computation cycle immediatly
+            bridge->ComputeAndDispatch();
+            
+            std::lock_guard<std::mutex> lock(activation_mutex_);
+            active_bridges_.push_back(bridge);
+        }
+        
+        void Start()
+        {
+            cancelled_.store(false);
+            
+            if (worker_.joinable()) worker_.join();
+            
+            worker_ = std::thread([this]()
+            {
+                while (!cancelled_.load())
+                {
+                    {
+                        std::lock_guard<std::mutex> lock(activation_mutex_);
+                        for (const auto& bridge : active_bridges_)
+                        {
+                            bridge->ComputeAndDispatch();
+                        }   
+                    }
+                }
+            });
+        }
+        
+        void Cancel()
+        {
+            cancelled_.store(true);
+        }
+        
+    private:
+        // don't allow manual construction or copy assignments of this singleton instance
+        ExecBridgeManager() = default;
+        ExecBridgeManager(const ExecBridgeManager&) = delete;
+        ExecBridgeManager& operator=(const ExecBridgeManager&) = delete;
+        
+        // the ExecBridgeManager manages the ExecBridges for individual stages
+        std::map<pxr::UsdStageRefPtr, std::shared_ptr<ExecBridge>> stage_exec_bridges_;
+        
+        // The ExecBridgeManager will spawn a worker thread that runs the Compute&Dispatch for
+        // all stages that has been "activated"
+        std::thread worker_;
+        std::atomic<bool> cancelled_{false};
+        std::vector<std::shared_ptr<ExecBridge>> active_bridges_;
+        mutable std::mutex activation_mutex_;
     };
 }
 }

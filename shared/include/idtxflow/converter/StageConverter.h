@@ -129,6 +129,14 @@ namespace converter
             std::vector<typename Types::ConvertedEntity*> convertedEntities = ConvertPrims(stage, stage->TraverseAll(), rootEntity);
             StagePrototypeMap.clear();
             
+            // once the stage has been converted we check if any computations has been found/registered on this
+            // stage and activate the ExecBridge processing for this one
+            std::shared_ptr<exec::ExecBridge> bridge = exec::ExecBridgeManager::Instance().GetExecBridgeForStage(stage);
+            if (bridge->GetValueKeyCount() > 0)
+            {
+                exec::ExecBridgeManager::Instance().ActivateBridge(bridge);
+            }
+            
             return ConvertStagePostProcess(convertedEntities);
         }
         
@@ -205,31 +213,9 @@ namespace converter
                         convertedParent = rootEntity;
                     }
                     
-                    // with the converted prim in place we check if any of the prims attributes has authored a connection
-                    // and if so, we register it for the computation bridge, assuming the connection is a hint, that this
-                    // is a computed attribute
-                    for (const pxr::UsdAttribute& attribute : usdPrim.GetAttributes())
-                    {
-                        if (attribute.HasAuthoredConnections())
-                        {
-                            exec::ExecBridge& bridge = exec::ExecBridgeManager::Instance().GetExecBridge(stage);
-                            bridge.RegisterAttributeWithConnection(attribute);
-                        }
-                    }
-                    
-                    
                     // this method shall be specialized for each GameEngine if individual post processing is required
                     // this includes maintaining the parent-child relationship of converted nodes
-                    convertedPrim = ConvertPrimPostProcess(usdPrim, convertedPrim, convertedParent);
-                    
-                    // Delegate to the PrimConverterRegistry: if a third-party plugin has registered a converter
-                    // for this prim's type name, use it's PostProcess after the default Postprocessing
-                    pxr::TfToken primTypeName = usdPrim.GetTypeName();
-                    auto& registry = PrimConverterRegistry<TargetEngine>::Instance();
-                    if (IPrimConverter<TargetEngine>* converter = registry.Get(primTypeName))
-                    {
-                        convertedPrim = converter->PostProcess(usdPrim, convertedPrim, convertedParent);
-                    } 
+                    convertedPrim = ConvertPrimPostProcessDefault(usdPrim, convertedPrim, convertedParent);
                     
                     // if the converted Prim does not have any parent it is added to the list of converted prims
                     // this ensures the list only contains the root prim or all converted prims that has been authored
@@ -829,6 +815,58 @@ namespace converter
         }
 
         /**
+         * Postprocessing after the prim has been converted into game engine specific type.
+         * This is the default implementation that will invoke the engine specific version.
+         * @param usdPrim The prim that has been converted
+         * @param convertedPrim The entity the prim has been converted to
+         * @param convertedParentPrim The parent entity that the parent prim of the current one has been converted to
+         * @return 
+         */
+        typename Types::ConvertedEntity* ConvertPrimPostProcessDefault(
+            const pxr::UsdPrim& usdPrim,
+            typename Types::ConvertedEntity* convertedPrim,
+            typename Types::ConvertedEntity* convertedParentPrim)
+        {
+            // with the converted prim in place we check if any of the prims attributes has authored a connection
+            // and if so, we register it for the computation bridge, assuming the connection is a hint, that this
+            // is a computed attribute
+            std::shared_ptr<exec::ExecBridge> bridge = exec::ExecBridgeManager::Instance()
+                .GetExecBridgeForStage(Stage);
+            for (const pxr::UsdAttribute& attribute : usdPrim.GetAttributes())
+            {
+                if (attribute.HasAuthoredConnections())
+                    bridge->RegisterAttributeWithConnection(attribute);
+            }
+            if (bridge->GetValueKeyCount() > 0)
+            {
+                bridge->RegisterComputeResultHandler(usdPrim.GetPath(),
+                    std::shared_ptr<IExecBridgeHandler>(
+                        dynamic_cast<IExecBridgeHandler*>(convertedPrim),
+                        [](IExecBridgeHandler*)
+                        {
+                            /* the empty shared_ptr destructore ensures that the owner of the converted
+                             * node instance is responsible for it's lifecycle and releasing the
+                             * last instance of the shared_ptr will not delete/free the contained object
+                             */
+                        }
+                    ));
+            }
+            
+            convertedPrim = ConvertPrimPostProcess(usdPrim, convertedPrim, convertedParentPrim);
+            
+            // Delegate to the PrimConverterRegistry: if a third-party plugin has registered a converter
+            // for this prim's type name, use it's PostProcess after the default Postprocessing
+            pxr::TfToken primTypeName = usdPrim.GetTypeName();
+            auto& registry = PrimConverterRegistry<TargetEngine>::Instance();
+            if (IPrimConverter<TargetEngine>* converter = registry.Get(primTypeName))
+            {
+                convertedPrim = converter->PostProcess(usdPrim, convertedPrim, convertedParentPrim);
+            }
+            
+            return convertedPrim;
+        }
+        
+        /**
          * Postprocessing after the prim has been converted into game engine specific type
          * @param usdPrim The prim that has been converted
          * @param convertedPrim The entity the prim has been converted to
@@ -846,7 +884,9 @@ namespace converter
          * to ensure the converted scene is adjusted to the target engines coordinate system. This is more performant
          * copmared to adjust each converted prim individually or even convert the meshs vertices individually into the
          * target coordinate system.
-         * @param convertedRootPrim The root entity of the conversion
+         * @param convertedEntities The list of enties at the root level of the stage. Usually this is only on entry,
+         * when the "defaultPrim" metadata on the stage is authored or there is only one prim
+         * as child of the usd pseudo root if "defaultPrim" is not authored.
          * @return 
          */
         std::vector<typename Types::ConvertedEntity*> ConvertStagePostProcess(
