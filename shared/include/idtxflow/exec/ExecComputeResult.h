@@ -16,13 +16,12 @@ struct ExecComputeResult
 {
     // The prim path that owns the computation (e.g. /World/Cube).
     pxr::SdfPath primPath;
-
-    // The computation token (e.g. primvars:displayColor).
+    // The attribute name of the prim the computation was requested for (e.g. primvars:displayColor)
+    std::string primAttribute;
+    // The computation token (e.g. outputs:jsonValue:double).
     pxr::TfToken computation;
-
     // The computed value.
     pxr::VtValue value;
-
     // Index in the original ExecUsdValueKey vector passed to BuildRequest().
     int requestIndex = -1;
 };

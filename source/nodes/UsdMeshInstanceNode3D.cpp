@@ -1,5 +1,7 @@
 #include "UsdMeshInstanceNode3D.h"
 
+#include <godot_cpp/classes/box_mesh.hpp>
+
 using namespace godot;
 
 void UsdMeshInstanceNode3D::_ready()
@@ -65,6 +67,23 @@ void UsdMeshInstanceNode3D::_process(double delta)
         default:
             break;
         }                
+    }
+}
+
+void UsdMeshInstanceNode3D::OnComputeComplete(const std::vector<ExecComputeResult>& results)
+{
+    for (const auto& result : results)
+    {
+        if (result.primAttribute == std::string("size") &&
+            result.value.IsHolding<double>() &&
+            get_mesh()->is_class("BoxMesh"))
+        {
+            float size = static_cast<float>(result.value.Get<double>());
+            Ref<BoxMesh> box_mesh(Object::cast_to<BoxMesh>(get_mesh().ptr()));
+            // this method is invoked on a worker thread, thus we delegate the call to the game thread
+            // using call_deferred
+            box_mesh->call_deferred("set_size", godot::Vector3(size, size, size));
+        }
     }
 }
 

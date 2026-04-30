@@ -85,7 +85,8 @@ namespace exec
             value_key_metas_.push_back({
                 attribute.GetPath(),
                 computationToken,
-                pxr::VtValue()
+                pxr::VtValue(),
+                attribute.GetPrimPath(),
             });
         
             IDTX_LOG(IDTX_DEBUG, "AddValueKeyFromConnection: resolved connection '{}' -> prim '{}', computation '{}'",
@@ -130,7 +131,7 @@ namespace exec
         void RegisterComputeResultHandler(const pxr::SdfPath& primPath, std::shared_ptr<IExecBridgeHandler> handler)
         {
             if (!handler) return;
-            
+            IDTX_LOG(IDTX_DEBUG, "Register compute hanlder for {}", primPath.GetText());
             result_handlers_[primPath].push_back(handler);
         }
 
@@ -170,6 +171,7 @@ namespace exec
         
                 ExecComputeResult result = {
                     metadata.attributePath.GetPrimPath(),
+                    metadata.attributePath.GetName(),
                     metadata.computationName,
                     computedValue,
                     static_cast<int>(i)
@@ -186,6 +188,9 @@ namespace exec
                 {
                     for (const auto& handler: it->second)
                         handler->OnComputeComplete(result.second);
+                } else
+                {
+                    IDTX_LOG(IDTX_DEBUG, "No handler found for {}", result.first.GetText());
                 }
             }
         }
@@ -290,7 +295,8 @@ namespace exec
                         for (const auto& bridge : active_bridges_)
                         {
                             bridge->ComputeAndDispatch();
-                        }   
+                        }
+                        std::this_thread::sleep_for(std::chrono::milliseconds(100));
                     }
                 }
             });

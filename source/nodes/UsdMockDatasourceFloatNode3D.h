@@ -12,6 +12,7 @@ class UsdMockDatasourceFloatNode3D : public godot::Node3D
     
 public:
     void _process(double delta) override;
+    void _enter_tree() override;
     
 protected:
     static void _bind_methods();

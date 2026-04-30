@@ -8,8 +8,10 @@
 #include <idtxflow/converter/MdlMaterialConverter.h>
 #include <idtxflow/resolver/HttpResolver.h>
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
+#include <idtxflow/exec/ExecBridgeManager.h>
 
 #include "nodes/UsdMeshInstanceNode3D.h"
+#include "nodes/UsdMockDatasourceFloatNode3D.h"
 #include "nodes/UsdMultiMeshInstanceNode3D.h"
 #include "nodes/UsdXFormNode3D.h"
 #include "utils/IDTXFlowGodotLogger.h"
@@ -62,6 +64,7 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     GDREGISTER_CLASS(UsdMeshInstanceNode3D)
     GDREGISTER_CLASS(UsdMultiMeshInstanceNode3D)
     GDREGISTER_CLASS(UsdSkeletonNode3D)
+    GDREGISTER_CLASS(UsdMockDatasourceFloatNode3D)
     
 #ifdef IDTXFLOW_MDL_ENABLED
     // activate the mdl material conversion
@@ -80,6 +83,9 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     pxr::UsdHttpAssetResolver::Configure(
         ProjectSettings::get_singleton()->globalize_path("user://usd_cache").utf8().get_data());
     
+    // Run the openExec computation bridge
+    idtxflow::exec::ExecBridgeManager::Instance().Start();
+    
     IDTX_LOGF(IDTX_INFO, "GDExtension initialized");
 }
 
@@ -87,6 +93,9 @@ void uninitialize_idtxflow_module(ModuleInitializationLevel p_level) {
     if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
         return;
     }
+    
+    // Stop the openExec computation bridge
+    idtxflow::exec::ExecBridgeManager::Instance().Cancel();
     
 #ifdef IDTXFLOW_MDL_ENABLED
     // shutdown the mdl material conversion
