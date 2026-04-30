@@ -80,12 +80,12 @@ static JsValue _ResolveJsonPointer(const JsValue& root, const std::string& point
     return current;
 }
 
-EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ValueFromJsonAPI)
+EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ValueFromJson)
 {
     self.PrimComputation(IDTXTokens->outputsJsonValueFloat)
         .Callback<float>(+[](const VdfContext &ctx) {
-            const std::string jsonData = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonData);
-            const std::string jsonPointer = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonPath);
+            const std::string& jsonData = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonData);
+            const std::string& jsonPointer = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonPath);
 
             // Parse the JSON string
             JsParseError parseError;
@@ -123,7 +123,7 @@ EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ValueFromJsonAPI)
     self.AttributeComputation(_IDTXTokens->jsonValueFloatBaseName, _IDTXTokens->resolvedValue)
         .Callback<float>(+[](const VdfContext &ctx)
         {
-            ctx.SetOutput(
+            ctx.SetOutput<float>(
                 ctx.GetInputValue<float>(IDTXTokens->outputsJsonValueFloat)
             );
         })
@@ -133,8 +133,8 @@ EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ValueFromJsonAPI)
     
     self.PrimComputation(IDTXTokens->outputsJsonValueDouble)
         .Callback<double>(+[](const VdfContext &ctx) {
-            const std::string jsonData = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonData);
-            const std::string jsonPointer = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonPath);
+            const std::string& jsonData = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonData);
+            const std::string& jsonPointer = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonPath);
 
             // Parse the JSON string
             JsParseError parseError;
@@ -171,20 +171,20 @@ EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ValueFromJsonAPI)
     
     // Register the computed value as computation to make it accessible via ConnectionTargetedObjects
     self.AttributeComputation(_IDTXTokens->jsonValueDoubleBaseName, _IDTXTokens->resolvedValue)
-        .Callback<float>(+[](const VdfContext &ctx)
+        .Callback<double>(+[](const VdfContext &ctx)
         {
-            ctx.SetOutput(
-                ctx.GetInputValue<float>(IDTXTokens->outputsJsonValueDouble)
+            ctx.SetOutput<double>(
+                ctx.GetInputValue<double>(IDTXTokens->outputsJsonValueDouble)
             );
         })
         .Inputs(
-            Prim().Computation<float>(IDTXTokens->outputsJsonValueDouble)
+            Prim().Computation<double>(IDTXTokens->outputsJsonValueDouble)
         );
     
     self.PrimComputation(IDTXTokens->outputsJsonValueString)
         .Callback<std::string>(+[](const VdfContext &ctx) {
-            const std::string jsonData = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonData);
-            const std::string jsonPointer = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonPath);
+            const std::string& jsonData = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonData);
+            const std::string& jsonPointer = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonPath);
 
             // Parse the JSON string
             JsParseError parseError;
@@ -219,13 +219,13 @@ EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ValueFromJsonAPI)
     
     // Register the computed value as computation to make it accessible via ConnectionTargetedObjects
     self.AttributeComputation(_IDTXTokens->jsonValueStringBaseName, _IDTXTokens->resolvedValue)
-        .Callback<float>(+[](const VdfContext &ctx)
+        .Callback<std::string>(+[](const VdfContext &ctx)
         {
-            ctx.SetOutput(
-                ctx.GetInputValue<float>(IDTXTokens->outputsJsonValueString)
+            ctx.SetOutput<std::string>(
+                ctx.GetInputValue<std::string>(IDTXTokens->outputsJsonValueString)
             );
         })
         .Inputs(
-            Prim().Computation<float>(IDTXTokens->outputsJsonValueString)
+            Prim().Computation<std::string>(IDTXTokens->outputsJsonValueString)
         );
 }
