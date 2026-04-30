@@ -603,12 +603,7 @@ namespace converter
             
             // Handle colliders
             if (usdPrim.HasAPI(pxr::TfToken("CollisionAPI")))
-            {
-                pxr::UsdGeomGprim usd_gprim(usdPrim);
-                class pxr::GfMatrix4d matrix;
-                bool resets;
-                if (!usd_gprim.GetLocalTransformation(&matrix, &resets)) matrix.SetIdentity();
-                
+            {                
                 pxr::UsdAttribute typeAttribute = usdPrim.GetAttribute(pxr::TfToken("collision:interactionTypes"));
                 pxr::UsdAttribute axisAttribute = usdPrim.GetAttribute(pxr::TfToken("axis"));
                 pxr::UsdAttribute heightAttribute = usdPrim.GetAttribute(pxr::TfToken("height"));
@@ -620,20 +615,19 @@ namespace converter
                 double height;
                 double radius;
                     
-                typeAttribute.Get(&types);
-                axisAttribute.Get(&axis);
-                radiusAttribute.Get(&radius);
-                heightAttribute.Get(&height);
+
+                if (!typeAttribute.Get(&axis)) types = pxr::VtArray{pxr::TfToken("")};
+                if (!axisAttribute.Get(&axis)) axis = pxr::TfToken("");
+                if (!radiusAttribute.Get(&radius)) radius = 0.0;
+                if (!heightAttribute.Get(&height)) height = 0.0;
                 
-                pxr::GfVec3f main_axis = pxr::GfVec3f(0,0,0);
-                if (!axis.IsEmpty())
-                {
-                    // Define main axis
-                    std::string s = axis.GetString().c_str();
-                    if (s == "X") { main_axis = pxr::GfVec3f::XAxis(); }
-                    else if (s == "Y") { main_axis = pxr::GfVec3f::YAxis(); }
-                    else if (s == "Z") { main_axis = pxr::GfVec3f::ZAxis(); }
-                }
+                pxr::GfVec3f main_axis = pxr::GfVec3f(0);
+
+                // Define main axis
+                if (axis == pxr::UsdGeomTokens->x) { main_axis = pxr::GfVec3f::XAxis(); }
+                else if (axis == pxr::UsdGeomTokens->y) { main_axis = pxr::GfVec3f::YAxis(); }
+                else if (axis == pxr::UsdGeomTokens->z) { main_axis = pxr::GfVec3f::ZAxis(); }
+                
             
                 return ConvertCollision(TypeConverter::toTransform(matrix), shape, types, main_axis, height, radius);
             }

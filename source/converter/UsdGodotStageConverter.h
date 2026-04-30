@@ -370,7 +370,7 @@ namespace converter
         godot::PackedStringArray result;
         result.resize(types.size());
         for (int i = 0; i < types.size(); ++i) {
-            result.set(i, godot::String::utf8(types[i].GetText()));
+            result.set(i, godot::String(types[i].GetText()));
         }
         collisionNode->set_collision_type( result );    
         

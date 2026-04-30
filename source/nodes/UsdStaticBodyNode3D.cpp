@@ -28,6 +28,7 @@ static const std::unordered_map<std::string, UsdStaticBodyNode3D::ShapeType> kSh
     {"Sphere", UsdStaticBodyNode3D::ShapeType::SHAPE_SPHERE},
     {"Capsule", UsdStaticBodyNode3D::ShapeType::SHAPE_CAPSULE},
     {"Cylinder", UsdStaticBodyNode3D::ShapeType::SHAPE_CYLINDER},
+    // At the moment only simple primitives are supported. Mesh colliders are currently out of scope.
 };
 
 // Wrapper shape for inspector display
@@ -37,6 +38,7 @@ void UsdStaticBodyNode3D::set_collision_shape_int(const int shape) {
         case 1: set_collision_shape("Sphere"); break;
         case 2: set_collision_shape("Capsule"); break;
         case 3: set_collision_shape("Cylinder"); break;
+        default: IDTX_LOG(IDTX_WARN, "Could not create collision shape since it looks to be unsupported!");
     }
 }
 
@@ -139,16 +141,15 @@ void UsdStaticBodyNode3D::apply_collision_type(const int& type)
 {
     // clear collision mask
     set_collision_mask(0);
-    
-    bool is_collidable  = type & ROLE_COLLIDE;
-    bool is_selectable = type & ROLE_SELECT;
 
-    if (is_collidable)
+    // is collidable
+    if (type & ROLE_COLLIDE)
     {
         // Set collision mask 
         set_collision_mask(ROLE_COLLIDE);
     }
-    if (is_selectable)
+    // is selectable
+    if (type & ROLE_SELECT)
     {
         set_ray_pickable(true);
     }

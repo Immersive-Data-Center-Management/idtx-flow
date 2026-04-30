@@ -46,33 +46,96 @@ public:
     // Wrapper methods
     void set_collision_shape_int(int shape);
     int get_collision_shape_int() const;
-    void set_collision_type_int(int type);
-    int get_collision_type_int() const;
     
     void _enter_tree() override;
 
+ 
+    /**
+     * Sets the world transform data for this object.
+     * @param trans World-space transform to assign.
+     */
     void set_transformData(const godot::Transform3D& trans) { transform_data_ = trans; }
+    /**
+     * Returns the current world transform data.
+     * @return Reference to the stored Transform3D.
+     */
     const godot::Transform3D& get_transformData() const { return transform_data_; }
-    
+
+    /**
+     * Sets the height value used by the collision shape.
+     * @param height Height of the shape.
+     */
     void set_height(const float& height) { height_ = height; }
+    /**
+     * Returns the current height value.
+     * @return Height of the shape.
+     */
     float get_height() const { return height_; }
     
+    /**
+     * Sets the radius value used by the collision shape.
+     * @param radius Radius of the shape.
+     */
     void set_radius(const float& radius) { radius_ = radius; }
+    /**
+     * Returns the current radius value.
+     * @return Radius of the shape.
+     */
     float get_radius() const { return radius_; }
     
+    /**
+     * Sets the axis direction for axis-dependent shapes
+     * (e.g. capsules or cylinders).
+     * @param axis Axis vector to use.
+     */
     void set_axis(const godot::Vector3& axis) { axis_ = axis; } 
+    /**
+     * Returns the currently configured axis.
+     * @return Axis vector.
+     */
     godot::Vector3 get_axis() const { return axis_; }
     
+    /**
+     * Sets the collision interaction type using a string array definition.
+     * @param type Collision type definition (e.g. collide, select, etc.).
+     */
     void set_collision_type (const godot::PackedStringArray& type);
+    /**
+     * Returns the collision interaction type identifier.
+     * @return Collision interaction type.
+     */
     const int& get_collision_type() const { return collision_interaction_type; }
     
+    /**
+     * Sets the collision shape type using a string identifier.
+     * @param shape Shape name to assign.
+     */
     void set_collision_shape(const std::string& shape);
+    /**
+     * Returns the currently assigned collision shape type.
+     * @return Collision shape enum value.
+     */
     ShapeType get_collision_shape() const { return collision_shape_; }
     
+    /**
+     * Creates and returns a Godot collision shape resource
+     * based on the given ShapeType.
+     * @param shape Shape type to create.
+     * @return Newly created Shape3D resource.
+     */
     godot::Ref<godot::Shape3D> create_collision_shape(const ShapeType& shape) const;
-    
+        
+    /**
+     * Sets collision layers and masks according to the collision type.
+     * @param type Collision interaction type identifier.
+     */
     void apply_collision_type(const int& type);
     
+    
+    /**
+     * Creates a static collision object using the given transform.
+     * @param trans World transform for the static collision.
+     */
     void create_collision_static(const godot::Transform3D& trans);
     
 private:
