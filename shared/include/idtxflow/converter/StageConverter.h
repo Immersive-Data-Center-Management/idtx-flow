@@ -43,6 +43,8 @@
 
 #include "../types/TargetTypes.h"
 #include "../cache/ResourceCache.h"
+#include "../usd/include/idtx/interactionAPI.h"
+#include "../usd/include/idtx/collisionAPI.h"
 #include "TypeConverter.h"
 #include "MeshConverter.h"
 #include "MaterialConverter.h"
@@ -421,13 +423,15 @@ namespace converter
                 ConvertMaterial(usdMaterial);
                 // a material conversion does not create an entity but adds the converted material to the ResourceCache
                 convertedEntity = nullptr;
-            } else if (usdPrim.IsA<pxr::UsdGeomXform>() && usdPrim.HasAPI(pxr::TfToken("InteractionAPI")))
+            } else if (usdPrim.IsA<pxr::UsdGeomXform>() && usdPrim.HasAPI<pxr::IDTXInteractionAPI>)
             {
+                pxr::IDTXInteractionAPI interactionAPI(usdPrim);
+                
                 // Convert a collision root prim that holds additional information
-                pxr::UsdAttribute collision_enabled = usdPrim.GetAttribute(pxr::TfToken("interaction:enabled"));
-                pxr::UsdAttribute highlight_enabled = usdPrim.GetAttribute(pxr::TfToken("interaction:highlightable"));
-                pxr::UsdAttribute identifier_attribute = usdPrim.GetAttribute(pxr::TfToken("interaction:identifier"));
-                pxr::UsdAttribute color_attribute = usdPrim.GetAttribute(pxr::TfToken("interaction:highlightColor"));
+                pxr::UsdAttribute collision_enabled = interactionAPI.GetInteractionEnabledAttr(); 
+                pxr::UsdAttribute highlight_enabled = interactionAPI.GetInteractionHighlightableAttr();
+                pxr::UsdAttribute identifier_attribute = interactionAPI.GetInteractionIdentifierAttr(); 
+                pxr::UsdAttribute color_attribute = interactionAPI.GetInteractionHighlightColorAttr(); 
                 
                 bool enabled;
                 bool highlightable;
@@ -602,9 +606,11 @@ namespace converter
             pxr::UsdPrim usdPrim = usdGprim.GetPrim();
             
             // Handle colliders
-            if (usdPrim.HasAPI(pxr::TfToken("CollisionAPI")))
+            if (usdPrim.HasAPI<pxr::IDTXCollisionAPI>)
             {                
-                pxr::UsdAttribute typeAttribute = usdPrim.GetAttribute(pxr::TfToken("collision:interactionTypes"));
+                pxr::IDTXCollisionAPI collisionAPI(usdPrim);
+                
+                pxr::UsdAttribute typeAttribute = collisionAPI.GetCollisionTypeAttr();
                 pxr::UsdAttribute axisAttribute = usdPrim.GetAttribute(pxr::TfToken("axis"));
                 pxr::UsdAttribute heightAttribute = usdPrim.GetAttribute(pxr::TfToken("height"));
                 pxr::UsdAttribute radiusAttribute = usdPrim.GetAttribute(pxr::TfToken("radius"));
@@ -614,8 +620,7 @@ namespace converter
                 pxr::TfToken axis;
                 double height;
                 double radius;
-                    
-
+                
                 if (!typeAttribute.Get(&types)) types = pxr::VtArray{pxr::TfToken("")};
                 if (!axisAttribute.Get(&axis)) axis = pxr::TfToken("");
                 if (!radiusAttribute.Get(&radius)) radius = 0.0;
