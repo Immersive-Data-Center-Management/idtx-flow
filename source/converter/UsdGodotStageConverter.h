@@ -341,7 +341,7 @@ namespace converter
         UsdXformNode3D* converted_node = memnew(UsdXformNode3D);
         converted_node->set_transform(transform);
 
-        godot::Color color = godot::Color(highlightColor[0], highlightColor[1], highlightColor[2]);
+        godot::Color color = TypeConverter::toColor(highlightColor);
         
         converted_node->set_meta("collision_enabled", enabled);
         converted_node->set_meta("highlightable", highlightable);
@@ -374,7 +374,7 @@ namespace converter
         }
         collisionNode->set_collision_type( result );    
         
-        godot::Vector3 main_axis = godot::Vector3(axis[0], axis[1], axis[2]);
+        godot::Vector3 main_axis = TypeConverter::toVector3(axis);
         collisionNode->set_axis(main_axis);
         
         if (height) {collisionNode->set_height(height); }

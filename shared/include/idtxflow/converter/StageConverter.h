@@ -434,10 +434,10 @@ namespace converter
                 pxr::TfToken identifier;
                 pxr::GfVec3f color;
                 
-                collision_enabled.Get(&enabled);
-                highlight_enabled.Get(&highlightable);
-                identifier_attribute.Get(&identifier);
-                color_attribute.Get(&color);
+                if (!collision_enabled.Get(&enabled)) enabled = false;
+                if (!highlight_enabled.Get(&highlightable)) highlightable = false;
+                if (!identifier_attribute.Get(&identifier)) identifier = pxr::TfToken();
+                if (!color_attribute.Get(&color)) color = pxr::GfVec3f(1,0,0);
                 
                 pxr::UsdGeomXform usdXform(usdPrim);
                 pxr::GfMatrix4d matrix;
@@ -616,7 +616,7 @@ namespace converter
                 double radius;
                     
 
-                if (!typeAttribute.Get(&axis)) types = pxr::VtArray{pxr::TfToken("")};
+                if (!typeAttribute.Get(&types)) types = pxr::VtArray{pxr::TfToken("")};
                 if (!axisAttribute.Get(&axis)) axis = pxr::TfToken("");
                 if (!radiusAttribute.Get(&radius)) radius = 0.0;
                 if (!heightAttribute.Get(&height)) height = 0.0;
@@ -776,10 +776,14 @@ namespace converter
             const class pxr::TfToken& colorInterpolation);
 
         /**
-         * Convert a collision prim 
+         * Convert a collision parent prim that holds additional information for
+         * the interaction.  
          * @param transform The transform of the collider
          * @param highlightColor Color to display when the according collider is selected
          * @param identifier Link specific interaction behavior in-engine
+         * @param enabled Is the interaction enabled
+         * @param highlightable Should the model use a highlight shader when selected or grabbed? Implementation
+         * needs to happen on the engine side
          * @return 
          */
         typename Types::ConvertedEntity* ConvertCollisionRoot(
@@ -790,13 +794,13 @@ namespace converter
             const bool highlightable);
         
         /**
-         * Convert a collision prim 
+         * Convert a collision prim to a static collider 
          * @param transform The transform of the collider
          * @param shape The shape of the collider
          * @param types The type of the collider (static, interaction, etc.). 
          * @param axis The authored main axis
          * @param height The shape height
-         * @param radius The shape radius
+         * @param radius The shape radius (if applicable)
          * @return 
          */
         typename Types::ConvertedEntity* ConvertCollision(
