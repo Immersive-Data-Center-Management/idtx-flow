@@ -86,23 +86,6 @@ IDTXInteractionAPI::_GetTfType() const
 }
 
 UsdAttribute
-IDTXInteractionAPI::GetInteractionInteractionTypesAttr() const
-{
-    return GetPrim().GetAttribute(IDTXTokens->interactionInteractionTypes);
-}
-
-UsdAttribute
-IDTXInteractionAPI::CreateInteractionInteractionTypesAttr(VtValue const &defaultValue, bool writeSparsely) const
-{
-    return UsdSchemaBase::_CreateAttr(IDTXTokens->interactionInteractionTypes,
-                       SdfValueTypeNames->TokenArray,
-                       /* custom = */ false,
-                       SdfVariabilityVarying,
-                       defaultValue,
-                       writeSparsely);
-}
-
-UsdAttribute
 IDTXInteractionAPI::GetInteractionEnabledAttr() const
 {
     return GetPrim().GetAttribute(IDTXTokens->interactionEnabled);
@@ -187,7 +170,6 @@ const TfTokenVector&
 IDTXInteractionAPI::GetSchemaAttributeNames(bool includeInherited)
 {
     static TfTokenVector localNames = {
-        IDTXTokens->interactionInteractionTypes,
         IDTXTokens->interactionEnabled,
         IDTXTokens->interactionHighlightable,
         IDTXTokens->interactionHighlightColor,

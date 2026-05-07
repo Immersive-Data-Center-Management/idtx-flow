@@ -19,6 +19,8 @@ void wrapIDTXTokens()
         cls("Tokens", pxr_boost::python::no_init);
     _ADD_TOKEN(cls, Box);
     _ADD_TOKEN(cls, Capsule);
+    _ADD_TOKEN(cls, Collide);
+    _ADD_TOKEN(cls, collisionInteractionTypes);
     _ADD_TOKEN(cls, collisionShape);
     _ADD_TOKEN(cls, collisionType);
     _ADD_TOKEN(cls, Convex);
@@ -29,7 +31,6 @@ void wrapIDTXTokens()
     _ADD_TOKEN(cls, interactionHighlightable);
     _ADD_TOKEN(cls, interactionHighlightColor);
     _ADD_TOKEN(cls, interactionIdentifier);
-    _ADD_TOKEN(cls, interactionInteractionTypes);
     _ADD_TOKEN(cls, invisible);
     _ADD_TOKEN(cls, NO_VALUE);
     _ADD_TOKEN(cls, physicsCollider);

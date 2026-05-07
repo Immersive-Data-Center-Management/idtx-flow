@@ -11,6 +11,8 @@ PXR_NAMESPACE_OPEN_SCOPE
 IDTXTokensType::IDTXTokensType() :
     Box("Box", TfToken::Immortal),
     Capsule("Capsule", TfToken::Immortal),
+    Collide("Collide", TfToken::Immortal),
+    collisionInteractionTypes("collision:interactionTypes", TfToken::Immortal),
     collisionShape("collision:shape", TfToken::Immortal),
     collisionType("collision:type", TfToken::Immortal),
     Convex("Convex", TfToken::Immortal),
@@ -21,7 +23,6 @@ IDTXTokensType::IDTXTokensType() :
     interactionHighlightable("interaction:highlightable", TfToken::Immortal),
     interactionHighlightColor("interaction:highlightColor", TfToken::Immortal),
     interactionIdentifier("interaction:identifier", TfToken::Immortal),
-    interactionInteractionTypes("interaction:interactionTypes", TfToken::Immortal),
     invisible("invisible", TfToken::Immortal),
     NO_VALUE("NO_VALUE", TfToken::Immortal),
     physicsCollider("physics:collider", TfToken::Immortal),
@@ -38,6 +39,8 @@ IDTXTokensType::IDTXTokensType() :
     allTokens({
         Box,
         Capsule,
+        Collide,
+        collisionInteractionTypes,
         collisionShape,
         collisionType,
         Convex,
@@ -48,7 +51,6 @@ IDTXTokensType::IDTXTokensType() :
         interactionHighlightable,
         interactionHighlightColor,
         interactionIdentifier,
-        interactionInteractionTypes,
         invisible,
         NO_VALUE,
         physicsCollider,

@@ -34,13 +34,6 @@ WRAP_CUSTOM;
 
         
 static UsdAttribute
-_CreateInteractionInteractionTypesAttr(IDTXInteractionAPI &self,
-                                      object defaultVal, bool writeSparsely) {
-    return self.CreateInteractionInteractionTypesAttr(
-        UsdPythonToSdfType(defaultVal, SdfValueTypeNames->TokenArray), writeSparsely);
-}
-        
-static UsdAttribute
 _CreateInteractionEnabledAttr(IDTXInteractionAPI &self,
                                       object defaultVal, bool writeSparsely) {
     return self.CreateInteractionEnabledAttr(
@@ -130,13 +123,6 @@ void wrapIDTXInteractionAPI()
 
         .def(!self)
 
-        
-        .def("GetInteractionInteractionTypesAttr",
-             &This::GetInteractionInteractionTypesAttr)
-        .def("CreateInteractionInteractionTypesAttr",
-             &_CreateInteractionInteractionTypesAttr,
-             (arg("defaultValue")=object(),
-              arg("writeSparsely")=false))
         
         .def("GetInteractionEnabledAttr",
              &This::GetInteractionEnabledAttr)

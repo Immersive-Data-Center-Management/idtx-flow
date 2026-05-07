@@ -10,6 +10,12 @@ class "CollisionAPI" (
     }
 )
 {
+    token[] collision:interactionTypes = ["Collide"] (
+        allowedTokens = ["Collide", "Select", "Grab"]
+        customData = {
+            string userDocBrief = "How colliders participate in interaction."
+        }
+    )
     token collision:shape = "Box" (
         allowedTokens = ["Box", "Sphere", "Capsule", "Cylinder", "Convex"]
         customData = {
@@ -50,12 +56,6 @@ class "InteractionAPI" (
     uniform token interaction:identifier = "NO_VALUE" (
         customData = {
             string userDocBrief = "Used to link the asset to a specific interaction behavior in the engine."
-        }
-    )
-    token[] interaction:interactionTypes = ["Select"] (
-        allowedTokens = ["Select", "Grab"]
-        customData = {
-            string userDocBrief = "How interaction colliders participate in interaction."
         }
     )
 }

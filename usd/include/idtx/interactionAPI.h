@@ -152,29 +152,6 @@ private:
 
 public:
     // --------------------------------------------------------------------- //
-    // INTERACTIONINTERACTIONTYPES 
-    // --------------------------------------------------------------------- //
-    /// How interaction colliders participate in interaction.
-    ///
-    /// | ||
-    /// | -- | -- |
-    /// | Declaration | `token[] interaction:interactionTypes = ["Select"]` |
-    /// | C++ Type | VtArray<TfToken> |
-    /// | \ref Usd_Datatypes "Usd Type" | SdfValueTypeNames->TokenArray |
-    /// | \ref IDTXTokens "Allowed Values" | Select, Grab |
-    IDTX_API
-    UsdAttribute GetInteractionInteractionTypesAttr() const;
-
-    /// See GetInteractionInteractionTypesAttr(), and also 
-    /// \ref Usd_Create_Or_Get_Property for when to use Get vs Create.
-    /// If specified, author \p defaultValue as the attribute's default,
-    /// sparsely (when it makes sense to do so) if \p writeSparsely is \c true -
-    /// the default for \p writeSparsely is \c false.
-    IDTX_API
-    UsdAttribute CreateInteractionInteractionTypesAttr(VtValue const &defaultValue = VtValue(), bool writeSparsely=false) const;
-
-public:
-    // --------------------------------------------------------------------- //
     // INTERACTIONENABLED 
     // --------------------------------------------------------------------- //
     /// Define if colliders participate in interaction.

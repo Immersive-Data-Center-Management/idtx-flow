@@ -53,6 +53,14 @@ struct IDTXTokensType {
     /// 
     /// Possible value for IDTXCollisionAPI::GetCollisionShapeAttr()
     const TfToken Capsule;
+    /// \brief "Collide"
+    /// 
+    /// Possible value for IDTXCollisionAPI::GetCollisionInteractionTypesAttr()
+    const TfToken Collide;
+    /// \brief "collision:interactionTypes"
+    /// 
+    /// IDTXCollisionAPI
+    const TfToken collisionInteractionTypes;
     /// \brief "collision:shape"
     /// 
     /// IDTXCollisionAPI
@@ -71,7 +79,7 @@ struct IDTXTokensType {
     const TfToken Cylinder;
     /// \brief "Grab"
     /// 
-    /// Possible value for IDTXInteractionAPI::GetInteractionInteractionTypesAttr()
+    /// Possible value for IDTXCollisionAPI::GetCollisionInteractionTypesAttr()
     const TfToken Grab;
     /// \brief "guide"
     /// 
@@ -93,10 +101,6 @@ struct IDTXTokensType {
     /// 
     /// IDTXInteractionAPI
     const TfToken interactionIdentifier;
-    /// \brief "interaction:interactionTypes"
-    /// 
-    /// IDTXInteractionAPI
-    const TfToken interactionInteractionTypes;
     /// \brief "invisible"
     /// 
     /// Fallback value for IDTXCollisionAPI schema attribute visibility
@@ -123,7 +127,7 @@ struct IDTXTokensType {
     const TfToken Rigidbody;
     /// \brief "Select"
     /// 
-    /// Possible value for IDTXInteractionAPI::GetInteractionInteractionTypesAttr()
+    /// Possible value for IDTXCollisionAPI::GetCollisionInteractionTypesAttr()
     const TfToken Select;
     /// \brief "Sphere"
     /// 

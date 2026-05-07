@@ -197,6 +197,29 @@ public:
     UsdAttribute CreateCollisionTypeAttr(VtValue const &defaultValue = VtValue(), bool writeSparsely=false) const;
 
 public:
+    // --------------------------------------------------------------------- //
+    // COLLISIONINTERACTIONTYPES 
+    // --------------------------------------------------------------------- //
+    /// How colliders participate in interaction.
+    ///
+    /// | ||
+    /// | -- | -- |
+    /// | Declaration | `token[] collision:interactionTypes = ["Collide"]` |
+    /// | C++ Type | VtArray<TfToken> |
+    /// | \ref Usd_Datatypes "Usd Type" | SdfValueTypeNames->TokenArray |
+    /// | \ref IDTXTokens "Allowed Values" | Collide, Select, Grab |
+    IDTX_API
+    UsdAttribute GetCollisionInteractionTypesAttr() const;
+
+    /// See GetCollisionInteractionTypesAttr(), and also 
+    /// \ref Usd_Create_Or_Get_Property for when to use Get vs Create.
+    /// If specified, author \p defaultValue as the attribute's default,
+    /// sparsely (when it makes sense to do so) if \p writeSparsely is \c true -
+    /// the default for \p writeSparsely is \c false.
+    IDTX_API
+    UsdAttribute CreateCollisionInteractionTypesAttr(VtValue const &defaultValue = VtValue(), bool writeSparsely=false) const;
+
+public:
     // ===================================================================== //
     // Feel free to add custom code below this line, it will be preserved by 
     // the code generator. 
@@ -207,6 +230,9 @@ public:
     //  - Close the include guard with #endif
     // ===================================================================== //
     // --(BEGIN CUSTOM CODE)--
+    
+    IDTX_API
+    VtArray<TfToken> QueryInteractionTypesAttr(UsdPrim &prim) const;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

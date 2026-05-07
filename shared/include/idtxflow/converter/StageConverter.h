@@ -423,7 +423,7 @@ namespace converter
                 ConvertMaterial(usdMaterial);
                 // a material conversion does not create an entity but adds the converted material to the ResourceCache
                 convertedEntity = nullptr;
-            } else if (usdPrim.IsA<pxr::UsdGeomXform>() && usdPrim.HasAPI<pxr::IDTXInteractionAPI>)
+            } else if (usdPrim.IsA<pxr::UsdGeomXform>() && usdPrim.HasAPI<pxr::IDTXInteractionAPI>())
             {
                 pxr::IDTXInteractionAPI interactionAPI(usdPrim);
                 
@@ -606,22 +606,24 @@ namespace converter
             pxr::UsdPrim usdPrim = usdGprim.GetPrim();
             
             // Handle colliders
-            if (usdPrim.HasAPI<pxr::IDTXCollisionAPI>)
+            if (usdPrim.HasAPI<pxr::IDTXCollisionAPI>())
             {                
                 pxr::IDTXCollisionAPI collisionAPI(usdPrim);
                 
-                pxr::UsdAttribute typeAttribute = collisionAPI.GetCollisionTypeAttr();
-                pxr::UsdAttribute axisAttribute = usdPrim.GetAttribute(pxr::TfToken("axis"));
-                pxr::UsdAttribute heightAttribute = usdPrim.GetAttribute(pxr::TfToken("height"));
-                pxr::UsdAttribute radiusAttribute = usdPrim.GetAttribute(pxr::TfToken("radius"));
+                pxr::UsdAttribute shapeAttribute = collisionAPI.GetCollisionShapeAttr();
+                pxr::UsdAttribute typeAttribute = collisionAPI.GetCollisionInteractionTypesAttr();
+                pxr::UsdAttribute axisAttribute = usdPrim.GetAttribute(pxr::UsdGeomTokens->axis);
+                pxr::UsdAttribute heightAttribute = usdPrim.GetAttribute(pxr::UsdGeomTokens->height);
+                pxr::UsdAttribute radiusAttribute = usdPrim.GetAttribute(pxr::UsdGeomTokens->radius);
                     
-                pxr::TfToken shape = usdPrim.GetTypeName();
+                pxr::TfToken shape ;
                 pxr::VtArray<pxr::TfToken> types;
                 pxr::TfToken axis;
                 double height;
                 double radius;
                 
-                if (!typeAttribute.Get(&types)) types = pxr::VtArray{pxr::TfToken("")};
+                if (!shapeAttribute.Get(&shape)) shape = pxr::TfToken("Cube");
+                if (!typeAttribute.Get(&types)) types = pxr::VtArray{pxr::TfToken("NOT_VALID")};
                 if (!axisAttribute.Get(&axis)) axis = pxr::TfToken("");
                 if (!radiusAttribute.Get(&radius)) radius = 0.0;
                 if (!heightAttribute.Get(&height)) height = 0.0;

@@ -119,6 +119,23 @@ IDTXCollisionAPI::CreateCollisionTypeAttr(VtValue const &defaultValue, bool writ
                        writeSparsely);
 }
 
+UsdAttribute
+IDTXCollisionAPI::GetCollisionInteractionTypesAttr() const
+{
+    return GetPrim().GetAttribute(IDTXTokens->collisionInteractionTypes);
+}
+
+UsdAttribute
+IDTXCollisionAPI::CreateCollisionInteractionTypesAttr(VtValue const &defaultValue, bool writeSparsely) const
+{
+    return UsdSchemaBase::_CreateAttr(IDTXTokens->collisionInteractionTypes,
+                       SdfValueTypeNames->TokenArray,
+                       /* custom = */ false,
+                       SdfVariabilityVarying,
+                       defaultValue,
+                       writeSparsely);
+}
+
 namespace {
 static inline TfTokenVector
 _ConcatenateAttributeNames(const TfTokenVector& left,const TfTokenVector& right)
@@ -138,6 +155,7 @@ IDTXCollisionAPI::GetSchemaAttributeNames(bool includeInherited)
     static TfTokenVector localNames = {
         IDTXTokens->collisionShape,
         IDTXTokens->collisionType,
+        IDTXTokens->collisionInteractionTypes,
     };
     static TfTokenVector allNames =
         _ConcatenateAttributeNames(
@@ -160,3 +178,58 @@ PXR_NAMESPACE_CLOSE_SCOPE
 // 'PXR_NAMESPACE_OPEN_SCOPE', 'PXR_NAMESPACE_CLOSE_SCOPE'.
 // ===================================================================== //
 // --(BEGIN CUSTOM CODE)--
+PXR_NAMESPACE_OPEN_SCOPE
+
+#include <pxr/base/tf/diagnostic.h>
+
+VtArray<TfToken>
+IDTXCollisionAPI::QueryInteractionTypesAttr(UsdPrim &prim) const
+{
+    VtArray<TfToken> result;
+
+    UsdPrim parent = prim.GetParent();
+    if (!parent) {
+        return result;
+    }
+
+    const SdfPath& path = prim.GetPath();
+
+    auto contains = [&](const TfToken& relName) {
+        UsdRelationship rel = parent.GetRelationship(relName);
+        SdfPathVector targets;
+        rel.GetTargets(&targets);
+        return std::find(targets.begin(), targets.end(), path) != targets.end();
+    };
+
+    if (contains(TfToken("physics:collider"))) {
+        result.push_back(TfToken("Collide"));
+    }
+
+    if (contains(TfToken("physics:collider:query"))) {
+        UsdAttribute attr =
+            parent.GetAttribute(TfToken("interaction:interactionTypes"));
+
+        VtArray<TfToken> types;
+        if (attr && attr.Get(&types)) {
+            
+            
+            TF_WARN("interactionTypes for %s:", parent.GetPath().GetText());
+            OutputDebugStringA(parent.GetPath().GetText());
+            for (const TfToken& t : types) {
+                TF_WARN("  - %s", t.GetText());
+            }
+
+            result.insert(result.end(), types.begin(), types.end());
+        }
+    }
+
+    // ensure unique tokens
+    std::sort(result.begin(), result.end());
+    result.erase(std::unique(result.begin(), result.end()), result.end());
+
+    return result;
+}
+
+
+
+PXR_NAMESPACE_CLOSE_SCOPE

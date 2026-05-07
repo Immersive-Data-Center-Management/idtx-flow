@@ -46,6 +46,13 @@ _CreateCollisionTypeAttr(IDTXCollisionAPI &self,
     return self.CreateCollisionTypeAttr(
         UsdPythonToSdfType(defaultVal, SdfValueTypeNames->Token), writeSparsely);
 }
+        
+static UsdAttribute
+_CreateCollisionInteractionTypesAttr(IDTXCollisionAPI &self,
+                                      object defaultVal, bool writeSparsely) {
+    return self.CreateCollisionInteractionTypesAttr(
+        UsdPythonToSdfType(defaultVal, SdfValueTypeNames->TokenArray), writeSparsely);
+}
 
 static std::string
 _Repr(const IDTXCollisionAPI &self)
@@ -121,6 +128,13 @@ void wrapIDTXCollisionAPI()
              &This::GetCollisionTypeAttr)
         .def("CreateCollisionTypeAttr",
              &_CreateCollisionTypeAttr,
+             (arg("defaultValue")=object(),
+              arg("writeSparsely")=false))
+        
+        .def("GetCollisionInteractionTypesAttr",
+             &This::GetCollisionInteractionTypesAttr)
+        .def("CreateCollisionInteractionTypesAttr",
+             &_CreateCollisionInteractionTypesAttr,
              (arg("defaultValue")=object(),
               arg("writeSparsely")=false))
 

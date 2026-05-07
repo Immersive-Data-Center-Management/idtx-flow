@@ -36,6 +36,11 @@ class "CollisionAPI" (
 		doc = "Collision behavior type"
 	)
 	
+	token[] collision:interactionTypes = ["Collide"] (
+		allowedTokens = ["Collide", "Select", "Grab"]
+		doc = "How colliders participate in interaction."
+	)
+	
 	token purpose = "guide" (
 		customData = {
                 bool apiSchemaOverride = true
@@ -57,10 +62,6 @@ class "InteractionAPI" (
     }
 )
 {
-	token[] interaction:interactionTypes = ["Select"] (
-		allowedTokens = ["Select", "Grab"]
-		doc = "How interaction colliders participate in interaction."
-	)
 	
 	bool interaction:enabled = true (
 		doc = "Define if colliders participate in interaction."
