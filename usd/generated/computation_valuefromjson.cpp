@@ -115,7 +115,7 @@ EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ValueFromJson)
         })
         .Inputs(
             Attribute(IDTXTokens->inputsJsonData)
-                .ConnectionTargetedObjects<std::string>(ExecBuiltinComputations->computeValue)
+                .Connections<std::string>(ExecBuiltinComputations->computeValue)
                 .InputName(IDTXTokens->inputsJsonData)
                 .Required(),
             AttributeValue<std::string>(IDTXTokens->inputsJsonPath).Required()
@@ -167,7 +167,7 @@ EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ValueFromJson)
         })
         .Inputs(
             Attribute(IDTXTokens->inputsJsonData)
-                .ConnectionTargetedObjects<std::string>(ExecBuiltinComputations->computeValue)
+                .Connections<std::string>(ExecBuiltinComputations->computeValue)
                 .InputName(IDTXTokens->inputsJsonData)
                 .Required(),
             AttributeValue<std::string>(IDTXTokens->inputsJsonPath)
@@ -217,7 +217,7 @@ EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ValueFromJson)
         })
         .Inputs(
             Attribute(IDTXTokens->inputsJsonData)
-                .ConnectionTargetedObjects<std::string>(ExecBuiltinComputations->computeValue)
+                .Connections<std::string>(ExecBuiltinComputations->computeValue)
                 .InputName(IDTXTokens->inputsJsonData)
                 .Required(),
             AttributeValue<std::string>(IDTXTokens->inputsJsonPath)

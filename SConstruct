@@ -6,7 +6,7 @@ from  SCons.Environment import Environment
 from SCons.Script import ARGUMENTS
 
 # USD Version configuration
-openusd_version = "25.11"
+openusd_version = "26.05"
 
 # configure the main environment to use the different tools to build all we need
 env = Environment(

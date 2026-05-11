@@ -98,6 +98,9 @@ def _build_usd_extension(env):
         extension_env.Append(LIBS=common_libs)
         extension_env.Append(CCFLAGS=["/EHsc", "/MD"])  # Use /MD for shared
         extension_env.Append(CPPDEFINES=common_defines + ["IDTX_EXPORTS"])
+        # deactivate this warning. This appears due to an issue in openUSD-26.05 where the definition of
+        # 'std::ostream &Vt_ArrayEditStreamImpl()' is missing the 'VT_API' decorator
+        extension_env.Append(CCFLAGS=['/wd4273'])
 
     elif platform_name == "macos":
         # Shared library settings

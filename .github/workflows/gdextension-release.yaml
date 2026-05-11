@@ -10,6 +10,9 @@ jobs:
     if: github.ref == 'refs/heads/main'
     name: Check version not yet released
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    
     steps:
       - name: Checkout
         #v6.0.2

@@ -157,6 +157,10 @@ def _build_extension(env):
         # ws2_32, crypt32, user32 are required by IXWebSocket + OpenSSL on Windows
         extension_env.Append(LIBS=libs + ["advapi32", "shell32", "ole32", "ws2_32", "crypt32", "user32"])
         extension_env.Append(CPPDEFINES=["NOMINMAX", "WIN32_LEAN_AND_MEAN", "_ITERATOR_DEBUG_LEVEL=0"])
+        # deactivate this warning. This appears due to an issue in openUSD-26.05 where the definition of
+        # 'std::ostream &Vt_ArrayEditStreamImpl()' is missing the 'VT_API' decorator
+        extension_env.Append(CCFLAGS=['/wd4273'])
+        
         if build_target in ["editor", "template_debug"]:
             # DEBUG
             extension_env.Append(CCFLAGS=[

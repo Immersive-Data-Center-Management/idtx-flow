@@ -53,7 +53,7 @@ EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ColorFromFloat)
         })
         .Inputs(
             Attribute(IDTXTokens->inputsValue)
-                .ConnectionTargetedObjects<float>(_IDTXTokens->resolvedValue)
+                .Connections<float>(_IDTXTokens->resolvedValue)
                 .InputName(IDTXTokens->inputsValue)
                 .Required()
         );
