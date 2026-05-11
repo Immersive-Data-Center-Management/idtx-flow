@@ -10,7 +10,6 @@ Usage in SConstruct:
 """
 import os
 import platform
-import shutil
 
 def generate(env):
     env.AddMethod(_build_ext_bootstrap_lib, 'BuildExtBootstrapLib')
