@@ -41,10 +41,18 @@ PXR_NAMESPACE_OPEN_SCOPE
 /// Use IDTXTokens like so:
 ///
 /// \code
-///     gprim.GetMyTokenValuedAttr().Set(IDTXTokens->double_);
+///     gprim.GetMyTokenValuedAttr().Set(IDTXTokens->boundaries);
 /// \endcode
 struct IDTXTokensType {
     IDTX_API IDTXTokensType();
+    /// \brief "boundaries"
+    /// 
+    /// IDTXCompute_ColorFromFloat
+    const TfToken boundaries;
+    /// \brief "colors"
+    /// 
+    /// IDTXCompute_ColorFromFloat
+    const TfToken colors;
     /// \brief "double"
     /// 
     /// Possible value for IDTXCompute_ValueFromJson::GetInputsJsonValueTypeAttr()
@@ -69,6 +77,10 @@ struct IDTXTokensType {
     /// 
     /// IDTXCompute_ValueFromJson
     const TfToken inputsJsonValueType;
+    /// \brief "inputs:value"
+    /// 
+    /// IDTXCompute_ColorFromFloat
+    const TfToken inputsValue;
     /// \brief "none"
     /// 
     /// Possible value for IDTXCompute_ValueFromJson::GetInputsJsonValueTypeAttr()
@@ -89,10 +101,18 @@ struct IDTXTokensType {
     /// 
     /// IDTXCompute_ValueFromJson
     const TfToken outputsJsonValueString;
+    /// \brief "outputs:result"
+    /// 
+    /// IDTXCompute_ColorFromFloat
+    const TfToken outputsResult;
     /// \brief "string"
     /// 
     /// Possible value for IDTXCompute_ValueFromJson::GetInputsJsonValueTypeAttr()
     const TfToken string;
+    /// \brief "Compute_ColorFromFloat"
+    /// 
+    /// Schema identifer and family for IDTXCompute_ColorFromFloat
+    const TfToken Compute_ColorFromFloat;
     /// \brief "Compute_ValueFromJson"
     /// 
     /// Schema identifer and family for IDTXCompute_ValueFromJson

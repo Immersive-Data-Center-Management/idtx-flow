@@ -2,6 +2,10 @@
 
 #include <godot_cpp/classes/box_mesh.hpp>
 
+#include <pxr/usd/usdGeom/tokens.h>
+
+#include "idtxflow_godot//converter/UsdGodotTypeConverter.h"
+
 using namespace godot;
 
 void UsdMeshInstanceNode3D::_ready()
@@ -74,7 +78,7 @@ void UsdMeshInstanceNode3D::OnComputeComplete(const std::vector<ExecComputeResul
 {
     for (const auto& result : results)
     {
-        if (result.primAttribute == std::string("size") &&
+        if (result.primAttribute == pxr::UsdGeomTokens->size.GetString() &&
             result.value.IsHolding<double>() &&
             get_mesh()->is_class("BoxMesh"))
         {
@@ -83,6 +87,14 @@ void UsdMeshInstanceNode3D::OnComputeComplete(const std::vector<ExecComputeResul
             // this method is invoked on a worker thread, thus we delegate the call to the game thread
             // using call_deferred
             box_mesh->call_deferred("set_size", godot::Vector3(size, size, size));
+            continue;
+        }
+        if (result.primAttribute == pxr::UsdGeomTokens->primvarsDisplayColor.GetString() &&
+            result.value.IsHolding<pxr::GfVec3f>())
+        {
+            Color color = idtxflow::converter::UsdTypeConverter<idtxflow::types::TargetEngineGodot>::toColor(
+                result.value.Get<pxr::GfVec3f>());
+            print_verbose("Got new Color: " + color);
         }
     }
 }

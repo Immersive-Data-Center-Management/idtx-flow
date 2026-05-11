@@ -141,10 +141,11 @@
     <ClCompile Include="source\resolver\UsdGodotAssetResolver.cpp" />
     <ClCompile Include="source\resolver\UsdHttpAssetResolver.cpp" />
     <ClCompile Include="templates\extension_template\source\register_types.cpp" />
+    <ClCompile Include="usd\generated\computation_colorfromfloat.cpp" />
     <ClCompile Include="usd\generated\compute_ValueFromJson.cpp" />
     <ClCompile Include="usd\generated\datasource.cpp" />
     <ClCompile Include="usd\generated\mockDatasource_RandomFloat.cpp" />
-    <ClCompile Include="usd\generated\valuefromjson_computation.cpp" />
+    <ClCompile Include="usd\generated\computation_valuefromjson.cpp" />
   </ItemGroup>
 
   <ItemGroup>

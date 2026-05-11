@@ -1,5 +1,6 @@
 /**
- * Implementation of the computation thet will be registered along the IDTXCompute_ValueFromJson schema
+ * @file computation_valuefromjson.cpp
+ * @brief Implementation of the computation thet will be registered along the IDTXCompute_ValueFromJson schema
  *
  **/
 
@@ -84,19 +85,20 @@ EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ValueFromJson)
 {
     self.PrimComputation(IDTXTokens->outputsJsonValueFloat)
         .Callback<float>(+[](const VdfContext &ctx) {
+            std::cout << "PrimComputation<float> for IDTXCompute_ValueFromJson" << std::endl;
             const std::string& jsonData = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonData);
             const std::string& jsonPointer = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonPath);
 
             // Parse the JSON string
             JsParseError parseError;
-            JsValue root = JsParseString(jsonData, &parseError);
+            const JsValue root = JsParseString(jsonData, &parseError);
             if (!root) {
                 ctx.SetOutput<float>(0.0);
                 return;
             }
 
             // Resolve the RFC 6901 JSON Pointer into the tree
-            JsValue resolved = _ResolveJsonPointer(root, jsonPointer);
+            const JsValue resolved = _ResolveJsonPointer(root, jsonPointer);
             if (!resolved) {
                 ctx.SetOutput<float>(0.0);
                 return;
@@ -123,16 +125,19 @@ EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ValueFromJson)
     self.AttributeComputation(_IDTXTokens->jsonValueFloatBaseName, _IDTXTokens->resolvedValue)
         .Callback<float>(+[](const VdfContext &ctx)
         {
+            std::cout << "Attribute<float> Computation for IDTXCompute_ValueFromJson that bridges to PrimComputation" << std::endl;
             ctx.SetOutput<float>(
                 ctx.GetInputValue<float>(IDTXTokens->outputsJsonValueFloat)
             );
         })
         .Inputs(
-            Prim().Computation<float>(IDTXTokens->outputsJsonValueFloat)
+            Prim()
+                .Computation<float>(IDTXTokens->outputsJsonValueFloat)
         );
     
     self.PrimComputation(IDTXTokens->outputsJsonValueDouble)
         .Callback<double>(+[](const VdfContext &ctx) {
+            std::cout << "PrimComputation<double> for IDTXCompute_ValueFromJson" << std::endl;
             const std::string& jsonData = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonData);
             const std::string& jsonPointer = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonPath);
 
@@ -173,6 +178,7 @@ EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ValueFromJson)
     self.AttributeComputation(_IDTXTokens->jsonValueDoubleBaseName, _IDTXTokens->resolvedValue)
         .Callback<double>(+[](const VdfContext &ctx)
         {
+            std::cout << "Attribute<double> Computation for IDTXCompute_ValueFromJson that bridges to PrimComputation" << std::endl;
             ctx.SetOutput<double>(
                 ctx.GetInputValue<double>(IDTXTokens->outputsJsonValueDouble)
             );
@@ -183,6 +189,7 @@ EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ValueFromJson)
     
     self.PrimComputation(IDTXTokens->outputsJsonValueString)
         .Callback<std::string>(+[](const VdfContext &ctx) {
+            std::cout << "PrimComputation<string> for IDTXCompute_ValueFromJson" << std::endl;
             const std::string& jsonData = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonData);
             const std::string& jsonPointer = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonPath);
 
@@ -221,6 +228,7 @@ EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ValueFromJson)
     self.AttributeComputation(_IDTXTokens->jsonValueStringBaseName, _IDTXTokens->resolvedValue)
         .Callback<std::string>(+[](const VdfContext &ctx)
         {
+            std::cout << "Attribute<string> Computation for IDTXCompute_ValueFromJson that bridges to PrimComputation" << std::endl;
             ctx.SetOutput<std::string>(
                 ctx.GetInputValue<std::string>(IDTXTokens->outputsJsonValueString)
             );
