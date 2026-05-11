@@ -10,4 +10,7 @@ TF_WRAP(IDTXCompute_ValueFromJson);
 TF_WRAP(IDTXCompute_ColorFromFloat);
 TF_WRAP(IDTXDatasource);
 TF_WRAP(IDTXMockDatasource_RandomFloat);
+TF_WRAP(IDTXCollisionAPI);
+TF_WRAP(IDTXInteractionAPI);
+TF_WRAP(IDTXCollisionSetAPI);
 TF_WRAP(IDTXTokens);

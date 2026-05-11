@@ -49,10 +49,42 @@ struct IDTXTokensType {
     /// 
     /// IDTXCompute_ColorFromFloat
     const TfToken boundaries;
+    /// \brief "Box"
+    /// 
+    /// Fallback value for IDTXCollisionAPI::GetCollisionShapeAttr()
+    const TfToken Box;
+    /// \brief "Capsule"
+    /// 
+    /// Possible value for IDTXCollisionAPI::GetCollisionShapeAttr()
+    const TfToken Capsule;
+    /// \brief "Collide"
+    /// 
+    /// Possible value for IDTXCollisionAPI::GetCollisionInteractionTypesAttr()
+    const TfToken Collide;
+    /// \brief "collision:interactionTypes"
+    /// 
+    /// IDTXCollisionAPI
+    const TfToken collisionInteractionTypes;
+    /// \brief "collision:shape"
+    /// 
+    /// IDTXCollisionAPI
+    const TfToken collisionShape;
+    /// \brief "collision:type"
+    /// 
+    /// IDTXCollisionAPI
+    const TfToken collisionType;
     /// \brief "colors"
     /// 
     /// IDTXCompute_ColorFromFloat
     const TfToken colors;
+    /// \brief "Convex"
+    /// 
+    /// Possible value for IDTXCollisionAPI::GetCollisionShapeAttr()
+    const TfToken Convex;
+    /// \brief "Cylinder"
+    /// 
+    /// Possible value for IDTXCollisionAPI::GetCollisionShapeAttr()
+    const TfToken Cylinder;
     /// \brief "double"
     /// 
     /// Possible value for IDTXCompute_ValueFromJson::GetInputsJsonValueTypeAttr()
@@ -61,6 +93,14 @@ struct IDTXTokensType {
     /// 
     /// Possible value for IDTXCompute_ValueFromJson::GetInputsJsonValueTypeAttr()
     const TfToken float_;
+    /// \brief "Grab"
+    /// 
+    /// Possible value for IDTXCollisionAPI::GetCollisionInteractionTypesAttr()
+    const TfToken Grab;
+    /// \brief "guide"
+    /// 
+    /// Fallback value for IDTXCollisionAPI schema attribute purpose
+    const TfToken guide;
     /// \brief "inputs:interval"
     /// 
     /// IDTXMockDatasource_RandomFloat
@@ -81,6 +121,30 @@ struct IDTXTokensType {
     /// 
     /// IDTXCompute_ColorFromFloat
     const TfToken inputsValue;
+    /// \brief "interaction:enabled"
+    /// 
+    /// IDTXInteractionAPI
+    const TfToken interactionEnabled;
+    /// \brief "interaction:highlightable"
+    /// 
+    /// IDTXInteractionAPI
+    const TfToken interactionHighlightable;
+    /// \brief "interaction:highlightColor"
+    /// 
+    /// IDTXInteractionAPI
+    const TfToken interactionHighlightColor;
+    /// \brief "interaction:identifier"
+    /// 
+    /// IDTXInteractionAPI
+    const TfToken interactionIdentifier;
+    /// \brief "invisible"
+    /// 
+    /// Fallback value for IDTXCollisionAPI schema attribute visibility
+    const TfToken invisible;
+    /// \brief "NO_VALUE"
+    /// 
+    /// Fallback value for IDTXInteractionAPI::GetInteractionIdentifierAttr()
+    const TfToken NO_VALUE;
     /// \brief "none"
     /// 
     /// Possible value for IDTXCompute_ValueFromJson::GetInputsJsonValueTypeAttr()
@@ -105,10 +169,50 @@ struct IDTXTokensType {
     /// 
     /// IDTXCompute_ColorFromFloat
     const TfToken outputsResult;
+    /// \brief "physics:collider"
+    /// 
+    /// IDTXCollisionSetAPI
+    const TfToken physicsCollider;
+    /// \brief "physics:collider:querry"
+    /// 
+    /// IDTXCollisionSetAPI
+    const TfToken physicsColliderQuerry;
+    /// \brief "purpose"
+    /// 
+    /// IDTXCollisionAPI
+    const TfToken purpose;
+    /// \brief "Rigidbody"
+    /// 
+    /// Possible value for IDTXCollisionAPI::GetCollisionTypeAttr()
+    const TfToken Rigidbody;
+    /// \brief "Select"
+    /// 
+    /// Possible value for IDTXCollisionAPI::GetCollisionInteractionTypesAttr()
+    const TfToken Select;
+    /// \brief "Sphere"
+    /// 
+    /// Possible value for IDTXCollisionAPI::GetCollisionShapeAttr()
+    const TfToken Sphere;
+    /// \brief "Static"
+    /// 
+    /// Fallback value for IDTXCollisionAPI::GetCollisionTypeAttr()
+    const TfToken Static;
     /// \brief "string"
     /// 
     /// Possible value for IDTXCompute_ValueFromJson::GetInputsJsonValueTypeAttr()
     const TfToken string;
+    /// \brief "visibility"
+    /// 
+    /// IDTXCollisionAPI
+    const TfToken visibility;
+    /// \brief "CollisionAPI"
+    /// 
+    /// Schema identifer and family for IDTXCollisionAPI
+    const TfToken CollisionAPI;
+    /// \brief "CollisionSetAPI"
+    /// 
+    /// Schema identifer and family for IDTXCollisionSetAPI
+    const TfToken CollisionSetAPI;
     /// \brief "Compute_ColorFromFloat"
     /// 
     /// Schema identifer and family for IDTXCompute_ColorFromFloat
@@ -121,6 +225,10 @@ struct IDTXTokensType {
     /// 
     /// Schema identifer and family for IDTXDatasource
     const TfToken Datasource;
+    /// \brief "InteractionAPI"
+    /// 
+    /// Schema identifer and family for IDTXInteractionAPI
+    const TfToken InteractionAPI;
     /// \brief "MockDatasource_RandomFloat"
     /// 
     /// Schema identifer and family for IDTXMockDatasource_RandomFloat
