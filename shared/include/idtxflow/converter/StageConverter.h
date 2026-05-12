@@ -43,6 +43,8 @@
 
 #include "../types/TargetTypes.h"
 #include "../cache/ResourceCache.h"
+#include "../usd/include/idtx/interactionAPI.h"
+#include "../usd/include/idtx/collisionAPI.h"
 #include "TypeConverter.h"
 #include "MeshConverter.h"
 #include "MaterialConverter.h"
@@ -421,6 +423,33 @@ namespace converter
                 ConvertMaterial(usdMaterial);
                 // a material conversion does not create an entity but adds the converted material to the ResourceCache
                 convertedEntity = nullptr;
+            } else if (usdPrim.IsA<pxr::UsdGeomXform>() && usdPrim.HasAPI<pxr::IDTXInteractionAPI>())
+            {
+                pxr::IDTXInteractionAPI interactionAPI(usdPrim);
+                
+                // Convert a collision root prim that holds additional information
+                pxr::UsdAttribute collision_enabled = interactionAPI.GetInteractionEnabledAttr(); 
+                pxr::UsdAttribute highlight_enabled = interactionAPI.GetInteractionHighlightableAttr();
+                pxr::UsdAttribute identifier_attribute = interactionAPI.GetInteractionIdentifierAttr(); 
+                pxr::UsdAttribute color_attribute = interactionAPI.GetInteractionHighlightColorAttr(); 
+                
+                bool enabled;
+                bool highlightable;
+                pxr::TfToken identifier;
+                pxr::GfVec3f color;
+                
+                if (!collision_enabled.Get(&enabled)) enabled = false;
+                if (!highlight_enabled.Get(&highlightable)) highlightable = false;
+                if (!identifier_attribute.Get(&identifier)) identifier = pxr::TfToken();
+                if (!color_attribute.Get(&color)) color = pxr::GfVec3f(1,0,0);
+                
+                pxr::UsdGeomXform usdXform(usdPrim);
+                pxr::GfMatrix4d matrix;
+                bool resets;
+                if (!usdXform.GetLocalTransformation(&matrix, &resets)) matrix.SetIdentity();
+                
+                convertedEntity = ConvertCollisionRoot(TypeConverter::toTransform(matrix), color ,identifier.GetString(), enabled, highlightable);
+                
             } else if (usdPrim.IsA<pxr::UsdGeomXform>())
             {
                 // convert a simple transform prim that does only author transform info but no visual apperance
@@ -575,7 +604,42 @@ namespace converter
             UsdMeshConverter<TargetEngine> meshConverter;
             std::optional<typename Types::Material> material = ConvertMaterial(meshConverter.GetUsdMaterial(usdGprim));
             pxr::UsdPrim usdPrim = usdGprim.GetPrim();
-            if (usdPrim.IsA<pxr::UsdGeomCube>())
+            
+            // Handle colliders
+            if (usdPrim.HasAPI<pxr::IDTXCollisionAPI>())
+            {                
+                pxr::IDTXCollisionAPI collisionAPI(usdPrim);
+                
+                pxr::UsdAttribute shapeAttribute = collisionAPI.GetCollisionShapeAttr();
+                pxr::UsdAttribute typeAttribute = collisionAPI.GetCollisionInteractionTypesAttr();
+                pxr::UsdAttribute axisAttribute = usdPrim.GetAttribute(pxr::UsdGeomTokens->axis);
+                pxr::UsdAttribute heightAttribute = usdPrim.GetAttribute(pxr::UsdGeomTokens->height);
+                pxr::UsdAttribute radiusAttribute = usdPrim.GetAttribute(pxr::UsdGeomTokens->radius);
+                    
+                pxr::TfToken shape ;
+                pxr::VtArray<pxr::TfToken> types;
+                pxr::TfToken axis;
+                double height;
+                double radius;
+                
+                if (!shapeAttribute.Get(&shape)) shape = pxr::TfToken("Cube");
+                if (!typeAttribute.Get(&types)) types = pxr::VtArray{pxr::TfToken("NOT_VALID")};
+                if (!axisAttribute.Get(&axis)) axis = pxr::TfToken("");
+                if (!radiusAttribute.Get(&radius)) radius = 0.0;
+                if (!heightAttribute.Get(&height)) height = 0.0;
+                
+                pxr::GfVec3f main_axis = pxr::GfVec3f(0);
+
+                // Define main axis
+                if (axis == pxr::UsdGeomTokens->x) { main_axis = pxr::GfVec3f::XAxis(); }
+                else if (axis == pxr::UsdGeomTokens->y) { main_axis = pxr::GfVec3f::YAxis(); }
+                else if (axis == pxr::UsdGeomTokens->z) { main_axis = pxr::GfVec3f::ZAxis(); }
+                
+            
+                return ConvertCollision(TypeConverter::toTransform(matrix), shape, types, main_axis, height, radius);
+            }
+            // Convert to visual representation
+            else if (usdPrim.IsA<pxr::UsdGeomCube>())
             {
                 pxr::UsdGeomCube usdCube(usdPrim);
                 double cubeSize;
@@ -585,7 +649,6 @@ namespace converter
 
             } else if (usdPrim.IsA<pxr::UsdGeomCone>())
             {
-
                 pxr::UsdGeomCone usdCone(usdPrim);
                 class pxr::TfToken axis;
                 usdCone.GetAxisAttr().Get(&axis);
@@ -719,6 +782,42 @@ namespace converter
             const pxr::VtArray<class pxr::GfVec4f>& displayColors,
             const class pxr::TfToken& colorInterpolation);
 
+        /**
+         * Convert a collision parent prim that holds additional information for
+         * the interaction.  
+         * @param transform The transform of the collider
+         * @param highlightColor Color to display when the according collider is selected
+         * @param identifier Link specific interaction behavior in-engine
+         * @param enabled Is the interaction enabled
+         * @param highlightable Should the model use a highlight shader when selected or grabbed? Implementation
+         * needs to happen on the engine side
+         * @return 
+         */
+        typename Types::ConvertedEntity* ConvertCollisionRoot(
+            const typename Types::Transform& transform,
+            const pxr::GfVec3f highlightColor,
+            const std::string identifier,
+            const bool enabled,
+            const bool highlightable);
+        
+        /**
+         * Convert a collision prim to a static collider 
+         * @param transform The transform of the collider
+         * @param shape The shape of the collider
+         * @param types The type of the collider (static, interaction, etc.). 
+         * @param axis The authored main axis
+         * @param height The shape height
+         * @param radius The shape radius (if applicable)
+         * @return 
+         */
+        typename Types::ConvertedEntity* ConvertCollision(
+            const typename Types::Transform& transform,
+            const pxr::TfToken shape, 
+            const pxr::VtArray<pxr::TfToken> types,
+            const pxr::GfVec3f axis,
+            const double height,
+            const double radius);
+        
         /**
          * Convert a Mesh
          * @param transform The transform of the mesh

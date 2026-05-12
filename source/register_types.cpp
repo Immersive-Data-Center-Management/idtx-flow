@@ -9,6 +9,7 @@
 #include <idtxflow/resolver/HttpResolver.h>
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
 
+#include "nodes/UsdStaticBodyNode3D.h"
 #include "nodes/UsdMeshInstanceNode3D.h"
 #include "nodes/UsdMultiMeshInstanceNode3D.h"
 #include "nodes/UsdXFormNode3D.h"
@@ -62,6 +63,7 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     GDREGISTER_CLASS(UsdMeshInstanceNode3D)
     GDREGISTER_CLASS(UsdMultiMeshInstanceNode3D)
     GDREGISTER_CLASS(UsdSkeletonNode3D)
+    GDREGISTER_CLASS(UsdStaticBodyNode3D)
     
 #ifdef IDTXFLOW_MDL_ENABLED
     // activate the mdl material conversion

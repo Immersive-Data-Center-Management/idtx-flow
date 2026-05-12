@@ -41,7 +41,6 @@ def _build_open_usd(env, with_python_support=False):
 
     platform_name = env["platform_name"]
     build_target = env["target"]
-    build_arch = env["arch"]
     is_android = env.get('is_android', False)
 
     # check if we have build the openUSD lib already

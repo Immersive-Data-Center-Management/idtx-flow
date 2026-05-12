@@ -1,0 +1,101 @@
+#usda 1.0
+(
+    subLayers = [
+        @usdGeom/schema.usda@
+    ]
+)
+
+over "GLOBAL" (
+    customData = {
+        string libraryName       = "IDTX"
+        string libraryPath       = "."
+    }
+)
+{
+}
+
+class "CollisionAPI" (
+	doc = "Collision-related metadata attachable to geometry prims"
+    inherits = </APISchemaBase>
+    customData = {
+        string apiSchemaType = "singleApply"
+        token[] apiSchemaCanOnlyApplyTo = ["Cube", 
+										   "Sphere", 
+										   "Cylinder",
+										   "Capsule"]
+    }
+)
+{
+	token collision:shape = "Box" (
+		allowedTokens = ["Box", "Sphere", "Capsule", "Cylinder", "Convex"]
+		doc = "Collision shape override"
+	)
+	
+	token collision:type = "Static" (
+		allowedTokens = ["Static", "Rigidbody"]
+		doc = "Collision behavior type"
+	)
+	
+	token[] collision:interactionTypes = ["Collide"] (
+		allowedTokens = ["Collide", "Select", "Grab"]
+		doc = "How colliders participate in interaction."
+	)
+	
+	token purpose = "guide" (
+		customData = {
+                bool apiSchemaOverride = true
+            }
+	)
+	
+	token visibility = "invisible" (
+		customData = {
+                bool apiSchemaOverride = true
+            }
+	)	
+}
+
+class "InteractionAPI" (
+	doc = "Interaction-related metadata attachable to prims."
+    inherits = </APISchemaBase>
+    customData = {
+        string apiSchemaType = "singleApply"
+    }
+)
+{
+	
+	bool interaction:enabled = true (
+		doc = "Define if colliders participate in interaction."
+	)
+	
+	bool interaction:highlightable = true (
+		doc = "Define if the asset shall display a highlight effect when selected. Actual implementation needs to be done on the engine side."
+	)
+	
+	color3f interaction:highlightColor = (1.0, 0.0, 0.0) (
+		doc = "Color for the highlight effect."
+	)
+	
+	uniform token interaction:identifier = "NO_VALUE" (
+		doc = "Used to link the asset to a specific interaction behavior in the engine. E.g. passing to the implemented interaction handler methods."
+	)
+	
+}
+
+class "CollisionSetAPI" (
+	doc = "The collision set contains a list of relationships to the actual colliders."
+    inherits = </APISchemaBase>
+    customData = {
+        string apiSchemaType = "singleApply"
+    }
+)
+{
+	rel physics:collider (
+		doc = "Define which prims are used as colliders."
+		)
+    
+    rel physics:collider:querry (
+		doc = "If the collider used for interaction raycasting is different from the ones used for physics simulation, this should be authored here. Entries in this list overrule the entries in the physics:collider list for interaction queries."
+	)
+	
+}
+

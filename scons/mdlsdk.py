@@ -10,7 +10,6 @@ import os
 import platform
 import shutil
 import sys
-from SCons.Script import Exit
 
 from download_utils import download_file, extract_archive
 

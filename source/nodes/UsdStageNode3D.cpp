@@ -191,8 +191,8 @@ void UsdStageNode3D::_on_stage_loaded()
     // only possible, once the nodes are added to the tree (by adding them as children to this node)
     for (Node3D* node : converted_nodes)
     {
-        this->add_child(node);
-        configure_nodes_recursive(node, this);
+        configure_nodes_recursive(node, this); // we set the owner here, but defer this to ensure adding to the tree happens first
+        this->add_child(node); // this invokes _ready() on node at earliest convinent from Godot engine point of view, which exects the "config" already run
     }
     // name our-self after the root layer of the stage we opened
     set_name(stage_->GetRootLayer()->GetDisplayName().c_str());
@@ -226,14 +226,13 @@ void UsdStageNode3D::_on_stage_loaded()
 void UsdStageNode3D::configure_nodes_recursive(godot::Node3D* node, godot::Node* owner)
 {
     if (!node) return;
-
+    
     // store the owner
-    if (owner && node != owner) node->set_owner(owner);
+    if (owner && node != owner) node->call_deferred("set_owner", owner);
 
     // store the owning StageNode3D
     if (IUsdNode3D* usd_node = IUsdNode3D::from_node(node))
         usd_node->set_stage_node(this);
-        
     
     // if this is a UsdStageNode3D itself, skip traversing the childs, as this node takes care of it
     // on it's own

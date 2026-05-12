@@ -16,7 +16,6 @@ import platform
 import re
 import shutil
 import stat
-from SCons.Script import Exit
 
 def generate(env):
     env.AddMethod(_build_extension, 'BuildGdExtension')
@@ -48,6 +47,7 @@ def _build_extension(env):
     mdl_sdk_path = "./thirdparty/mdl_sdk"
     ixws_path = "thirdparty/ixwebsocket"
     shared_include_path = "./shared/include"
+    usd_extension_path = "usd"
 
     # OpenUSD install path differs for Android
     if is_android:
@@ -76,6 +76,7 @@ def _build_extension(env):
         f"{godot_cpp_path}/gen/include",
         f"{shared_include_path}",
         f"{ixws_path}",
+        f"{usd_extension_path}/include",
     ]
     # MDL SDK headers only on non-Android platforms
     if not is_android:
@@ -84,13 +85,56 @@ def _build_extension(env):
     if is_android:
         include_paths.append(f"{onetbb_android_root}/include")
     extension_env.Append(CPPPATH=include_paths)
-
+        
+    # OpenSSL library/include paths (platform-specific)
+    # prefer system/Homebrew OpenSSL, fall back to vcpkg install
+    if platform_name == "windows":
+        # vcpkg-installed OpenSSL (always used on Windows)
+        vcpkg_triplet = "x64-windows-static"
+        vcpkg_installed = os.path.join("thirdparty", "vcpkg", "installed", vcpkg_triplet)
+        extension_env.Append(LIBPATH=[os.path.join(vcpkg_installed, "lib")])
+        extension_env.Append(CPPPATH=[os.path.join(vcpkg_installed, "include")])
+    elif platform_name == "macos":
+        # Try Homebrew OpenSSL first
+        _ssl_found = False
+        homebrew_openssl_candidates = [
+            "/opt/homebrew/opt/openssl",
+            "/usr/local/opt/openssl",
+            "/opt/homebrew/opt/openssl@3",
+            "/usr/local/opt/openssl@3",
+        ]
+        for candidate in homebrew_openssl_candidates:
+            if os.path.isdir(candidate):
+                extension_env.Append(LIBPATH=[os.path.join(candidate, "lib")])
+                extension_env.Append(CPPPATH=[os.path.join(candidate, "include")])
+                _ssl_found = True
+                break
+        if not _ssl_found:
+            # Fall back to vcpkg-installed OpenSSL
+            _machine = platform.machine().lower()
+            _triplet = "arm64-osx" if _machine in ("arm64", "aarch64") else "x64-osx"
+            _vcpkg_installed = os.path.join("thirdparty", "vcpkg", "installed", _triplet)
+            if os.path.isdir(_vcpkg_installed):
+                extension_env.Append(LIBPATH=[os.path.join(_vcpkg_installed, "lib")])
+                extension_env.Append(CPPPATH=[os.path.join(_vcpkg_installed, "include")])
+    elif platform_name == "linux":
+        # System OpenSSL dev headers present? If not, use vcpkg
+        if not os.path.isfile("/usr/include/openssl/ssl.h") and not os.path.isfile("/usr/local/include/openssl/ssl.h"):
+            _machine = platform.machine().lower()
+            _triplet = "arm64-linux" if _machine in ("arm64", "aarch64") else "x64-linux"
+            _vcpkg_installed = os.path.join("thirdparty", "vcpkg", "installed", _triplet)
+            if os.path.isdir(_vcpkg_installed):
+                extension_env.Append(LIBPATH=[os.path.join(_vcpkg_installed, "lib")])
+                extension_env.Append(CPPPATH=[os.path.join(_vcpkg_installed, "include")])
+        
     # Library paths
     lib_paths = [
         f"{usd_root}/lib",
         f"{godot_cpp_path}/bin",
         f"{ixws_build_dir}/Release" if platform_name == "windows" else f"{ixws_build_dir}",
+        f"{usd_extension_path}/libs/{platform_name}",        
     ]
+
     # MDL SDK lib path only on non-Android platforms
     if not is_android:
         lib_paths.append(f"{mdl_sdk_path}/lib")
@@ -99,58 +143,19 @@ def _build_extension(env):
         lib_paths.append(f"{onetbb_android_root}/lib")
     extension_env.Append(LIBPATH=lib_paths)
 
-    # OpenSSL library/include paths (platform-specific) — not needed on Android (TLS disabled)
-    if not is_android:
-        # prefer system/Homebrew OpenSSL, fall back to vcpkg install
-        if platform_name == "windows":
-            # vcpkg-installed OpenSSL (always used on Windows)
-            vcpkg_triplet = "x64-windows-static"
-            vcpkg_installed = os.path.join("thirdparty", "vcpkg", "installed", vcpkg_triplet)
-            extension_env.Append(LIBPATH=[os.path.join(vcpkg_installed, "lib")])
-            extension_env.Append(CPPPATH=[os.path.join(vcpkg_installed, "include")])
-        elif platform_name == "macos":
-            # Try Homebrew OpenSSL first
-            _ssl_found = False
-            homebrew_openssl_candidates = [
-                "/opt/homebrew/opt/openssl",
-                "/usr/local/opt/openssl",
-                "/opt/homebrew/opt/openssl@3",
-                "/usr/local/opt/openssl@3",
-            ]
-            for candidate in homebrew_openssl_candidates:
-                if os.path.isdir(candidate):
-                    extension_env.Append(LIBPATH=[os.path.join(candidate, "lib")])
-                    extension_env.Append(CPPPATH=[os.path.join(candidate, "include")])
-                    _ssl_found = True
-                    break
-            if not _ssl_found:
-                # Fall back to vcpkg-installed OpenSSL
-                _machine = platform.machine().lower()
-                _triplet = "arm64-osx" if _machine in ("arm64", "aarch64") else "x64-osx"
-                _vcpkg_installed = os.path.join("thirdparty", "vcpkg", "installed", _triplet)
-                if os.path.isdir(_vcpkg_installed):
-                    extension_env.Append(LIBPATH=[os.path.join(_vcpkg_installed, "lib")])
-                    extension_env.Append(CPPPATH=[os.path.join(_vcpkg_installed, "include")])
-        elif platform_name == "linux":
-            # System OpenSSL dev headers present? If not, use vcpkg
-            if not os.path.isfile("/usr/include/openssl/ssl.h") and not os.path.isfile("/usr/local/include/openssl/ssl.h"):
-                _machine = platform.machine().lower()
-                _triplet = "arm64-linux" if _machine in ("arm64", "aarch64") else "x64-linux"
-                _vcpkg_installed = os.path.join("thirdparty", "vcpkg", "installed", _triplet)
-                if os.path.isdir(_vcpkg_installed):
-                    extension_env.Append(LIBPATH=[os.path.join(_vcpkg_installed, "lib")])
-                    extension_env.Append(CPPPATH=[os.path.join(_vcpkg_installed, "include")])
-
+    
     # Base libraries
     if is_android:
         libs = [
             "usd_ms", "tbb",
+            "libidtx_usd",
             f"libgodot-cpp.{platform_name}.{build_target}.{build_arch}",
             "ixwebsocket",
         ]
     else:
         libs = [
             "usd_ms", "tbb12" if platform_name == "windows" else "tbb.12",
+            "libidtx_usd",
             f"libgodot-cpp.{platform_name}.{build_target}.{build_arch}",
             "ixwebsocket",
         ]
@@ -255,7 +260,7 @@ def _build_extension(env):
 
     # Add install target
     install_dir = f"addon/IDTXFlow/bin/{platform_name}"
-    install_targets = library
+    install_targets = list(library)
     if pdb_file and os.path.exists(pdb_file):
         install_targets.append(extension_env.File(pdb_file))
 
@@ -293,7 +298,8 @@ def _get_libs_to_install(platform_name, openusd_version="", is_android=False):
             f"{mdl_sdk_root}/bin/libmdl_sdk.dll",
             f"{mdl_sdk_root}/bin/dds.dll",
             f"{mdl_sdk_root}/bin/nv_openimageio.dll",
-            f"{mdl_sdk_root}/bin/mdl_distiller.dll"
+            f"{mdl_sdk_root}/bin/mdl_distiller.dll",
+            f"./usd/build/{platform_name}/libidtx_usd.dll",
         ]
     elif platform_name == "macos":
         usd_root = f"./thirdparty/openusd-{openusd_version}"
@@ -304,7 +310,8 @@ def _get_libs_to_install(platform_name, openusd_version="", is_android=False):
             f"{mdl_sdk_root}/lib/libmdl_sdk.so",
             f"{mdl_sdk_root}/lib/dds.so",
             f"{mdl_sdk_root}/lib/nv_openimageio.so",
-            f"{mdl_sdk_root}/lib/mdl_distiller.so"
+            f"{mdl_sdk_root}/lib/mdl_distiller.so",
+            f"./usd/build/{platform_name}/libidtx_usd.dylib",
         ]
     else:
         usd_root = f"./thirdparty/openusd-{openusd_version}"
@@ -315,7 +322,8 @@ def _get_libs_to_install(platform_name, openusd_version="", is_android=False):
             f"{mdl_sdk_root}/lib/libmdl_sdk.so",
             f"{mdl_sdk_root}/lib/dds.so",
             f"{mdl_sdk_root}/lib/nv_openimageio.so",
-            f"{mdl_sdk_root}/lib/mdl_distiller.so"
+            f"{mdl_sdk_root}/lib/mdl_distiller.so",
+            f"./usd/build/{platform_name}/libidtx_usd.so",
         ]
 
     return libs_to_install
@@ -339,6 +347,7 @@ def _copy_usd_plugins(target, source, env):
     if os.path.isdir(usd_plugin_dir):
         shutil.copytree(usd_plugin_dir, f"addon/IDTXFlow/bin/plugin/usd", dirs_exist_ok=True)
     shutil.copytree("usd/plugin/godot", "addon/IDTXFlow/bin/plugin/usd/godot", dirs_exist_ok=True)
+    shutil.copytree("usd/plugin/idtx", "addon/IDTXFlow/bin/plugin/usd/idtx", dirs_exist_ok=True)
 
 def _copy_third_party_licenses(target, source, env):
     """Copy third-party LICENSE files to addon for distribution compliance."""

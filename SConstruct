@@ -47,19 +47,28 @@ if is_android:
     _android_target = f"aarch64-linux-android{android_api_level}"
 
     ndk_env_overrides = {
-        "CC":     os.path.join(_ndk_bin, f"{_android_target}-clang{_exe}"),
-        "CXX":    os.path.join(_ndk_bin, f"{_android_target}-clang++{_exe}"),
+        "CC":     os.path.join(_ndk_bin, f"clang{_exe}"),
+        "CXX":    os.path.join(_ndk_bin, f"clang++{_exe}"),
         "AR":     os.path.join(_ndk_bin, f"llvm-ar{_exe}"),
         "RANLIB": os.path.join(_ndk_bin, f"llvm-ranlib{_exe}"),
         "STRIP":  os.path.join(_ndk_bin, f"llvm-strip{_exe}"),
-        "AS":     os.path.join(_ndk_bin, f"{_android_target}-clang{_exe}"),
-        "LINK":   os.path.join(_ndk_bin, f"{_android_target}-clang++{_exe}"),
+        "AS":     os.path.join(_ndk_bin, f"clang{_exe}"),
+        "LINK":   os.path.join(_ndk_bin, f"clang++{_exe}"),
     }
 else:
     ndk_env_overrides = {}
 
 # configure the main environment to use the different tools to build all we need
-_custom_tools = ["mdlsdk", "godotcpp", "gdextension", "openusd", "ixwebsocket", "idtxflow_ext", "idtxflow_sdk"]
+_custom_tools = [
+    "mdlsdk",
+    "godotcpp",
+    "gdextension",
+    "openusd",
+    "openusdextension",
+    "ixwebsocket",
+    "idtxflow_ext",
+    "idtxflow_sdk"
+    ]
 
 if is_android:
     # On Windows the "default" tool initialises MSVC command templates
@@ -73,6 +82,8 @@ if is_android:
         PATH=os.environ.get("PATH", ""),
         **ndk_env_overrides,
     )
+    env.Append(CCFLAGS=[f"--target={_android_target}", "-march=armv8-a"])
+    env.Append(LINKFLAGS=[f"--target={_android_target}", "-march=armv8-a"])
 else:
     env = Environment(
         ENV=os.environ.copy(),
@@ -125,6 +136,11 @@ env['openusd_version'] = openusd_version
 env.BuildIXWebSocket()
 # download and build openUSD from source without python support, as we don't need it and it will speed up the build process significantly
 env.BuildOpenUSD(with_python_support=False)
+env.BuildOpenUSD(with_python_support=True)  # with python support, to be able to generate the usd plugin code
+# generate the openUSD extension (plugin) code
+env.GenerateUsdExtensionCode()
+# compile the openUSD extension into it's library
+env.BuildUsdExtension()
 # download NVIDIA's mdlSdk — not available on Android
 if not is_android:
     env.DownloadMdlSdk()

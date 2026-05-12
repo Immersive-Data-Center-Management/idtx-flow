@@ -19,6 +19,7 @@
 
 #include <idtxflow_godot/types/GodotTypes.h>
 
+#include "nodes/UsdStaticBodyNode3D.h"
 #include "nodes/UsdMeshInstanceNode3D.h"
 #include "nodes/UsdXFormNode3D.h"
 #include "nodes/UsdMultiMeshInstanceNode3D.h"
@@ -29,7 +30,7 @@
 namespace idtxflow
 {
 namespace helper
-{
+{    
     template<typename NodeType>
         requires requires(NodeType* n, godot::Ref<godot::Animation> anim) { n->set_animation(anim); }
     inline void AddAnimation(
@@ -114,7 +115,7 @@ namespace helper
 }
 
 namespace converter
-{
+{    
     template<>
     inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertXform(
         const godot::Transform3D& transform,
@@ -327,6 +328,59 @@ namespace converter
         }
         
         return converted_node;
+    }
+    
+    template<>
+    inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCollisionRoot(
+        const godot::Transform3D& transform,
+        const pxr::GfVec3f highlightColor,
+        const std::string identifier,
+        const bool enabled,
+        const bool highlightable)
+    {
+        UsdXformNode3D* converted_node = memnew(UsdXformNode3D);
+        converted_node->set_transform(transform);
+
+        godot::Color color = TypeConverter::toColor(highlightColor);
+        
+        converted_node->set_meta("collision_enabled", enabled);
+        converted_node->set_meta("highlightable", highlightable);
+        converted_node->set_meta("highlight_color", color);  
+        converted_node->set_meta("identifier", identifier.c_str());
+        
+        return converted_node;
+    }
+    
+    template<>
+    inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCollision(
+        const godot::Transform3D& transform,
+        const pxr::TfToken shape,
+        const pxr::VtArray<pxr::TfToken> types,
+        const pxr::GfVec3f axis,
+        const double height,
+        const double radius)
+    {
+        UsdStaticBodyNode3D* collisionNode = memnew(UsdStaticBodyNode3D);
+        
+        collisionNode->set_transformData(transform);
+        collisionNode->set_collision_shape(shape.GetString().c_str());  // Set shape
+        
+        // Set interaction type
+        // Convert incoming token array to Godot array
+        godot::PackedStringArray result;
+        result.resize(types.size());
+        for (int i = 0; i < types.size(); ++i) {
+            result.set(i, godot::String(types[i].GetText()));
+        }
+        collisionNode->set_collision_type( result );    
+        
+        godot::Vector3 main_axis = TypeConverter::toVector3(axis);
+        collisionNode->set_axis(main_axis);
+        
+        if (height) {collisionNode->set_height(height); }
+        if (radius) {collisionNode->set_radius(radius); }
+        
+        return collisionNode;
     }
     
     template<>
@@ -598,6 +652,7 @@ namespace converter
         // store data in the shared IUsdNode3D class
         IUsdNode3D* usd_node = IUsdNode3D::from_node(converted_prim);
         // it is an implementation error if the node we convert into does not implement IUsdNode3D
+        if (!usd_node) IDTX_LOG(IDTX_ERROR, "Unable to get the IUsdNode3D interface for this node: %s", usd_prim.GetName().GetText());
         assert(usd_node != nullptr);
         usd_node->set_prim_name(usd_prim.GetName().GetText());
         usd_node->set_prim_path(usd_prim.GetPath().GetText());

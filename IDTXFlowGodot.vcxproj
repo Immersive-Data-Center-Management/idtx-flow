@@ -151,6 +151,7 @@
     <Content Include="scons\godotcpp.py" />
     <Content Include="scons\idtxflow_ext.py" />
     <Content Include="scons\idtxflow_sdk.py" />
+    <Content Include="scons\openusdextension.py" />
     <Content Include="templates\extension_template\addon\MyIdtxflowExtension\my_idtxflow_extension.gdextension" />
     <Content Include="templates\extension_template\README.md" />
     <Content Include="templates\extension_template\SConstruct" />
