@@ -95,6 +95,15 @@ void UsdMeshInstanceNode3D::OnComputeComplete(const std::vector<ExecComputeResul
             Color color = idtxflow::converter::UsdTypeConverter<idtxflow::types::TargetEngineGodot>::toColor(
                 result.value.Get<pxr::GfVec3f>());
             print_verbose("Got new Color: " + color);
+            Ref<Material> material = get_mesh()->surface_get_material(0);
+            if (material.is_valid())
+            {
+                Ref<StandardMaterial3D> standard_material(Object::cast_to<StandardMaterial3D>(*material));
+                if (standard_material.is_valid())
+                {
+                    standard_material->set_albedo(color);
+                }
+            }
         }
     }
 }

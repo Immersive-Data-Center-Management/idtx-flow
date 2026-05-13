@@ -19,6 +19,7 @@
 PXR_NAMESPACE_USING_DIRECTIVE
 
 TF_DEFINE_PRIVATE_TOKENS(_IDTXTokens,
+    (connectedInputsValue)
     (resolvedValue)  // Convention: bridges prim computation output → attribute computation
     ((resultBaseName, "result"))
 );
@@ -28,7 +29,16 @@ EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ColorFromFloat)
     self.PrimComputation(IDTXTokens->outputsResult)
         .Callback<GfVec3f>(+[](const VdfContext& ctx) {
             std::cout << "Prim Computation for IDTXCompute_ColorFromFloat" << std::endl;
-            float value = ctx.GetInputValue<float>(IDTXTokens->inputsValue);
+            float value;
+            if (const float* connected_value_ptr = ctx.GetInputValuePtr<float>(_IDTXTokens->connectedInputsValue))
+            {
+                value = *connected_value_ptr;
+            } else
+            {
+                // use authored value as fall back to connected value
+                value = ctx.GetInputValue<float>(IDTXTokens->inputsValue);
+            }
+            // arrays are not yet supported
             //const VtArray<GfVec3f>& colors = ctx.GetInputValue<VtArray<GfVec3f>>(IDTXTokens->colors);
             //const VtArray<float>& boundaries = ctx.GetInputValue<VtArray<float>>(IDTXTokens->boundaries);
             // Temperature-to-color mapping
@@ -53,12 +63,12 @@ EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ColorFromFloat)
         })
         .Inputs(
             Attribute(IDTXTokens->inputsValue)
-                .Connections<float>(_IDTXTokens->resolvedValue)
-                .InputName(IDTXTokens->inputsValue)
-                .Required()
+                .Connections<float>(_IDTXTokens->resolvedValue) // follow connections and call the target computation
+                .InputName(_IDTXTokens->connectedInputsValue),
+            AttributeValue<float>(IDTXTokens->inputsValue) // get authored value
         );
     
-    self.AttributeComputation(_IDTXTokens->resultBaseName, _IDTXTokens->resolvedValue)
+    self.AttributeComputation(IDTXTokens->outputsResult, _IDTXTokens->resolvedValue)
         .Callback<GfVec3f>(+[](const VdfContext& ctx)
         {
             std::cout << "Attribute Computation for IDTXCompute_ColorFromFloat that bridges to PrimComputation" << std::endl;
@@ -67,6 +77,6 @@ EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ColorFromFloat)
             );
         })
         .Inputs(
-            Prim().Computation<float>(IDTXTokens->outputsResult)
+            Prim().Computation<GfVec3f>(IDTXTokens->outputsResult)
         );
 }

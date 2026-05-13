@@ -86,12 +86,17 @@ EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ValueFromJson)
     self.PrimComputation(IDTXTokens->outputsJsonValueFloat)
         .Callback<float>(+[](const VdfContext &ctx) {
             std::cout << "PrimComputation<float> for IDTXCompute_ValueFromJson" << std::endl;
-            const std::string& jsonData = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonData);
+            const std::string* jsonDataPtr = ctx.GetInputValuePtr<std::string>(IDTXTokens->inputsJsonData);
+            if (!jsonDataPtr)
+            {
+                ctx.SetOutput<float>(0.0);
+                return;
+            }
             const std::string& jsonPointer = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonPath);
 
             // Parse the JSON string
             JsParseError parseError;
-            const JsValue root = JsParseString(jsonData, &parseError);
+            const JsValue root = JsParseString(*jsonDataPtr, &parseError);
             if (!root) {
                 ctx.SetOutput<float>(0.0);
                 return;
@@ -116,13 +121,12 @@ EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ValueFromJson)
         .Inputs(
             Attribute(IDTXTokens->inputsJsonData)
                 .Connections<std::string>(ExecBuiltinComputations->computeValue)
-                .InputName(IDTXTokens->inputsJsonData)
-                .Required(),
+                .InputName(IDTXTokens->inputsJsonData),
             AttributeValue<std::string>(IDTXTokens->inputsJsonPath).Required()
         );
     
     // Register the computed value as computation to make it accessible via ConnectionTargetedObjects
-    self.AttributeComputation(_IDTXTokens->jsonValueFloatBaseName, _IDTXTokens->resolvedValue)
+    self.AttributeComputation(IDTXTokens->outputsJsonValueFloat, _IDTXTokens->resolvedValue)
         .Callback<float>(+[](const VdfContext &ctx)
         {
             std::cout << "Attribute<float> Computation for IDTXCompute_ValueFromJson that bridges to PrimComputation" << std::endl;
@@ -138,12 +142,17 @@ EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ValueFromJson)
     self.PrimComputation(IDTXTokens->outputsJsonValueDouble)
         .Callback<double>(+[](const VdfContext &ctx) {
             std::cout << "PrimComputation<double> for IDTXCompute_ValueFromJson" << std::endl;
-            const std::string& jsonData = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonData);
+            const std::string* jsonDataPtr = ctx.GetInputValuePtr<std::string>(IDTXTokens->inputsJsonData);
+            if (!jsonDataPtr)
+            {
+                ctx.SetOutput<double>(0.0);
+                return;
+            }
             const std::string& jsonPointer = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonPath);
 
             // Parse the JSON string
             JsParseError parseError;
-            JsValue root = JsParseString(jsonData, &parseError);
+            JsValue root = JsParseString(*jsonDataPtr, &parseError);
             if (!root) {
                 ctx.SetOutput<double>(0.0);
                 return;
@@ -168,14 +177,13 @@ EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ValueFromJson)
         .Inputs(
             Attribute(IDTXTokens->inputsJsonData)
                 .Connections<std::string>(ExecBuiltinComputations->computeValue)
-                .InputName(IDTXTokens->inputsJsonData)
-                .Required(),
+                .InputName(IDTXTokens->inputsJsonData),
             AttributeValue<std::string>(IDTXTokens->inputsJsonPath)
                 .Required()
         );
     
     // Register the computed value as computation to make it accessible via ConnectionTargetedObjects
-    self.AttributeComputation(_IDTXTokens->jsonValueDoubleBaseName, _IDTXTokens->resolvedValue)
+    self.AttributeComputation(IDTXTokens->outputsJsonValueDouble, _IDTXTokens->resolvedValue)
         .Callback<double>(+[](const VdfContext &ctx)
         {
             std::cout << "Attribute<double> Computation for IDTXCompute_ValueFromJson that bridges to PrimComputation" << std::endl;
@@ -190,12 +198,17 @@ EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ValueFromJson)
     self.PrimComputation(IDTXTokens->outputsJsonValueString)
         .Callback<std::string>(+[](const VdfContext &ctx) {
             std::cout << "PrimComputation<string> for IDTXCompute_ValueFromJson" << std::endl;
-            const std::string& jsonData = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonData);
+            const std::string* jsonDataPtr = ctx.GetInputValuePtr<std::string>(IDTXTokens->inputsJsonData);
+            if (!jsonDataPtr)
+            {
+                ctx.SetOutput<std::string>("");
+                return;
+            }
             const std::string& jsonPointer = ctx.GetInputValue<std::string>(IDTXTokens->inputsJsonPath);
 
             // Parse the JSON string
             JsParseError parseError;
-            JsValue root = JsParseString(jsonData, &parseError);
+            JsValue root = JsParseString(*jsonDataPtr, &parseError);
             if (!root) {
                 ctx.SetOutput<std::string>("");
                 return;
@@ -218,14 +231,13 @@ EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ValueFromJson)
         .Inputs(
             Attribute(IDTXTokens->inputsJsonData)
                 .Connections<std::string>(ExecBuiltinComputations->computeValue)
-                .InputName(IDTXTokens->inputsJsonData)
-                .Required(),
+                .InputName(IDTXTokens->inputsJsonData),
             AttributeValue<std::string>(IDTXTokens->inputsJsonPath)
                 .Required()
         );
     
     // Register the computed value as computation to make it accessible via ConnectionTargetedObjects
-    self.AttributeComputation(_IDTXTokens->jsonValueStringBaseName, _IDTXTokens->resolvedValue)
+    self.AttributeComputation(IDTXTokens->outputsJsonValueString, _IDTXTokens->resolvedValue)
         .Callback<std::string>(+[](const VdfContext &ctx)
         {
             std::cout << "Attribute<string> Computation for IDTXCompute_ValueFromJson that bridges to PrimComputation" << std::endl;
