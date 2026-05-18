@@ -73,9 +73,8 @@ void UsdStageNode3D::_exit_tree()
         pending_load_task_->Cancel();
     }
     
-    idtxflow::exec::ExecBridgeManager::Instance().DestroyExecBridgeForStage(stage_);
+    stage_handle_.reset();
     cleanup_nodes();
-    stage_.Reset();
     Node3D::_exit_tree();
     
 }
@@ -86,9 +85,8 @@ void UsdStageNode3D::set_stage_uri(const String& path)
     stage_uri_ = path;
     
     // as the stage uri has changed we reset any previous state of this node
-    idtxflow::exec::ExecBridgeManager::Instance().DestroyExecBridgeForStage(stage_);
+    stage_handle_.reset();
     cleanup_nodes();
-    stage_.Reset();
     
     // Cancel any in-flight async load
     if (pending_load_task_)
@@ -173,9 +171,9 @@ void UsdStageNode3D::_on_stage_loaded()
         return;
     }
     
-    stage_ = result.stage;
+    pxr::UsdStageRefPtr stage = result.stage;
     
-    if (!stage_)
+    if (!stage)
     {
         emit_signal("stage_loading_finished", false);
         return;
@@ -183,23 +181,27 @@ void UsdStageNode3D::_on_stage_loaded()
     
     // instantiate the stage converter and convert the contents of the stage into Godot Node3D entities
     auto stage_converter = std::make_unique<idtxflow::converter::UsdStageConverter<idtxflow::types::TargetEngineGodot>>(this, nullptr);
-    std::vector<Node3D*> converted_nodes = stage_converter->Convert(stage_);
-    if (converted_nodes.empty())
+    idtxflow::converter::StageConversionResult<idtxflow::types::TargetEngineGodot> conversion_result = stage_converter->Convert(stage);
+    if (conversion_result.ConvertedEntities.empty())
     {
         emit_signal("stage_loading_finished", true);
         return;
     }
     
+    // store the stage handle
+    stage_handle_ = std::make_unique<idtxflow::converter::StageHandle>(std::move(conversion_result.Handle));
+    
     // once all nodes are converted, we need to add them as child to the current node.
     // And we need to recursively maintain the owner of all nodes, which is
     // only possible, once the nodes are added to the tree (by adding them as children to this node)
-    for (Node3D* node : converted_nodes)
+    for (Node3D* node : conversion_result.ConvertedEntities)
     {
         configure_nodes_recursive(node, this); // we set the owner here, but defer this to ensure adding to the tree happens first
         this->add_child(node); // this invokes _ready() on node at earliest convinent from Godot engine point of view, which exects the "config" already run
     }
+    
     // name our-self after the root layer of the stage we opened
-    set_name(stage_->GetRootLayer()->GetDisplayName().c_str());
+    set_name(stage_handle_->Stage()->GetRootLayer()->GetDisplayName().c_str());
 
     // generate and store a unique cached scene name for this converted stage
     cached_scene_name_ = generate_cached_scene_name(stage_uri_);
@@ -243,7 +245,7 @@ void UsdStageNode3D::configure_nodes_recursive(godot::Node3D* node, godot::Node*
     if (dynamic_cast<UsdStageNode3D*>(node)) return;
     
     // do this for all th children
-    const std::string& stage_path = stage_->GetRootLayer()->GetRealPath();
+    const std::string& stage_path = stage_handle_->Stage()->GetRootLayer()->GetRealPath();
     for (int i = 0; i < node->get_child_count(); i++) {
         Node* child = node->get_child(i);
         IUsdNode3D* usd_node = IUsdNode3D::from_node(child);

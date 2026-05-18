@@ -87,6 +87,7 @@
     <ClInclude Include="shared\include\idtxflow\converter\IPrimConverter.h" />
     <ClInclude Include="shared\include\idtxflow\converter\MdlMaterialConverter.h" />
     <ClInclude Include="shared\include\idtxflow\converter\PrimConverterRegistry.h" />
+    <ClInclude Include="shared\include\idtxflow\converter\StageHandle.h" />
     <ClInclude Include="shared\include\idtxflow\exec\ExecBridgeHandler.h" />
     <ClInclude Include="shared\include\idtxflow\exec\ExecBridgeManager.h" />
     <ClInclude Include="shared\include\idtxflow\exec\ExecComputeResult.h" />

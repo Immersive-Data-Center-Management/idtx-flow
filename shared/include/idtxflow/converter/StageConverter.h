@@ -54,6 +54,7 @@
 #include "AnimationConverter.h"
 #include "PrimConverterRegistry.h"
 #include "SkeletonConverter.h"
+#include "StageHandle.h"
 
 
 namespace idtxflow
@@ -88,6 +89,23 @@ namespace helper
     
 namespace converter
 {
+    /**
+     * This structure is returned by the call to the stage convertion. It contains the list of converted root
+     * entities as well as the handle to the stage that has been converted. This handle *must* outlive the converted
+     * entities. Dropping the handle before destroying the converted nodes is safe.
+     * 
+     */
+    template<typename TargetEngine> requires idtxflow::types::ValidTargetEngine<TargetEngine>
+    struct StageConversionResult
+    {
+        using Types = idtxflow::types::TargetEngineTypes<TargetEngine>;
+        
+        StageHandle Handle;
+        std::vector<typename Types::ConvertedEntity*> ConvertedEntities;
+        
+    };
+    
+    
     template<typename TargetEngine> requires idtxflow::types::ValidTargetEngine<TargetEngine>
     class UsdStageConverter
     {
@@ -112,14 +130,15 @@ namespace converter
          * Convert the usdStage into a game engine specific entity.
          * @param stage The stage to be converted
          * @param rootEntity If the converted entity shall be addedd to this root entity after convertion.
-         * @return The returned list contains either the root entity holding all converted prims in the same tree structure
-         *         as the USD stage did, the converted stages root prim or a list of prims that belonged to the pseudo-root
-         *         of the usd stage.
+         * @return The returned structure contains the stage handle container and the list of converted root prims.
+         *         This is either holding all converted prims in the same tree structure as the USD stage did, the
+         *         converted stages root prim or a list of prims that belonged to the pseudo-root of the usd stage.
          *         It is assumed that the target engines entity type allows to maintain a hierarchy similar to the one
          *         provided by USD. To actually create this game engine specific relation ship the `ConvertPrimPostProcess`
          *         method has to be specialized to implement this.
          */
-        std::vector<typename Types::ConvertedEntity*> Convert(const pxr::UsdStageRefPtr& stage, typename Types::ConvertedEntity* rootEntity = nullptr)
+        [[nodiscard]]
+        StageConversionResult<TargetEngine> Convert(const pxr::UsdStageRefPtr& stage, typename Types::ConvertedEntity* rootEntity = nullptr)
         {
             Stage = stage;
             StageUpAxis = pxr::UsdGeomGetStageUpAxis(stage);
@@ -134,15 +153,12 @@ namespace converter
             std::vector<typename Types::ConvertedEntity*> convertedEntities = ConvertPrims(stage, stage->TraverseAll(), rootEntity);
             StagePrototypeMap.clear();
             
-            // once the stage has been converted we check if any computations has been found/registered on this
-            // stage and activate the ExecBridge processing for this one
-            std::shared_ptr<exec::ExecBridge> bridge = exec::ExecBridgeManager::Instance().GetExecBridgeForStage(stage);
-            if (bridge->GetValueKeyCount() > 0)
-            {
-                exec::ExecBridgeManager::Instance().ActivateBridge(bridge);
-            }
-            
-            return ConvertStagePostProcess(convertedEntities);
+            // return the stage conversation result. This will instantiate the StageHandle that will perform anything
+            // that is bound to the lifetime of the convertion outcome, eg. configure the ExecBridge
+            return {
+                StageHandle(Stage),
+                ConvertStagePostProcess(convertedEntities)
+            };
         }
         
     protected:

@@ -10,6 +10,7 @@
 
 #include <idtxflow/async/StageLoadTask.h>
 #include <idtxflow_godot/nodes/IUsdNode3D.h>
+#include "idtxflow/converter/StageHandle.h"
 
 /**
  * This node represents an USD Stage or an USD Layer defined by an *.usd[a|c|z] file.
@@ -74,7 +75,7 @@ public:
      * @return 
      */
     [[nodiscard]]
-    pxr::UsdStageRefPtr get_stage() const { return stage_; }
+    pxr::UsdStageRefPtr get_stage() const { return stage_handle_->Stage(); }
 
     /**
      * Check if the stage is currently being loaded asynchronously.
@@ -108,7 +109,7 @@ protected:
     bool node_ready_ = false;
     godot::String stage_uri_;
     godot::String cached_scene_name_;
-    pxr::UsdStageRefPtr stage_ = nullptr;
+    std::unique_ptr<idtxflow::converter::StageHandle> stage_handle_;
 
     // --- Async loading state ---
     
@@ -120,5 +121,5 @@ protected:
     std::mutex result_mutex_;
 
     // Whether an async load is currently in progress
-    bool is_loading_ = false;
+    bool is_loading_;
 };
