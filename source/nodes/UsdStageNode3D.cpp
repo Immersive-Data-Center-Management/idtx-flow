@@ -73,8 +73,11 @@ void UsdStageNode3D::_exit_tree()
         pending_load_task_->Cancel();
     }
     
+    idtxflow::exec::ExecBridgeManager::Instance().DestroyExecBridgeForStage(stage_);
     cleanup_nodes();
+    stage_.Reset();
     Node3D::_exit_tree();
+    
 }
 
 void UsdStageNode3D::set_stage_uri(const String& path)
@@ -83,8 +86,9 @@ void UsdStageNode3D::set_stage_uri(const String& path)
     stage_uri_ = path;
     
     // as the stage uri has changed we reset any previous state of this node
-    stage_.Reset();
+    idtxflow::exec::ExecBridgeManager::Instance().DestroyExecBridgeForStage(stage_);
     cleanup_nodes();
+    stage_.Reset();
     
     // Cancel any in-flight async load
     if (pending_load_task_)

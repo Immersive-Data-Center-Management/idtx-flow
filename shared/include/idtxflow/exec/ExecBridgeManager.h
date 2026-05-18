@@ -256,7 +256,7 @@ namespace exec
          * need to be called. Then ExecBridge->ComputeAndDispatch() can be invoked (e.g. repeatedly time based) to run
          * computation and dispatch the result to the respective registered handlers.
          * @param stage The stage the usd exec system shall be instantiated and the exec bridge provided for.
-         * @return 
+         * @return The ExecBridge
          */
         std::shared_ptr<ExecBridge> GetExecBridgeForStage(const pxr::UsdStageRefPtr& stage) {
             auto [it, bridge] = stage_exec_bridges_.try_emplace(stage);
@@ -266,7 +266,21 @@ namespace exec
         }
 
         /**
-         * Activate an ExecBridge of a stage to be considerde in the worker thread to trigger computations.
+         * Destroy and remove an existing execBridge for the given stage. This will unregister it from being considered
+         * in the computation thread. This has to be called before the the stage and it's converted prims are destroyed.
+         * Otherwise it may find dangling pointers when dispatching any updates.
+         * @param stage The stage the exec bridge should be destroyed for.
+         */
+        void DestroyExecBridgeForStage(const pxr::UsdStageRefPtr& stage)
+        {
+            auto it = stage_exec_bridges_.find(stage);
+            if (it == stage_exec_bridges_.end()) return;
+            DeactivateBridge(it->second);
+            stage_exec_bridges_.erase(it);
+        }
+
+        /**
+         * Activate an ExecBridge of a stage to be considered in the worker thread to trigger computations.
          * @param bridge The ExecBridge that shall be activated and run it's ComputeAndDispatch cycles
          */
         void ActivateBridge(std::shared_ptr<ExecBridge> bridge)
@@ -279,7 +293,27 @@ namespace exec
             std::lock_guard<std::mutex> lock(activation_mutex_);
             active_bridges_.push_back(bridge);
         }
-        
+
+        /**
+         * Deactivate an ExecBridge of a stage. This is required to be called if a stage got "unloaded" to ensure
+         * there is no computation being dispatched for the bridge any longer 
+         * @param bridge 
+         */
+        void DeactivateBridge(std::shared_ptr<ExecBridge> bridge)
+        {
+            if (!bridge) return;
+            std::lock_guard<std::mutex> lock(activation_mutex_);
+            auto iter = std::find_if(active_bridges_.begin(), active_bridges_.end(),
+                    [raw = bridge.get()](auto &active_bridge){ return active_bridge.get() == raw; }
+                );
+            if (iter != active_bridges_.end())
+                active_bridges_.erase(iter);
+        }
+
+        /**
+         * This spawns the thread that runs the computations on all the registered and active computations through their
+         * ExecBridges. The computation interval is actually hard-coded to run every 100ms.
+         */
         void Start()
         {
             cancelled_.store(false);
@@ -296,8 +330,8 @@ namespace exec
                         {
                             bridge->ComputeAndDispatch();
                         }
-                        std::this_thread::sleep_for(std::chrono::milliseconds(100));
                     }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 }
             });
         }
@@ -305,6 +339,7 @@ namespace exec
         void Cancel()
         {
             cancelled_.store(true);
+            if (worker_.joinable()) worker_.join();
         }
         
     private:
