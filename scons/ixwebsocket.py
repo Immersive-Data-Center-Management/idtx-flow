@@ -86,6 +86,7 @@ def _probe_openssl_pkg_config():
         if inc and lib and os.path.isfile(os.path.join(inc, "openssl", "ssl.h")):
             return (inc, lib)
     except (subprocess.CalledProcessError, FileNotFoundError):
+        # exceptions are treated as "we are unable to locate OpenSSL". Thus just pass and return None later
         pass
     return None
 

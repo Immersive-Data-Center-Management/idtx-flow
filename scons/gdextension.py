@@ -245,7 +245,6 @@ def _get_libs_to_install(platform_name, openusd_version=""):
     print("Getting libs to install...")
     usd_root = f"./thirdparty/openusd-{openusd_version}"
     mdl_sdk_root = "./thirdparty/mdl_sdk"
-    usd_extension = "usd"
     if platform_name == "windows":
         libs_to_install = [
             f"{usd_root}/lib/usd_ms.dll",
@@ -339,3 +338,5 @@ def _copy_third_party_licenses(target, source, env):
         for f in missing:
             print(f"  {f}")
         return 1
+    
+    return 0
