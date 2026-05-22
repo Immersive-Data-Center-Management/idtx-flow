@@ -16,7 +16,6 @@ import platform
 import re
 import shutil
 import stat
-from SCons.Script import Exit
 
 def generate(env):
     env.AddMethod(_build_extension, 'BuildGdExtension')

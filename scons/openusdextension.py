@@ -3,10 +3,7 @@ import platform
 import shutil
 import subprocess
 import sysconfig
-from SCons.Script import ARGUMENTS
 from SCons.Script import Exit
-
-from SCons import __version__ as scons_raw_version
 
 def generate(env):
     env.AddMethod(_generate_usd_extensions_code, 'GenerateUsdExtensionCode')
