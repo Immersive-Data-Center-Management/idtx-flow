@@ -73,23 +73,6 @@ class Compute_ScaleDouble "Compute_ScaleDouble" (
     )
 }
 
-class Compute_ColorFromFloat "Compute_ColorFromFloat" (
-    inherits = </Typed>
-    customData = {
-        string userDocBrief = "This Schema (PrimType) registers a computation that will compute a color value from the given float based on a range map."
-    }
-)
-{
-    float[] boundaries (
-        doc = """The array stored the upper bounds for the color to be choosen based on the input value. It should always have 1 entry less than the \\sa colors array."""
-    )
-    color3f[] colors (
-        doc = """The arry of colors to choose from, when the input value falls into the corresponing \\sa boundaries bucket."""
-    )
-    float inputs:value = 0.0
-    color3f outputs:result
-}
-
 class "Datasource" (
     inherits = </Typed>
     doc = """Base class for all data source primitives."""

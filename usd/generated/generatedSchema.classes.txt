@@ -3,7 +3,6 @@
 # Public Classes
 collisionAPI
 collisionSetAPI
-compute_ColorFromFloat
 compute_ScaleDouble
 compute_ValueFromJson
 datasource
@@ -15,7 +14,6 @@ tokens
 module.cpp
 wrapCollisionAPI.cpp
 wrapCollisionSetAPI.cpp
-wrapCompute_ColorFromFloat.cpp
 wrapCompute_ScaleDouble.cpp
 wrapCompute_ValueFromJson.cpp
 wrapDatasource.cpp

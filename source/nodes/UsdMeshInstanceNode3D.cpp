@@ -99,26 +99,9 @@ void UsdMeshInstanceNode3D::OnComputeComplete(const std::vector<ExecComputeResul
             {
                 Ref<SphereMesh> sphere_mesh(Object::cast_to<SphereMesh>(get_mesh().ptr()));
                 sphere_mesh->call_deferred("set_radius", radius);
-                sphere_mesh->call_deferred("set_height", radius * 0.5);
+                sphere_mesh->call_deferred("set_height", radius * 2.0);
             }
             continue;
-        }
-        
-        if (result.primAttribute == pxr::UsdGeomTokens->primvarsDisplayColor.GetString() &&
-            result.value.IsHolding<pxr::GfVec3f>())
-        {
-            Color color = idtxflow::converter::UsdTypeConverter<idtxflow::types::TargetEngineGodot>::toColor(
-                result.value.Get<pxr::GfVec3f>());
-            print_verbose("Got new Color: " + color);
-            Ref<Material> material = get_mesh()->surface_get_material(0);
-            if (material.is_valid())
-            {
-                Ref<StandardMaterial3D> standard_material(Object::cast_to<StandardMaterial3D>(*material));
-                if (standard_material.is_valid())
-                {
-                    standard_material->set_albedo(color);
-                }
-            }
         }
     }
 }

@@ -41,14 +41,10 @@ PXR_NAMESPACE_OPEN_SCOPE
 /// Use IDTXTokens like so:
 ///
 /// \code
-///     gprim.GetMyTokenValuedAttr().Set(IDTXTokens->boundaries);
+///     gprim.GetMyTokenValuedAttr().Set(IDTXTokens->Box);
 /// \endcode
 struct IDTXTokensType {
     IDTX_API IDTXTokensType();
-    /// \brief "boundaries"
-    /// 
-    /// IDTXCompute_ColorFromFloat
-    const TfToken boundaries;
     /// \brief "Box"
     /// 
     /// Fallback value for IDTXCollisionAPI::GetCollisionShapeAttr()
@@ -73,10 +69,6 @@ struct IDTXTokensType {
     /// 
     /// IDTXCollisionAPI
     const TfToken collisionType;
-    /// \brief "colors"
-    /// 
-    /// IDTXCompute_ColorFromFloat
-    const TfToken colors;
     /// \brief "Convex"
     /// 
     /// Possible value for IDTXCollisionAPI::GetCollisionShapeAttr()
@@ -119,7 +111,7 @@ struct IDTXTokensType {
     const TfToken inputsJsonValueType;
     /// \brief "inputs:value"
     /// 
-    /// IDTXCompute_ScaleDouble, IDTXCompute_ColorFromFloat
+    /// IDTXCompute_ScaleDouble
     const TfToken inputsValue;
     /// \brief "interaction:enabled"
     /// 
@@ -167,7 +159,7 @@ struct IDTXTokensType {
     const TfToken outputsJsonValueString;
     /// \brief "outputs:result"
     /// 
-    /// IDTXCompute_ScaleDouble, IDTXCompute_ColorFromFloat
+    /// IDTXCompute_ScaleDouble
     const TfToken outputsResult;
     /// \brief "physics:collider"
     /// 
@@ -217,10 +209,6 @@ struct IDTXTokensType {
     /// 
     /// Schema identifer and family for IDTXCollisionSetAPI
     const TfToken CollisionSetAPI;
-    /// \brief "Compute_ColorFromFloat"
-    /// 
-    /// Schema identifer and family for IDTXCompute_ColorFromFloat
-    const TfToken Compute_ColorFromFloat;
     /// \brief "Compute_ScaleDouble"
     /// 
     /// Schema identifer and family for IDTXCompute_ScaleDouble

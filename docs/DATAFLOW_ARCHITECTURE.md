@@ -463,9 +463,9 @@ The pattern used in `.Inputs()` is the key to supporting both cases simultaneous
 
 ```cpp
 .Inputs(
-    Attribute(IDTXTokens->inputsValue)      // attribute with connection support
-        .Connections<T>(resolvedValue)  // if connected: evaluate source & deliver here
-        .InputName(connectedInputsValue),   // alias for GetInputValuePtr inside callback
+    Attribute(IDTXTokens->inputsValue)          // attribute with connection support
+        .Connections<T>(resolvedValue)          // if connected: evaluate source & deliver here
+        .InputName(connectedInputsValue),       // alias for GetInputValuePtr inside callback
     AttributeValue<T>(IDTXTokens->inputsValue)  // also: raw authored value
 )
 ```
@@ -490,13 +490,13 @@ that supports optional upstream connections.
 
 The following checklist covers every artefact that must be in place for a new compute node to work end-to-end:
 
-| #  | Artefact                               | What to do                                                                                         |
-|----|----------------------------------------|----------------------------------------------------------------------------------------------------|
-| [] | `usd/source/schema.usda`               | Add a new `class` block with `inputs:*` and `outputs:*` attributes.                                |
-| [] | Run `usdGenSchema`                     | Regenerates `compute_<Name>.h/.cpp` and `tokens.h/.cpp` with the new `TfToken` constants.          |
-| [] | `usd/generated/plugInfo.json`          | Add the schema C++ class name to `"Exec" > "Schemas"`.                                             |
-| [] | `usd/generated/computation_<name>.cpp` | Implement `EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA` with `PrimComputation` + `AttributeComputation`. |
-| [] | Build `libIDTX`                        | Compile the new `.cpp` into the shared library. Done by `scons` automatically in this repo.        |
+| # | Artefact                               | What to do                                                                                         |
+|---|----------------------------------------|----------------------------------------------------------------------------------------------------|
+| 1 | `usd/source/schema.usda`               | Add a new `class` block with `inputs:*` and `outputs:*` attributes.                                |
+| 2 | Run `usdGenSchema`                     | Regenerates `compute_<Name>.h/.cpp` and `tokens.h/.cpp` with the new `TfToken` constants.          |
+| 3 | `usd/generated/plugInfo.json`          | Add the schema C++ class name to `"Exec" > "Schemas"`.                                             |
+| 4 | `usd/generated/computation_<name>.cpp` | Implement `EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA` with `PrimComputation` + `AttributeComputation`. |
+| 5 | Build `libIDTX`                        | Compile the new `.cpp` into the shared library. Done by `scons` automatically in this repo.        |
 
 Once the library is rebuilt and the `plugInfo.json` is deployed alongside it, any USD stage that contains a prim of
 the new schema type will have its computation automatically discovered and wired into the OpenExec graph by the

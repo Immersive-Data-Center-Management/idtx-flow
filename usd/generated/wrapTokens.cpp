@@ -17,14 +17,12 @@ void wrapIDTXTokens()
 {
     pxr_boost::python::class_<IDTXTokensType, pxr_boost::python::noncopyable>
         cls("Tokens", pxr_boost::python::no_init);
-    _ADD_TOKEN(cls, boundaries);
     _ADD_TOKEN(cls, Box);
     _ADD_TOKEN(cls, Capsule);
     _ADD_TOKEN(cls, Collide);
     _ADD_TOKEN(cls, collisionInteractionTypes);
     _ADD_TOKEN(cls, collisionShape);
     _ADD_TOKEN(cls, collisionType);
-    _ADD_TOKEN(cls, colors);
     _ADD_TOKEN(cls, Convex);
     _ADD_TOKEN(cls, Cylinder);
     _ADD_TOKEN(cls, double_);
@@ -60,7 +58,6 @@ void wrapIDTXTokens()
     _ADD_TOKEN(cls, visibility);
     _ADD_TOKEN(cls, CollisionAPI);
     _ADD_TOKEN(cls, CollisionSetAPI);
-    _ADD_TOKEN(cls, Compute_ColorFromFloat);
     _ADD_TOKEN(cls, Compute_ScaleDouble);
     _ADD_TOKEN(cls, Compute_ValueFromJson);
     _ADD_TOKEN(cls, Datasource);
