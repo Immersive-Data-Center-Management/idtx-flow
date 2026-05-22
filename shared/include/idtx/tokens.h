@@ -119,7 +119,7 @@ struct IDTXTokensType {
     const TfToken inputsJsonValueType;
     /// \brief "inputs:value"
     /// 
-    /// IDTXCompute_ColorFromFloat
+    /// IDTXCompute_ScaleDouble, IDTXCompute_ColorFromFloat
     const TfToken inputsValue;
     /// \brief "interaction:enabled"
     /// 
@@ -167,7 +167,7 @@ struct IDTXTokensType {
     const TfToken outputsJsonValueString;
     /// \brief "outputs:result"
     /// 
-    /// IDTXCompute_ColorFromFloat
+    /// IDTXCompute_ScaleDouble, IDTXCompute_ColorFromFloat
     const TfToken outputsResult;
     /// \brief "physics:collider"
     /// 
@@ -185,6 +185,10 @@ struct IDTXTokensType {
     /// 
     /// Possible value for IDTXCollisionAPI::GetCollisionTypeAttr()
     const TfToken Rigidbody;
+    /// \brief "scalarFactor"
+    /// 
+    /// IDTXCompute_ScaleDouble
+    const TfToken scalarFactor;
     /// \brief "Select"
     /// 
     /// Possible value for IDTXCollisionAPI::GetCollisionInteractionTypesAttr()
@@ -217,6 +221,10 @@ struct IDTXTokensType {
     /// 
     /// Schema identifer and family for IDTXCompute_ColorFromFloat
     const TfToken Compute_ColorFromFloat;
+    /// \brief "Compute_ScaleDouble"
+    /// 
+    /// Schema identifer and family for IDTXCompute_ScaleDouble
+    const TfToken Compute_ScaleDouble;
     /// \brief "Compute_ValueFromJson"
     /// 
     /// Schema identifer and family for IDTXCompute_ValueFromJson

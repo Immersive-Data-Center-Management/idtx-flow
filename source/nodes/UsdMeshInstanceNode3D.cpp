@@ -1,6 +1,7 @@
 #include "UsdMeshInstanceNode3D.h"
 
 #include <godot_cpp/classes/box_mesh.hpp>
+#include <godot_cpp/classes/sphere_mesh.hpp>
 
 #include <pxr/usd/usdGeom/tokens.h>
 
@@ -89,6 +90,20 @@ void UsdMeshInstanceNode3D::OnComputeComplete(const std::vector<ExecComputeResul
             box_mesh->call_deferred("set_size", godot::Vector3(size, size, size));
             continue;
         }
+        
+        if (result.primAttribute == pxr::UsdGeomTokens->radius.GetString() &&
+            result.value.IsHolding<double>())
+        {
+            float radius = static_cast<float>(result.value.Get<double>());
+            if (get_mesh()->is_class("SphereMesh"))
+            {
+                Ref<SphereMesh> sphere_mesh(Object::cast_to<SphereMesh>(get_mesh().ptr()));
+                sphere_mesh->call_deferred("set_radius", radius);
+                sphere_mesh->call_deferred("set_height", radius * 0.5);
+            }
+            continue;
+        }
+        
         if (result.primAttribute == pxr::UsdGeomTokens->primvarsDisplayColor.GetString() &&
             result.value.IsHolding<pxr::GfVec3f>())
         {

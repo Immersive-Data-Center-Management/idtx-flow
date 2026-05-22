@@ -55,6 +55,24 @@ class Compute_ValueFromJson "Compute_ValueFromJson" (
     )    
 }
 
+class Compute_ScaleDouble "Compute_ScaleDouble" (
+    inherits = </Typed>
+    customData = {
+        string userDocBrief = "This Schema (PrimType) registers a computation that will multiply the input value with the scalarFactor"
+    }
+)
+{
+    double scalarFactor = 1.0 (
+        doc = """The scalar factor that shall be multiplied to the input value"""
+    )
+    double inputs:value = 0.0 (
+        doc = """The input value to this computation. Could be connected to another compute node"""
+    )
+    double outputs:result (
+        doc = """The result of the computation"""
+    )
+}
+
 class Compute_ColorFromFloat "Compute_ColorFromFloat" (
     inherits = </Typed>
     customData = {

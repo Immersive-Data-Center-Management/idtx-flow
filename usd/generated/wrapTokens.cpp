@@ -52,6 +52,7 @@ void wrapIDTXTokens()
     _ADD_TOKEN(cls, physicsColliderQuerry);
     _ADD_TOKEN(cls, purpose);
     _ADD_TOKEN(cls, Rigidbody);
+    _ADD_TOKEN(cls, scalarFactor);
     _ADD_TOKEN(cls, Select);
     _ADD_TOKEN(cls, Sphere);
     _ADD_TOKEN(cls, Static);
@@ -60,6 +61,7 @@ void wrapIDTXTokens()
     _ADD_TOKEN(cls, CollisionAPI);
     _ADD_TOKEN(cls, CollisionSetAPI);
     _ADD_TOKEN(cls, Compute_ColorFromFloat);
+    _ADD_TOKEN(cls, Compute_ScaleDouble);
     _ADD_TOKEN(cls, Compute_ValueFromJson);
     _ADD_TOKEN(cls, Datasource);
     _ADD_TOKEN(cls, InteractionAPI);

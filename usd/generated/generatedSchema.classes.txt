@@ -4,6 +4,7 @@
 collisionAPI
 collisionSetAPI
 compute_ColorFromFloat
+compute_ScaleDouble
 compute_ValueFromJson
 datasource
 interactionAPI
@@ -15,6 +16,7 @@ module.cpp
 wrapCollisionAPI.cpp
 wrapCollisionSetAPI.cpp
 wrapCompute_ColorFromFloat.cpp
+wrapCompute_ScaleDouble.cpp
 wrapCompute_ValueFromJson.cpp
 wrapDatasource.cpp
 wrapInteractionAPI.cpp

@@ -21,7 +21,6 @@ PXR_NAMESPACE_USING_DIRECTIVE
 TF_DEFINE_PRIVATE_TOKENS(_IDTXTokens,
     (connectedInputsValue)
     (resolvedValue)  // Convention: bridges prim computation output → attribute computation
-    ((resultBaseName, "result"))
 );
 
 EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_ColorFromFloat)

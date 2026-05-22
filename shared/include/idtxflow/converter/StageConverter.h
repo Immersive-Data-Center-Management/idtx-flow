@@ -975,8 +975,8 @@ namespace converter
                         dynamic_cast<IExecBridgeHandler*>(convertedPrim),
                         [](IExecBridgeHandler*)
                         {
-                            /* the empty shared_ptr destructore ensures that the owner of the converted
-                             * node instance is responsible for it's lifecycle and releasing the
+                            /* the empty shared_ptr destructor ensures that the owner of the converted
+                             * node instance is responsible for its lifecycle and releasing the
                              * last instance of the shared_ptr will not delete/free the contained object
                              */
                         }

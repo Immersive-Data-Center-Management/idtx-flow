@@ -42,6 +42,29 @@ class Compute_ValueFromJson "Compute_ValueFromJson" (
     )
 }
 
+class Compute_ScaleDouble "Compute_ScaleDouble" (
+    customData = {
+        string userDocBrief = "This Schema (PrimType) registers a computation that will multiply the input value with the scalarFactor"
+    }
+)
+{
+    double inputs:value = 0 (
+        customData = {
+            string userDocBrief = "The input value to this computation."
+        }
+    )
+    double outputs:result (
+        customData = {
+            string userDocBrief = "The result of the computation."
+        }
+    )
+    double scalarFactor = 1 (
+        customData = {
+            string userDocBrief = "The scalar factor that shall be multiplied to the input value."
+        }
+    )
+}
+
 class Compute_ColorFromFloat "Compute_ColorFromFloat" (
     customData = {
         string userDocBrief = "This Schema (PrimType) registers a computation that will compute a color value from the given float based on a range map."
