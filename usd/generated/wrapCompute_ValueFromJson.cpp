@@ -40,16 +40,16 @@ _CreateInputsJsonDataAttr(IDTXCompute_ValueFromJson &self,
 }
         
 static UsdAttribute
-_CreateInputsJsonPathAttr(IDTXCompute_ValueFromJson &self,
+_CreateJsonPathAttr(IDTXCompute_ValueFromJson &self,
                                       object defaultVal, bool writeSparsely) {
-    return self.CreateInputsJsonPathAttr(
+    return self.CreateJsonPathAttr(
         UsdPythonToSdfType(defaultVal, SdfValueTypeNames->String), writeSparsely);
 }
         
 static UsdAttribute
-_CreateInputsJsonValueTypeAttr(IDTXCompute_ValueFromJson &self,
+_CreateJsonValueTypeAttr(IDTXCompute_ValueFromJson &self,
                                       object defaultVal, bool writeSparsely) {
-    return self.CreateInputsJsonValueTypeAttr(
+    return self.CreateJsonValueTypeAttr(
         UsdPythonToSdfType(defaultVal, SdfValueTypeNames->Token), writeSparsely);
 }
         
@@ -123,17 +123,17 @@ void wrapIDTXCompute_ValueFromJson()
              (arg("defaultValue")=object(),
               arg("writeSparsely")=false))
         
-        .def("GetInputsJsonPathAttr",
-             &This::GetInputsJsonPathAttr)
-        .def("CreateInputsJsonPathAttr",
-             &_CreateInputsJsonPathAttr,
+        .def("GetJsonPathAttr",
+             &This::GetJsonPathAttr)
+        .def("CreateJsonPathAttr",
+             &_CreateJsonPathAttr,
              (arg("defaultValue")=object(),
               arg("writeSparsely")=false))
         
-        .def("GetInputsJsonValueTypeAttr",
-             &This::GetInputsJsonValueTypeAttr)
-        .def("CreateInputsJsonValueTypeAttr",
-             &_CreateInputsJsonValueTypeAttr,
+        .def("GetJsonValueTypeAttr",
+             &This::GetJsonValueTypeAttr)
+        .def("CreateJsonValueTypeAttr",
+             &_CreateJsonValueTypeAttr,
              (arg("defaultValue")=object(),
               arg("writeSparsely")=false))
         

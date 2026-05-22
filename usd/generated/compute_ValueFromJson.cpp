@@ -104,15 +104,15 @@ IDTXCompute_ValueFromJson::CreateInputsJsonDataAttr(VtValue const &defaultValue,
 }
 
 UsdAttribute
-IDTXCompute_ValueFromJson::GetInputsJsonPathAttr() const
+IDTXCompute_ValueFromJson::GetJsonPathAttr() const
 {
-    return GetPrim().GetAttribute(IDTXTokens->inputsJsonPath);
+    return GetPrim().GetAttribute(IDTXTokens->jsonPath);
 }
 
 UsdAttribute
-IDTXCompute_ValueFromJson::CreateInputsJsonPathAttr(VtValue const &defaultValue, bool writeSparsely) const
+IDTXCompute_ValueFromJson::CreateJsonPathAttr(VtValue const &defaultValue, bool writeSparsely) const
 {
-    return UsdSchemaBase::_CreateAttr(IDTXTokens->inputsJsonPath,
+    return UsdSchemaBase::_CreateAttr(IDTXTokens->jsonPath,
                        SdfValueTypeNames->String,
                        /* custom = */ false,
                        SdfVariabilityVarying,
@@ -121,15 +121,15 @@ IDTXCompute_ValueFromJson::CreateInputsJsonPathAttr(VtValue const &defaultValue,
 }
 
 UsdAttribute
-IDTXCompute_ValueFromJson::GetInputsJsonValueTypeAttr() const
+IDTXCompute_ValueFromJson::GetJsonValueTypeAttr() const
 {
-    return GetPrim().GetAttribute(IDTXTokens->inputsJsonValueType);
+    return GetPrim().GetAttribute(IDTXTokens->jsonValueType);
 }
 
 UsdAttribute
-IDTXCompute_ValueFromJson::CreateInputsJsonValueTypeAttr(VtValue const &defaultValue, bool writeSparsely) const
+IDTXCompute_ValueFromJson::CreateJsonValueTypeAttr(VtValue const &defaultValue, bool writeSparsely) const
 {
-    return UsdSchemaBase::_CreateAttr(IDTXTokens->inputsJsonValueType,
+    return UsdSchemaBase::_CreateAttr(IDTXTokens->jsonValueType,
                        SdfValueTypeNames->Token,
                        /* custom = */ false,
                        SdfVariabilityVarying,
@@ -206,8 +206,8 @@ IDTXCompute_ValueFromJson::GetSchemaAttributeNames(bool includeInherited)
 {
     static TfTokenVector localNames = {
         IDTXTokens->inputsJsonData,
-        IDTXTokens->inputsJsonPath,
-        IDTXTokens->inputsJsonValueType,
+        IDTXTokens->jsonPath,
+        IDTXTokens->jsonValueType,
         IDTXTokens->outputsJsonValueDouble,
         IDTXTokens->outputsJsonValueFloat,
         IDTXTokens->outputsJsonValueString,
@@ -243,7 +243,7 @@ bool IDTXCompute_ValueFromJson::GetJsonValue(T* out) const
     }
 
     TfToken type;
-    if (!GetInputsJsonValueTypeAttr().Get(&type)) {
+    if (!GetJsonValueTypeAttr().Get(&type)) {
         return false;
     }
 
@@ -264,15 +264,15 @@ bool IDTXCompute_ValueFromJson::GetJsonValue(T* out) const
 inline bool IDTXCompute_ValueFromJson::SetJsonValue(const pxr::VtValue& value)
 {
     if (value.IsHolding<float>()) {
-        return GetInputsJsonValueTypeAttr().Set(TfToken("float"))
+        return GetJsonValueTypeAttr().Set(TfToken("float"))
             && GetOutputsJsonValueFloatAttr().Set(value.UncheckedGet<float>());
     }
     if (value.IsHolding<float>()) {
-        return GetInputsJsonValueTypeAttr().Set(TfToken("double"))
+        return GetJsonValueTypeAttr().Set(TfToken("double"))
             && GetOutputsJsonValueDoubleAttr().Set(value.UncheckedGet<double>());
     }
     if (value.IsHolding<std::string>()) {
-        return GetInputsJsonValueTypeAttr().Set(TfToken("string"))
+        return GetJsonValueTypeAttr().Set(TfToken("string"))
             && GetOutputsJsonValueStringAttr().Set(value.UncheckedGet<std::string>());
     }
     

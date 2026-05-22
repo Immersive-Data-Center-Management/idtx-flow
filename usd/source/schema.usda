@@ -27,12 +27,12 @@ class Compute_ValueFromJson "Compute_ValueFromJson" (
             string userDocBrief = "The Json input data, the value shall be extracted from. If this is not valid json there will be no value extracted."
         }
     )
-    string inputs:jsonPath (
+    string jsonPath (
         customData = {
             string userDocBrief = "The path to the field within the json data the value shall be extracted from."
         }
     )
-    token inputs:jsonValueType (
+    token jsonValueType (
 		allowedTokens = ["none", "float", "double", "string"]
 		customData = {
 			string userDocBrief = "The value type should match the actual data type that shall be extracted from the json path."

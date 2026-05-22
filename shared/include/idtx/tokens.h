@@ -79,11 +79,11 @@ struct IDTXTokensType {
     const TfToken Cylinder;
     /// \brief "double"
     /// 
-    /// Possible value for IDTXCompute_ValueFromJson::GetInputsJsonValueTypeAttr()
+    /// Possible value for IDTXCompute_ValueFromJson::GetJsonValueTypeAttr()
     const TfToken double_;
     /// \brief "float"
     /// 
-    /// Possible value for IDTXCompute_ValueFromJson::GetInputsJsonValueTypeAttr()
+    /// Possible value for IDTXCompute_ValueFromJson::GetJsonValueTypeAttr()
     const TfToken float_;
     /// \brief "Grab"
     /// 
@@ -101,14 +101,6 @@ struct IDTXTokensType {
     /// 
     /// IDTXCompute_ValueFromJson
     const TfToken inputsJsonData;
-    /// \brief "inputs:jsonPath"
-    /// 
-    /// IDTXCompute_ValueFromJson
-    const TfToken inputsJsonPath;
-    /// \brief "inputs:jsonValueType"
-    /// 
-    /// IDTXCompute_ValueFromJson
-    const TfToken inputsJsonValueType;
     /// \brief "inputs:value"
     /// 
     /// IDTXCompute_ScaleDouble
@@ -133,13 +125,21 @@ struct IDTXTokensType {
     /// 
     /// Fallback value for IDTXCollisionAPI schema attribute visibility
     const TfToken invisible;
+    /// \brief "jsonPath"
+    /// 
+    /// IDTXCompute_ValueFromJson
+    const TfToken jsonPath;
+    /// \brief "jsonValueType"
+    /// 
+    /// IDTXCompute_ValueFromJson
+    const TfToken jsonValueType;
     /// \brief "NO_VALUE"
     /// 
     /// Fallback value for IDTXInteractionAPI::GetInteractionIdentifierAttr()
     const TfToken NO_VALUE;
     /// \brief "none"
     /// 
-    /// Possible value for IDTXCompute_ValueFromJson::GetInputsJsonValueTypeAttr()
+    /// Possible value for IDTXCompute_ValueFromJson::GetJsonValueTypeAttr()
     const TfToken none;
     /// \brief "outputs:data"
     /// 
@@ -195,7 +195,7 @@ struct IDTXTokensType {
     const TfToken Static;
     /// \brief "string"
     /// 
-    /// Possible value for IDTXCompute_ValueFromJson::GetInputsJsonValueTypeAttr()
+    /// Possible value for IDTXCompute_ValueFromJson::GetJsonValueTypeAttr()
     const TfToken string;
     /// \brief "visibility"
     /// 

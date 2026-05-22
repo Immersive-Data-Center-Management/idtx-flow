@@ -158,48 +158,48 @@ public:
 
 public:
     // --------------------------------------------------------------------- //
-    // INPUTSJSONPATH 
+    // JSONPATH 
     // --------------------------------------------------------------------- //
     /// 
     ///
     /// | ||
     /// | -- | -- |
-    /// | Declaration | `string inputs:jsonPath` |
+    /// | Declaration | `string jsonPath` |
     /// | C++ Type | std::string |
     /// | \ref Usd_Datatypes "Usd Type" | SdfValueTypeNames->String |
     IDTX_API
-    UsdAttribute GetInputsJsonPathAttr() const;
+    UsdAttribute GetJsonPathAttr() const;
 
-    /// See GetInputsJsonPathAttr(), and also 
+    /// See GetJsonPathAttr(), and also 
     /// \ref Usd_Create_Or_Get_Property for when to use Get vs Create.
     /// If specified, author \p defaultValue as the attribute's default,
     /// sparsely (when it makes sense to do so) if \p writeSparsely is \c true -
     /// the default for \p writeSparsely is \c false.
     IDTX_API
-    UsdAttribute CreateInputsJsonPathAttr(VtValue const &defaultValue = VtValue(), bool writeSparsely=false) const;
+    UsdAttribute CreateJsonPathAttr(VtValue const &defaultValue = VtValue(), bool writeSparsely=false) const;
 
 public:
     // --------------------------------------------------------------------- //
-    // INPUTSJSONVALUETYPE 
+    // JSONVALUETYPE 
     // --------------------------------------------------------------------- //
     /// 
     ///
     /// | ||
     /// | -- | -- |
-    /// | Declaration | `token inputs:jsonValueType` |
+    /// | Declaration | `token jsonValueType` |
     /// | C++ Type | TfToken |
     /// | \ref Usd_Datatypes "Usd Type" | SdfValueTypeNames->Token |
     /// | \ref IDTXTokens "Allowed Values" | none, float, double, string |
     IDTX_API
-    UsdAttribute GetInputsJsonValueTypeAttr() const;
+    UsdAttribute GetJsonValueTypeAttr() const;
 
-    /// See GetInputsJsonValueTypeAttr(), and also 
+    /// See GetJsonValueTypeAttr(), and also 
     /// \ref Usd_Create_Or_Get_Property for when to use Get vs Create.
     /// If specified, author \p defaultValue as the attribute's default,
     /// sparsely (when it makes sense to do so) if \p writeSparsely is \c true -
     /// the default for \p writeSparsely is \c false.
     IDTX_API
-    UsdAttribute CreateInputsJsonValueTypeAttr(VtValue const &defaultValue = VtValue(), bool writeSparsely=false) const;
+    UsdAttribute CreateJsonValueTypeAttr(VtValue const &defaultValue = VtValue(), bool writeSparsely=false) const;
 
 public:
     // --------------------------------------------------------------------- //

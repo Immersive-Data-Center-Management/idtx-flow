@@ -153,8 +153,8 @@ to the *ValueFromJson* node while the `outputs:result` can feed into any prim at
 def Compute_ValueFromJson "GetTemperature" {
     string inputs:jsonData = "{}"
     string inputs:jsonData.connect = </World/MyRestSource.outputs:data>
-    string inputs:jsonPath = "/sensors/ambient/temperature"
-    token  inputs:jsonValueType = "double"
+    string jsonPath = "/sensors/ambient/temperature"
+    token  jsonValueType = "double"
     double outputs:jsonValue:double = 0.0
 }
 
