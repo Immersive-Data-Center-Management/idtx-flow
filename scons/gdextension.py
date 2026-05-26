@@ -139,7 +139,7 @@ def _build_extension(env):
 
     # generic build flags
     if platform.system() == "Windows" and (env["CXX"] == "cl" or env["CC"] == "cl"):
-        extension_env.Append(CXXFLAGS=['/EHsc', '/GR', '/FS', '/arch:AVX2', '/std:c++20'])        
+        extension_env.Append(CXXFLAGS=['/EHsc', '/GR', '/arch:AVX2', '/std:c++20'])        
     else:
         extension_env.Append(CXXFLAGS=['-fexceptions', '-frtti', '-g', '-std=c++20'])
         extension_env.Append(CCFLAGS=["-O3" if build_target == "template_release" else "-g"])
@@ -164,6 +164,7 @@ def _build_extension(env):
             # DEBUG
             extension_env.Append(CCFLAGS=[
                 "/Zi",        # debug symbols
+                "/FS",                              # serialize PDB writes (parallel-safe)                
                 "/Od",        # no optimization
                 "/EHsc",
                 "/MT"

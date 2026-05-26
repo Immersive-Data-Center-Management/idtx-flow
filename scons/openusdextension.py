@@ -73,8 +73,7 @@ def _build_usd_extension(env):
 
     # generic build flags
     if platform.system() == "Windows" and (extension_env["CXX"] == "cl" or extension_env["CC"] == "cl"):
-        extension_env.Append(CXXFLAGS=['/EHsc', '/GR', '/FS', '/arch:AVX2'])
-        extension_env.Append(CCFLAGS=["/O2" if build_target == "template_release" else "/Zi"])
+        extension_env.Append(CXXFLAGS=['/EHsc', '/GR', '/FS', '/arch:AVX2'])        
     else:
         extension_env.Append(CXXFLAGS=['-fexceptions', '-frtti', '-g'])
         extension_env.Append(CCFLAGS=["-O3" if build_target == "template_release" else "-g"])
@@ -98,6 +97,22 @@ def _build_usd_extension(env):
         # deactivate this warning. This appears due to an issue in openUSD-26.05 where the definition of
         # 'std::ostream &Vt_ArrayEditStreamImpl()' is missing the 'VT_API' decorator
         extension_env.Append(CCFLAGS=['/wd4273'])
+
+        if build_target in ["editor", "template_debug"]:
+            # DEBUG
+            extension_env.Append(CCFLAGS=[
+                "/Zi",        # debug symbols
+                "/FS",                              # serialize PDB writes (parallel-safe)
+                "/Od"         # no optimization
+            ])
+            extension_env.Append(LINKFLAGS=[
+                "/DEBUG"      # generate PDB (REQUIRED)
+            ])
+        else:
+            # RELEASE
+            extension_env.Append(CCFLAGS=[
+                "/O2"
+            ])
 
     elif platform_name == "macos":
         # Shared library settings
