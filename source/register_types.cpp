@@ -4,6 +4,14 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/godot.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
+#include <godot_cpp/classes/dir_access.hpp>
+#include <godot_cpp/classes/file_access.hpp>
+
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
+
+#include <pxr/base/plug/registry.h>
 
 #include <idtxflow/converter/MdlMaterialConverter.h>
 #include <idtxflow/resolver/HttpResolver.h>
@@ -19,6 +27,76 @@ using namespace godot;
 
 // Static logger instance — lives for the lifetime of this dll
 static idtxflow::utils::IDTXFlowGodotLogger g_logger;
+
+#ifdef __ANDROID__
+// ---------------------------------------------------------------------------
+// Android-only: register USD plugin metadata from the APK's res:// directory.
+//
+// In a monolithic libusd_ms.so build the plugInfo.json files are not
+// auto-discovered by PlugRegistry.  This causes ArGetResolver() to call
+// DemandPluginForType(ArDefaultResolver) → plugin not found → abort().
+//
+// Fix: copy the android/usd/ plugInfo tree from res:// (PCK) to the real
+// filesystem (user://) and call PlugRegistry::RegisterPlugins() once.
+// ---------------------------------------------------------------------------
+static void _copy_res_to_user(const String& src, const String& dst)
+{
+    // Copy a single file from res:// to the real filesystem
+    Ref<FileAccess> fsrc = FileAccess::open(src, FileAccess::READ);
+    if (!fsrc.is_valid()) return;
+    DirAccess::make_dir_recursive_absolute(
+        ProjectSettings::get_singleton()->globalize_path(dst.get_base_dir()));
+    Ref<FileAccess> fdst = FileAccess::open(dst, FileAccess::WRITE);
+    if (!fdst.is_valid()) return;
+    fdst->store_buffer(fsrc->get_buffer(fsrc->get_length()));
+}
+
+static void _extract_res_dir(const String& res_dir, const String& dst_dir)
+{
+    // Recursively copy all files from a res:// directory to user://
+    Ref<DirAccess> dir = DirAccess::open(res_dir);
+    if (!dir.is_valid()) return;
+    dir->list_dir_begin();
+    String entry = dir->get_next();
+    while (!entry.is_empty()) {
+        if (entry != String(".") && entry != String("..")) {
+            String src_path = res_dir.path_join(entry);
+            String dst_path = dst_dir.path_join(entry);
+            if (dir->current_is_dir()) {
+                _extract_res_dir(src_path, dst_path);
+            } else {
+                _copy_res_to_user(src_path, dst_path);
+            }
+        }
+        entry = dir->get_next();
+    }
+    dir->list_dir_end();
+}
+
+static void _register_usd_plugins_android()
+{
+    __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "ENTER _register_usd_plugins_android");
+
+    const String usd_src = String("res://addons/IDTXFlow/bin/android/usd");
+    const String usd_dst = String("user://usd");
+    const String done_marker = usd_dst + String("/.extracted");
+
+    if (!FileAccess::file_exists(done_marker)) {
+        __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "Extracting USD plugin metadata...");
+        _extract_res_dir(usd_src, usd_dst);
+        Ref<FileAccess> marker = FileAccess::open(done_marker, FileAccess::WRITE);
+        if (marker.is_valid()) marker->store_string(String("ok"));
+        __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "USD plugin metadata extracted");
+    } else {
+        __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "USD plugin metadata already extracted (marker exists)");
+    }
+
+    String usd_real = ProjectSettings::get_singleton()->globalize_path(usd_dst);
+    __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "Calling RegisterPlugins: %s", usd_real.utf8().get_data());
+    pxr::PlugRegistry::GetInstance().RegisterPlugins(usd_real.utf8().get_data());
+    __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "RegisterPlugins done");
+}
+#endif // __ANDROID__
 
 #ifdef IDTXFLOW_MDL_ENABLED
 #include <idtxflow/converter/MdlMaterialConverter.h>
@@ -57,6 +135,12 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
 
     // Initialize logger
     idtxflow::utils::Log::set_logger(&g_logger);
+
+#ifdef __ANDROID__
+    // Register USD plugin metadata so PlugRegistry can find ArDefaultResolver
+    // before the first ArGetResolver() call.
+    _register_usd_plugins_android();
+#endif
     
     GDREGISTER_CLASS(UsdStageNode3D)
     GDREGISTER_CLASS(UsdXformNode3D)

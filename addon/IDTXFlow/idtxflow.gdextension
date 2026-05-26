@@ -26,6 +26,7 @@ android.arm64.release = "./bin/android/libidtxflow.android.template_release.arm6
 [dependencies]
 
 android.arm64 = {
+	"./bin/android/libidtx_usd.so":"",
     "./bin/android/libtbb.so":"",
     "./bin/android/libusd_ms.so":""
 }

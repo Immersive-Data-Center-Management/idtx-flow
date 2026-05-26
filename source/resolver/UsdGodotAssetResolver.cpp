@@ -22,7 +22,11 @@ PXR_NAMESPACE_CLOSE_SCOPE
 using namespace godot;
 using namespace pxr;
 
-AR_DEFINE_RESOLVER(UsdGodotAssetResolver, ArResolver);
+// Inherit from ArDefaultResolver (not ArResolver directly) so that OpenUSD's
+// TF_VERIFY("found more than one primary resolver") is satisfied.
+// Type hierarchy: ArResolver -> ArDefaultResolver -> UsdGodotAssetResolver
+// ArGetResolver() picks the most-derived type -> UsdGodotAssetResolver wins.
+AR_DEFINE_RESOLVER(UsdGodotAssetResolver, ArDefaultResolver);
 
 #ifdef __ANDROID__
 class GodotBufferedAsset : public ArAsset {
@@ -61,6 +65,13 @@ std::string UsdGodotAssetResolver::_CreateIdentifier(const std::string& assetPat
     if (TfStringStartsWith(assetPath, GodotResolverTokens->resScheme.GetString() + "://") ||
         TfStringStartsWith(assetPath, GodotResolverTokens->userScheme.GetString() + "://")) {
         return assetPath;  // Already absolute, return as-is
+    }
+
+    // Absolute filesystem paths (e.g. /data/data/... on Android, C:\... on Windows)
+    // delegate to ArDefaultResolver which handles them natively.
+    if (!assetPath.empty() &&
+        (assetPath[0] == '/' || (assetPath.size() > 1 && assetPath[1] == ':'))) {
+        return ArDefaultResolver::_CreateIdentifier(assetPath, anchorAssetPath);
     }
     
     // if the given path is relative and we do have an anchor path given, the relative path will be anchored
@@ -103,8 +114,8 @@ ArResolvedPath UsdGodotAssetResolver::_Resolve(const std::string& assetPath) con
     // If this path doesn't start with our scheme, we don't handle it. But, why is it passed to this resolver?
     if (!TfStringStartsWith(assetPath, GodotResolverTokens->resScheme.GetString() + "://") &&
         !TfStringStartsWith(assetPath, GodotResolverTokens->userScheme.GetString() + "://")) {
-        // return as unresolved/empty path, if this is not ours
-        return ArResolvedPath();
+        // Delegate non-Godot paths (absolute filesystem paths, etc.) to ArDefaultResolver.
+        return ArDefaultResolver::_Resolve(assetPath);
     }
     
     // returning the path as is (we may have resolved placeholder variables or what ever into a complete path)

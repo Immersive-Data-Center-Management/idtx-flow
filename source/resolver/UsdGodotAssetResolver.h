@@ -1,5 +1,6 @@
 #pragma once
 
+#include <pxr/usd/ar/defaultResolver.h>
 #include <pxr/usd/ar/defineResolver.h>
 #include <pxr/base/tf/staticTokens.h>
 
@@ -16,7 +17,7 @@ TF_DECLARE_PUBLIC_TOKENS(GodotResolverTokens,
  * The custom resolver has to "live" within the pxr namespace and also requires to provide a "plugin.json" file in a
  * subfolder of the one, the usd library is located at.
  */
-class UsdGodotAssetResolver: public ArResolver
+class UsdGodotAssetResolver: public ArDefaultResolver
 {
 public:
     UsdGodotAssetResolver() = default;

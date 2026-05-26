@@ -42,8 +42,18 @@
 #include <string>
 #include <thread>
 
+#include <pxr/base/tf/token.h>
 #include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/usd/stage.h>
+
+// Diagnostic logging -- Android only, compiles to no-op elsewhere.
+#ifdef __ANDROID__
+#  include <android/log.h>
+#  define IDTX_STAGE_DIAG(fmt, ...) \
+       __android_log_print(ANDROID_LOG_INFO, "IDTXFlow", "[StageLoad] " fmt, ##__VA_ARGS__)
+#else
+#  define IDTX_STAGE_DIAG(fmt, ...) ((void)0)
+#endif
 
 namespace idtxflow
 {
@@ -73,6 +83,7 @@ namespace async
         /// How much of the stage to load initially. Defaults to LoadNone
         /// (deferred payload loading).
         pxr::UsdStage::InitialLoadSet load_set = pxr::UsdStage::LoadNone;
+
     };
 
     // -----------------------------------------------------------------------
@@ -210,7 +221,10 @@ namespace async
 
             try
             {
+                IDTX_STAGE_DIAG("SdfLayer::FindOrOpen start -- uri=%s", request.uri.c_str());
                 pxr::SdfLayerRefPtr root_layer = pxr::SdfLayer::FindOrOpen(request.uri);
+                IDTX_STAGE_DIAG("SdfLayer::FindOrOpen done -- layer=%s", root_layer ? "valid" : "null");
+
                 if (!root_layer)
                 {
                     result.error_message = "Failed to open root layer: " + request.uri;
@@ -221,6 +235,7 @@ namespace async
                 {
                     // Create an override/session layer from the provided content string.
                     // This is used for payload prims that need a stronger opinion layer.
+                    IDTX_STAGE_DIAG("SdfLayer::CreateAnonymous (override)");
                     pxr::SdfLayerRefPtr override_layer = pxr::SdfLayer::CreateAnonymous("override_layer");
                     override_layer->ImportFromString(request.override_layer_content);
 
@@ -229,11 +244,15 @@ namespace async
                         override_layer->SetIdentifier(request.override_layer_id);
                     }
 
+                    IDTX_STAGE_DIAG("UsdStage::Open start (with override layer, load_set=%d)", (int)request.load_set);
                     result.stage = pxr::UsdStage::Open(root_layer, override_layer, request.load_set);
+                    IDTX_STAGE_DIAG("UsdStage::Open done -- stage=%s", result.stage ? "valid" : "null");
                 }
                 else
                 {
+                    IDTX_STAGE_DIAG("UsdStage::Open start (load_set=%d)", (int)request.load_set);
                     result.stage = pxr::UsdStage::Open(root_layer, request.load_set);
+                    IDTX_STAGE_DIAG("UsdStage::Open done -- stage=%s", result.stage ? "valid" : "null");
                 }
 
                 if (!result.stage)
