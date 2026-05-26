@@ -141,9 +141,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="addon\IDTXFlow\idtxflow.gdextension" />
-    <Content Include="addon\IDTXFlow\plugin.cfg" />
-    <Content Include="addon\IDTXFlow\plugin.gd" />
+    <Content Include="addons\IDTXFlow\idtxflow.gdextension" />
+    <Content Include="addons\IDTXFlow\plugin.cfg" />
+    <Content Include="addons\IDTXFlow\plugin.gd" />
     <Content Include="docs\PLUGIN_ARCHITECTURE.md" />
     <Content Include="README.md" />
     <Content Include="SConstruct" />
@@ -151,7 +151,7 @@
     <Content Include="scons\godotcpp.py" />
     <Content Include="scons\idtxflow_ext.py" />
     <Content Include="scons\idtxflow_sdk.py" />
-    <Content Include="templates\extension_template\addon\MyIdtxflowExtension\my_idtxflow_extension.gdextension" />
+    <Content Include="templates\extension_template\addons\MyIdtxflowExtension\my_idtxflow_extension.gdextension" />
     <Content Include="templates\extension_template\README.md" />
     <Content Include="templates\extension_template\SConstruct" />
     <Content Include="scons\ixwebsocket.py" />
