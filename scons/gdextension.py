@@ -259,7 +259,7 @@ def _build_extension(env):
         pdb_file = os.path.splitext(dll_path)[0] + ".pdb"
 
     # Add install target
-    install_dir = f"addon/IDTXFlow/bin/{platform_name}"
+    install_dir = f"addons/IDTXFlow/bin/{platform_name}"
     install_targets = list(library)
     if pdb_file and os.path.exists(pdb_file):
         install_targets.append(extension_env.File(pdb_file))
@@ -343,17 +343,21 @@ def _copy_usd_plugins(target, source, env):
     usd_plugin_dir = os.path.join(usd_root, "plugin", "usd")
 
     if os.path.isdir(usd_lib_plugins):
-        shutil.copytree(usd_lib_plugins, f"addon/IDTXFlow/bin/{platform_name}/usd", dirs_exist_ok=True)
+        shutil.copytree(usd_lib_plugins, f"addons/IDTXFlow/bin/{platform_name}/usd", dirs_exist_ok=True)
     if os.path.isdir(usd_plugin_dir):
-        shutil.copytree(usd_plugin_dir, f"addon/IDTXFlow/bin/plugin/usd", dirs_exist_ok=True)
-    shutil.copytree("usd/plugin/godot", "addon/IDTXFlow/bin/plugin/usd/godot", dirs_exist_ok=True)
-    shutil.copytree("usd/plugin/idtx", "addon/IDTXFlow/bin/plugin/usd/idtx", dirs_exist_ok=True)
+        shutil.copytree(usd_plugin_dir, f"addons/IDTXFlow/bin/plugin/usd", dirs_exist_ok=True)
+    
+    shutil.copytree("usd/plugin/godot", "addons/IDTXFlow/bin/plugin/usd/godot", dirs_exist_ok=True)
+    shutil.copytree("usd/plugin/idtx", "addons/IDTXFlow/bin/plugin/usd/idtx", dirs_exist_ok=True)
 
+    #shutil.copytree(f"./thirdparty/openusd-{env.get('openusd_version', '')}/lib/usd", f"addons/IDTXFlow/bin/{env['platform_name']}/usd", dirs_exist_ok=True)
+    #shutil.copytree(f"./thirdparty/openusd-{env.get('openusd_version', '')}/plugin/usd", "addons/IDTXFlow/bin/plugin/usd", dirs_exist_ok=True)
+    
 def _copy_third_party_licenses(target, source, env):
     """Copy third-party LICENSE files to addon for distribution compliance."""
     print("Copying third-party LICENSE files...")
 
-    license_dest_dir = "addon/IDTXFlow/LICENSES-THIRD-PARTY"
+    license_dest_dir = "addons/IDTXFlow/LICENSES-THIRD-PARTY"
     os.makedirs(license_dest_dir, exist_ok=True)
 
     openusd_version = env.get('openusd_version', '')
@@ -380,7 +384,7 @@ def _copy_third_party_licenses(target, source, env):
 
     if os.path.exists("THIRDPARTY.txt"):
         cfg = configparser.ConfigParser()
-        cfg.read("addon/IDTXFlow/plugin.cfg")
+        cfg.read("addons/IDTXFlow/plugin.cfg")
         version = cfg.get("plugin", "version", fallback="unknown").strip('"').strip("'")
         if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[\w.]+)?(?:\+[\w.]+)?", version):
             print(f"ERROR: Version '{version}' in plugin.cfg does not follow semver (MAJOR.MINOR.PATCH).")
@@ -390,7 +394,7 @@ def _copy_third_party_licenses(target, source, env):
         with open("THIRDPARTY.txt", "r") as f:
             lines = f.read().splitlines(keepends=True)
         lines[0] = f"IDTX Flow - Version {version} - {date_str}\n"
-        with open("addon/IDTXFlow/THIRDPARTY.txt", "w") as f:
+        with open("addons/IDTXFlow/THIRDPARTY.txt", "w") as f:
             f.writelines(lines)
         print(f"  Stamped THIRDPARTY.txt with version {version} and date {date_str}")
 

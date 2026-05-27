@@ -57,7 +57,7 @@ jobs:
         run: |
           mkdir -p artifacts/gdextension
           mkdir -p artifacts/sdk
-          cp -r addon/IDTXFlow artifacts/gdextension/
+          cp -r addons/IDTXFlow artifacts/gdextension/
           cp -r build/idtxflow-sdk artifacts/sdk/
         shell: bash
 

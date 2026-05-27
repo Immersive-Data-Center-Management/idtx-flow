@@ -59,7 +59,7 @@ checked_out_repo_dir $>scons platform=android ANDROID_NDK_ROOT=C:\Users\<your-us
 
 > Please be patient, as the first initial build will download and compile openUSD from source. Depending on the used hardware this may take up to 40 minutes or more.
 
-The binary artifacts and all additional required files for the plugin can be found in the folder `addon/IDTXFlow`. Just copy this folder into the `addons` folder of the Godot project. To verify and enable the plugin, open the project in Godot, go to **Project → Project Settings → Plugins**, find the plugin and click the respective checkbox.
+The binary artifacts and all additional required files for the plugin can be found in the folder `addons/IDTXFlow`. Just copy this folder into the `addons` folder of the Godot project. To verify and enable the plugin, open the project in Godot, go to **Project → Project Settings → Plugins**, find the plugin and click the respective checkbox.
 
 ## Features
 
