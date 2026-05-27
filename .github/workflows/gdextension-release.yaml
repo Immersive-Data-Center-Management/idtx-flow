@@ -22,11 +22,11 @@ jobs:
 
       - name: Verify release tag does not exist
         run: |
-          VERSION=$(grep '^version=' addon/IDTXFlow/plugin.cfg | sed 's/version="//' | sed 's/"//')
+          VERSION=$(grep '^version=' addons/IDTXFlow/plugin.cfg | sed 's/version="//' | sed 's/"//')
           TAG="v${VERSION}"
           echo "Checking if tag $TAG already exists..."
           if git tag --list | grep -qx "$TAG"; then
-            echo "::error::Tag $TAG already exists. Please bump the version in addon/IDTXFlow/plugin.cfg before merging."
+            echo "::error::Tag $TAG already exists. Please bump the version in addons/IDTXFlow/plugin.cfg before merging."
             exit 1
           fi
           echo "Tag $TAG does not exist yet. Version is valid."
@@ -58,7 +58,7 @@ jobs:
       - name: Create Release Tag
         id: tag
         run: |
-          VERSION=$(grep '^version=' addon/IDTXFlow/plugin.cfg | sed 's/version="//' | sed 's/"//')
+          VERSION=$(grep '^version=' addons/IDTXFlow/plugin.cfg | sed 's/version="//' | sed 's/"//')
           TAG="v${VERSION}"
           echo "release_tag=$TAG" >> $GITHUB_OUTPUT
           git config user.name "github-actions[bot]"

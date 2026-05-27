@@ -3,14 +3,14 @@
 /thirdparty
 /venv
 .sconsign.dblite
-/addon/*/**/bin
-/addon/IDTXFlow/LICENSES-THIRD-PARTY
-/addon/IDTXFlow/THIRDPARTY.txt
+/addons/*/**/bin
+/addons/IDTXFlow/LICENSES-THIRD-PARTY
+/addons/IDTXFlow/THIRDPARTY.txt
 */**/__pycache__
 /source/gen
 /templates/extension_template/thirdparty
 /templates/extension_template/build
-/templates/extension_template/addon/*/**/bin
+/templates/extension_template/addons/*/**/bin
 
 # ignore editor configurations
 /.vscode

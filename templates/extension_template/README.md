@@ -19,7 +19,7 @@ my-extension/
 ├── scons/
 │   ├── godotcpp.py                             # scons tool to download and compile C++ bindings for the extension
 │   └── gdextension.py                          # scons tool to actually build the GDExtension
-├── addon/
+├── addons/
 │   └── MyIdtxflowExtension/
 │       ├── my_idtxflow_extension.gdextension   # Godot extension descriptor
 │       └── bin/                                # Built binaries (per platform)
@@ -45,11 +45,11 @@ my-extension/
 scons target=template_debug
 ```
 
-The built shared library will be placed in `addon/MyIdtxflowExtension/bin/<platform>/`.
+The built shared library will be placed in `addons/MyIdtxflowExtension/bin/<platform>/`.
 
 ## Installation in a Godot Project
 
-1. Copy `addon/MyIdtxflowExtension/` into your Godot project's `addons/` directory.
+1. Copy `addons/MyIdtxflowExtension/` into your Godot project's `addons/` directory.
 2. Ensure `addons/IDTXFlow/` is already installed.
 3. Godot will automatically load both extensions, respecting the dependency order declared in the `.gdextension` file.
 

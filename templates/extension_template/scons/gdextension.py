@@ -144,7 +144,7 @@ def _build_extension(env):
         pdb_file = os.path.splitext(dll_path)[0] + ".pdb"
 
     # Add install target
-    install_dir = f"addon/MyIDTXFlowExtension/bin/{platform_name}"
+    install_dir = f"addons/MyIDTXFlowExtension/bin/{platform_name}"
     install_targets = library
     if pdb_file and os.path.exists(pdb_file):
         install_targets.append(extension_env.File(pdb_file))
