@@ -34,7 +34,7 @@ void UsdStageNode3D::_ready()
         // trigger conversion again as all nodes has been loaded already
         if (cached_scene_name_.is_empty() || !FileAccess::file_exists(cached_scene_name_))
         {
-            cleanup_nodes();
+            _cleanup_nodes();
             open_and_convert_stage();
             
             return;
@@ -73,7 +73,7 @@ void UsdStageNode3D::_exit_tree()
         pending_load_task_->Cancel();
     }
     
-    cleanup_nodes();
+    _cleanup_nodes();
     Node3D::_exit_tree();
 }
 
@@ -84,7 +84,7 @@ void UsdStageNode3D::set_stage_uri(const String& path)
     
     // as the stage uri has changed we reset any previous state of this node
     stage_.Reset();
-    cleanup_nodes();
+    _cleanup_nodes();
     
     // Cancel any in-flight async load
     if (pending_load_task_)
@@ -191,39 +191,21 @@ void UsdStageNode3D::_on_stage_loaded()
     // only possible, once the nodes are added to the tree (by adding them as children to this node)
     for (Node3D* node : converted_nodes)
     {
-        configure_nodes_recursive(node, this); // we set the owner here, but defer this to ensure adding to the tree happens first
-        this->add_child(node); // this invokes _ready() on node at earliest convinent from Godot engine point of view, which exects the "config" already run
+        _configure_nodes_recursive(node, this); // we set the owner here, but defer this to ensure adding to the tree happens first
+        this->add_child(node); // this invokes _ready() on node at earliest convenient from Godot engine point of view, which expects the "config" already run
     }
     // name our-self after the root layer of the stage we opened
     set_name(stage_->GetRootLayer()->GetDisplayName().c_str());
 
     // generate and store a unique cached scene name for this converted stage
-    cached_scene_name_ = generate_cached_scene_name(stage_uri_);
+    cached_scene_name_ = _generate_cached_scene_name(stage_uri_);
     
-    // from converted stage create a packed scene and save it as cached scene
-    Ref<PackedScene> packed_scene;
-    packed_scene.instantiate();
-    Error err = packed_scene->pack(this);
-    if (err != OK)
-    {
-        print_error("Unable to pack Scene.", err);
-    } else
-    {
-        // save the packed scene at the location calculated before
-        // Ensure cache directory exists
-        String cache_dir = cached_scene_name_.get_base_dir();
-        if (!DirAccess::dir_exists_absolute(cache_dir)) {
-            DirAccess::make_dir_recursive_absolute(cache_dir);
-        }
-    
-        ResourceSaver::get_singleton()->save(packed_scene, cached_scene_name_);
-    }
-    packed_scene.unref();
+    call_deferred("_pack_and_save_cached_scene");
     
     emit_signal("stage_loading_finished", true);
 }
 
-void UsdStageNode3D::configure_nodes_recursive(godot::Node3D* node, godot::Node* owner)
+void UsdStageNode3D::_configure_nodes_recursive(godot::Node3D* node, godot::Node* owner)
 {
     if (!node) return;
     
@@ -251,11 +233,11 @@ void UsdStageNode3D::configure_nodes_recursive(godot::Node3D* node, godot::Node*
         // based on the layer referenced to by a payload), we will not configure the owner.
         std::string child_stage_path = std::string(usd_node->get_stage_path().utf8().get_data());
         if (child_stage_path == stage_path)
-            configure_nodes_recursive(Object::cast_to<Node3D>(child), owner);
+            _configure_nodes_recursive(Object::cast_to<Node3D>(child), owner);
     }
 }
 
-void UsdStageNode3D::cleanup_nodes()
+void UsdStageNode3D::_cleanup_nodes()
 {
     for (int i = 0; i < get_child_count(); i++)
     {
@@ -271,7 +253,7 @@ void UsdStageNode3D::cleanup_nodes()
     }
 }
 
-godot::String UsdStageNode3D::generate_cached_scene_name(const godot::String& stage_uri, bool binary)
+godot::String UsdStageNode3D::_generate_cached_scene_name(const godot::String& stage_uri, bool binary)
 {
     if (stage_uri.is_empty()) return "";
     
@@ -280,7 +262,7 @@ godot::String UsdStageNode3D::generate_cached_scene_name(const godot::String& st
     const String file_hash = String::num_int64(stage_uri.hash());
     
     String suffix;
-    // if the stage/layer was openend with a provided overlay lyer we create a unique hash based on the layer contents
+    // if the stage/layer was opened with a provided overlay layer we create a unique hash based on the layer contents
     // to ensure the same original stage can be used and cached with different override layers that result in different
     // converted contents for the scene
     if (has_meta("USD_OVERRIDE_LAYER")) {
@@ -292,6 +274,29 @@ godot::String UsdStageNode3D::generate_cached_scene_name(const godot::String& st
     const String extension = binary ? ".scn" : ".tscn";
     
     return cache_dir + filename + "_" + file_hash + "_" + suffix + extension;
+}
+
+void UsdStageNode3D::_pack_and_save_cached_scene()
+{
+    // from converted stage create a packed scene and save it as cached scene
+    Ref<PackedScene> packed_scene;
+    packed_scene.instantiate();
+    Error err = packed_scene->pack(this);
+    if (err != OK)
+    {
+        print_error("Unable to pack Scene.", err);
+    } else
+    {
+        // save the packed scene at the location calculated before
+        // Ensure cache directory exists
+        String cache_dir = cached_scene_name_.get_base_dir();
+        if (!DirAccess::dir_exists_absolute(cache_dir)) {
+            DirAccess::make_dir_recursive_absolute(cache_dir);
+        }
+    
+        ResourceSaver::get_singleton()->save(packed_scene, cached_scene_name_);
+    }
+    packed_scene.unref();
 }
 
 void UsdStageNode3D::_bind_methods()
@@ -311,6 +316,7 @@ void UsdStageNode3D::_bind_methods()
     
     // Registration required to allow deferred calling
     ClassDB::bind_method(D_METHOD("open_and_convert_stage"), &UsdStageNode3D::open_and_convert_stage);
+    ClassDB::bind_method(D_METHOD("_pack_and_save_cached_scene"), &UsdStageNode3D::_pack_and_save_cached_scene);
     
     // Internal deferred callback for async stage loading (not exposed to user scripts)
     ClassDB::bind_method(D_METHOD("_on_stage_loaded"), &UsdStageNode3D::_on_stage_loaded);

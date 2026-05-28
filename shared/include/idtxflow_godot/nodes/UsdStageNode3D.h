@@ -94,14 +94,27 @@ protected:
      * @param node Node to configure (and all the children)
      * @param owner Owner to be set for this node
      */
-    void configure_nodes_recursive(godot::Node3D* node, godot::Node* owner);
+    void _configure_nodes_recursive(godot::Node3D* node, godot::Node* owner);
 
     /**
      * remove all child nodes that has been converted as part of the referenced usd stage
      */
-    void cleanup_nodes();
-    
-    godot::String generate_cached_scene_name(const godot::String& stage_uri, bool binary = false);
+    void _cleanup_nodes();
+
+    /**
+     * Generate a unique file name for the cached scene (*.tscn/*.scn) file based on the stage URI and
+     * whether it has been opened with an overlay layer.
+     * @param stage_uri The original stage URI
+     * @param binary whether to use tscn or scn format
+     * @return 
+     */
+    godot::String _generate_cached_scene_name(const godot::String& stage_uri, bool binary = false);
+
+    /**
+     * Pack the current converted stage-scene and save the same. The call to this function will be deferred
+     * to ensure all children are added to the scene tree and ownership is stored
+     */
+    void _pack_and_save_cached_scene();
     
     static void _bind_methods();
     
