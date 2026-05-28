@@ -42,6 +42,8 @@ def _build_extension(env):
     # Get OpenUSD version from environment
     openusd_version = env.get('openusd_version', '')
     is_android = env.get('is_android', False)
+    is_wasm = env.get('is_wasm', False)
+    wasm_target = env.get('wasm_target', None)
     
     godot_cpp_path = "thirdparty/godot-cpp"
     mdl_sdk_path = "./thirdparty/mdl_sdk"
@@ -49,15 +51,18 @@ def _build_extension(env):
     shared_include_path = "./shared/include"
     usd_extension_path = "usd"
 
-    # OpenUSD install path differs for Android
+    # OpenUSD install path differs for Android/WebAssembly
     if is_android:
         usd_root = f"thirdparty/openusd-{openusd_version}-android"
+    elif is_wasm:
+        usd_root = f"thirdparty/openusd-{openusd_version}-{wasm_target}"
     else:
         usd_root = f"thirdparty/openusd-{openusd_version}"
 
     platform_name = env["platform_name"]
     build_target = env["target"]
     build_arch = env["arch"]
+    godotcpp_platform_name = "web" if is_wasm else platform_name
 
     ixws_build_dir = f"{ixws_path}/build_{platform_name}_{build_target}"
     
@@ -78,8 +83,8 @@ def _build_extension(env):
         f"{ixws_path}",
         f"{usd_extension_path}/include",
     ]
-    # MDL SDK headers only on non-Android platforms
-    if not is_android:
+    # MDL SDK headers only on desktop platforms
+    if not is_android and not is_wasm:
         include_paths.append(f"{mdl_sdk_path}/include")
     # Android: oneTBB headers are in a separate install prefix
     if is_android:
@@ -135,8 +140,8 @@ def _build_extension(env):
         f"{usd_extension_path}/libs/{platform_name}",        
     ]
 
-    # MDL SDK lib path only on non-Android platforms
-    if not is_android:
+    # MDL SDK lib path only on desktop platforms
+    if not is_android and not is_wasm:
         lib_paths.append(f"{mdl_sdk_path}/lib")
     # Android: oneTBB libs are in a separate install prefix
     if is_android:
@@ -149,19 +154,25 @@ def _build_extension(env):
         libs = [
             "usd_ms", "tbb",
             "libidtx_usd",
-            f"libgodot-cpp.{platform_name}.{build_target}.{build_arch}",
+            f"libgodot-cpp.{godotcpp_platform_name}.{build_target}.{build_arch}",
+            "ixwebsocket",
+        ]
+    elif is_wasm:
+        libs = [
+            "usd_m", "tbb",
+            "libidtx_usd",
             "ixwebsocket",
         ]
     else:
         libs = [
             "usd_ms", "tbb12" if platform_name == "windows" else "tbb.12",
             "libidtx_usd",
-            f"libgodot-cpp.{platform_name}.{build_target}.{build_arch}",
+            f"libgodot-cpp.{godotcpp_platform_name}.{build_target}.{build_arch}",
             "ixwebsocket",
         ]
 
-    # OpenSSL static libs (desktop platforms only — TLS disabled on Android)
-    if not is_android:
+    # OpenSSL static libs (desktop platforms only — TLS disabled on Android/Wasm)
+    if not is_android and not is_wasm:
         if platform_name == "windows":
             # vcpkg static OpenSSL lib names on Windows
             libs.extend(["libssl", "libcrypto"])
@@ -186,6 +197,15 @@ def _build_extension(env):
         extension_env.Append(LIBS=libs + ["log", "android", "dl", "m"])
         extension_env.Append(CCFLAGS=["-fPIC", "-frtti"])
         extension_env.Append(LINKFLAGS=["-Wl,-z,relro", "-Wl,-z,now"])
+
+    elif platform_name == "wasm32" or platform_name == "wasm64":
+        # WebAssembly: no OpenSSL/MDL, keep link surface minimal.
+        extension_env.Append(LIBS=libs)
+        extension_env.Append(CCFLAGS=["-fexceptions", "-frtti", "-pthread"])
+        extension_env.Append(LINKFLAGS=["-pthread", "-sALLOW_MEMORY_GROWTH=1"])
+        if platform_name == "wasm64":
+            extension_env.Append(CCFLAGS=["-sWASM64=1"])
+            extension_env.Append(LINKFLAGS=["-sWASM64=1"])
 
     elif platform_name == "linux":
         extension_env.Append(LIBS=libs + ["dl", "pthread", "m"])
@@ -241,8 +261,8 @@ def _build_extension(env):
 
 
     # Output library name
-    library_name = f"libidtxflow.{platform_name}.{build_target}.{build_arch}"
-    library_extension = "dll" if platform_name == "windows" else ("dylib" if platform_name == "macos" else "so")
+    library_name = f"libidtxflow.{godotcpp_platform_name}.{build_target}.{build_arch}"
+    library_extension = "dll" if platform_name == "windows" else ("dylib" if platform_name == "macos" else ("wasm" if is_wasm else "so"))
     
     # Set build directory
     build_dir = f"build/IDTXFlow/bin/{platform_name}"
@@ -265,7 +285,7 @@ def _build_extension(env):
         install_targets.append(extension_env.File(pdb_file))
 
     install_ext = extension_env.Install(install_dir, install_targets)
-    install_libs = extension_env.Install(install_dir, _get_libs_to_install(platform_name, openusd_version, is_android))
+    install_libs = extension_env.Install(install_dir, _get_libs_to_install(platform_name, openusd_version, is_android, is_wasm, wasm_target))
     extension_env.AddPostAction(library, _copy_usd_plugins)
     extension_env.AddPostAction(library, _copy_third_party_licenses)
 
@@ -277,7 +297,7 @@ def _build_extension(env):
     env['gdextension_library_node'] = library
 
 
-def _get_libs_to_install(platform_name, openusd_version="", is_android=False):
+def _get_libs_to_install(platform_name, openusd_version="", is_android=False, is_wasm=False, wasm_target=None):
     print("Getting libs to install...")
     mdl_sdk_root = f"./thirdparty/mdl_sdk"
 
@@ -286,8 +306,17 @@ def _get_libs_to_install(platform_name, openusd_version="", is_android=False):
         onetbb_root = "./thirdparty/onetbb-android"
         # Android: USD libs + oneTBB (built separately), no MDL SDK
         libs_to_install = [
+            f"./usd/build/{platform_name}/libidtx_usd.so",
             f"{usd_root}/lib/libusd_ms.so",
             f"{onetbb_root}/lib/libtbb.so",
+        ]
+    elif is_wasm:
+        usd_root = f"./thirdparty/openusd-{openusd_version}-{wasm_target}"
+        # WebAssembly: package static dependency archives (no MDL on wasm).
+        libs_to_install = [
+            f"{usd_root}/lib/libusd_m.a",
+            f"{usd_root}/lib/libtbb.a",
+            f"./usd/build/{platform_name}/libidtx_usd.a",
         ]
     elif platform_name == "windows":
         usd_root = f"./thirdparty/openusd-{openusd_version}"
@@ -331,11 +360,15 @@ def _get_libs_to_install(platform_name, openusd_version="", is_android=False):
 def _copy_usd_plugins(target, source, env):
     print("Copy USD Plugin Config..")
     is_android = env.get('is_android', False)
+    is_wasm = env.get('is_wasm', False)
+    wasm_target = env.get('wasm_target', None)
     openusd_version = env.get('openusd_version', '')
     platform_name = env['platform_name']
 
     if is_android:
         usd_root = f"./thirdparty/openusd-{openusd_version}-android"
+    elif is_wasm:
+        usd_root = f"./thirdparty/openusd-{openusd_version}-{wasm_target}"
     else:
         usd_root = f"./thirdparty/openusd-{openusd_version}"
 

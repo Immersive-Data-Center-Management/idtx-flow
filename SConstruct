@@ -6,7 +6,7 @@ from  SCons.Environment import Environment
 from SCons.Script import ARGUMENTS, Exit
 
 # USD Version configuration
-openusd_version = "25.11"
+openusd_version = "26.05"
 
 # Determine the target platform (may differ from host when cross-compiling)
 target_platform = ARGUMENTS.get('platform', None)
@@ -20,10 +20,62 @@ if target_platform is None:
         target_platform = "linux"
 
 is_android = (target_platform == "android")
+is_wasm = (target_platform == "wasm32" or target_platform == "wasm64")
 
 # --- Android NDK setup -----------------------------------------------------------
 android_ndk_root = None
 android_api_level = int(ARGUMENTS.get('android_api_level', '30'))
+
+# --- Emscripten SDK setup (for WebAssembly) ----------------------------------
+emsdk_root = None
+wasm_target = None  # will be set to 'wasm32' or 'wasm64'
+
+if is_wasm:
+    wasm_target = target_platform  # "wasm32" or "wasm64"
+    emsdk_root = ARGUMENTS.get('EMSDK_ROOT', os.environ.get('EMSDK_ROOT', ''))
+    if not emsdk_root or not os.path.isdir(emsdk_root):
+        Exit("EMSDK_ROOT must point to a valid Emscripten SDK directory.\n"
+             "  Install Emscripten from https://emscripten.org/docs/getting_started/downloads.html\n"
+             "  Pass it as:  scons platform=wasm32 EMSDK_ROOT=/path/to/emsdk ...")
+    
+    # Verify Emscripten toolchain
+    _host_system = platform.system().lower()
+    if _host_system == "windows":
+        _em_bin = os.path.join(emsdk_root, "upstream", "emscripten")
+        _emcc = os.path.join(_em_bin, "emcc.bat")
+        _emcxx = os.path.join(_em_bin, "em++.bat")
+        _emar = os.path.join(_em_bin, "emar.bat")
+        _emranlib = os.path.join(_em_bin, "emranlib.bat")
+    else:
+        _em_bin = os.path.join(emsdk_root, "upstream", "emscripten")
+        _emcc = os.path.join(_em_bin, "emcc")
+        _emcxx = os.path.join(_em_bin, "em++")
+        _emar = os.path.join(_em_bin, "emar")
+        _emranlib = os.path.join(_em_bin, "emranlib")
+    
+    if not os.path.exists(_emcc):
+        Exit(f"Emscripten compiler not found at {_emcc}.\n"
+             "  Ensure EMSDK_ROOT points to the Emscripten SDK root directory.")
+
+    # Ensure emcc/em++/emar/... are available by bare command name for sub-builds
+    # (e.g. godot-cpp web toolchain uses "em++" directly).
+    _upstream_bin = os.path.join(emsdk_root, "upstream", "bin")
+    _path_parts = [
+        _em_bin,
+        _upstream_bin,
+        os.environ.get("PATH", ""),
+    ]
+    _emsdk_path = os.pathsep.join([p for p in _path_parts if p])
+    os.environ["PATH"] = _emsdk_path
+    
+    emsdk_env_overrides = {
+        "CC": _emcc,
+        "CXX": _emcxx,
+        "AR": _emar,
+        "RANLIB": _emranlib,
+    }
+else:
+    emsdk_env_overrides = {}
 
 if is_android:
     android_ndk_root = ARGUMENTS.get('ANDROID_NDK_ROOT', os.environ.get('ANDROID_NDK_ROOT', ''))
@@ -70,20 +122,24 @@ _custom_tools = [
     "idtxflow_sdk"
     ]
 
-if is_android:
+if is_android or is_wasm:
     # On Windows the "default" tool initialises MSVC command templates
     # (/Fo, /c, /D, /I …) which are incompatible with the NDK Clang
-    # toolchain.  Use gcc-style tools instead so that SCons emits the
-    # correct -o / -c / -D / -I flags for clang.
+    # toolchain and Emscripten.  Use gcc-style tools instead so that SCons emits the
+    # correct -o / -c / -D / -I flags for clang/emcc.
     env = Environment(
         ENV=os.environ.copy(),
         tools=["gcc", "g++", "gnulink", "ar", "gas"] + _custom_tools,
         toolpath=["scons"],
         PATH=os.environ.get("PATH", ""),
-        **ndk_env_overrides,
+        **(ndk_env_overrides if is_android else emsdk_env_overrides),
     )
-    env.Append(CCFLAGS=[f"--target={_android_target}", "-march=armv8-a"])
-    env.Append(LINKFLAGS=[f"--target={_android_target}", "-march=armv8-a"])
+    if is_android:
+        env.Append(CCFLAGS=[f"--target={_android_target}", "-march=armv8-a"])
+        env.Append(LINKFLAGS=[f"--target={_android_target}", "-march=armv8-a"])
+    elif is_wasm:
+        # Wasm-specific flags will be added per-tool
+        pass
 else:
     env = Environment(
         ENV=os.environ.copy(),
@@ -91,7 +147,6 @@ else:
         toolpath=["scons"],
         MSVC_VERSION='14.3',
         PATH=os.environ.get("PATH", ""),
-        **ndk_env_overrides,
     )
 
 # Store the target platform (decoupled from host)
@@ -119,6 +174,14 @@ if is_android:
 else:
     env['is_android'] = False
 
+# Store Wasm-specific settings in the environment for sub-tools
+if is_wasm:
+    env['emsdk_root'] = emsdk_root
+    env['wasm_target'] = wasm_target
+    env['is_wasm'] = True
+else:
+    env['is_wasm'] = False
+
 # Compiler flags
 if is_android:
     # Android NDK Clang: Enable C++20
@@ -141,8 +204,8 @@ env.BuildOpenUSD(with_python_support=True)  # with python support, to be able to
 env.GenerateUsdExtensionCode()
 # compile the openUSD extension into it's library
 env.BuildUsdExtension()
-# download NVIDIA's mdlSdk — not available on Android
-if not is_android:
+# download NVIDIA's mdlSdk — not available on Android/WebAssembly
+if not is_android and not is_wasm:
     env.DownloadMdlSdk()
 # download and build the Godot C++ bindings
 env = env.BuildGodotCPP()

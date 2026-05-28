@@ -23,6 +23,9 @@ macos.arm64.double.release = "./bin/macos/libidtxflow.macos.template_release.arm
 android.arm64.debug = "./bin/android/libidtxflow.android.template_debug.arm64.so"
 android.arm64.release = "./bin/android/libidtxflow.android.template_release.arm64.so"
 
+web.debug.threads.wasm32 = "./bin/wasm32/libidtxflow.web.template_debug.wasm32.wasm"
+web.release.threads.wasm32 = "./bin/wasm32/libidtxflow.web.template_release.wasm32.wasm"
+
 [dependencies]
 
 android.arm64 = {

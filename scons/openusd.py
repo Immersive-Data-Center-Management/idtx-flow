@@ -42,10 +42,14 @@ def _build_open_usd(env, with_python_support=False):
     platform_name = env["platform_name"]
     build_target = env["target"]
     is_android = env.get('is_android', False)
+    is_wasm = env.get('is_wasm', False)
+    wasm_target = env.get('wasm_target', None)
 
     # check if we have build the openUSD lib already
     if is_android:
         open_usd_build_path = f"thirdparty/openusd-{open_usd_version}-android"
+    elif is_wasm:
+        open_usd_build_path = f"thirdparty/openusd-{open_usd_version}-{wasm_target}"
     elif with_python_support:
         open_usd_build_path = f"thirdparty/openusd-{open_usd_version}-withPython"
     else:
@@ -55,6 +59,9 @@ def _build_open_usd(env, with_python_support=False):
         open_usd_lib = f"{open_usd_build_path}/lib/usd_ms.dll"
     elif platform_name == "macos":
         open_usd_lib = f"{open_usd_build_path}/lib/libusd_ms.dylib"
+    elif is_wasm:
+        # WebAssembly monolithic static library is named libusd_m.a
+        open_usd_lib = f"{open_usd_build_path}/lib/libusd_m.a"
     else:
         # Linux and Android both produce .so
         open_usd_lib = f"{open_usd_build_path}/lib/libusd_ms.so"
@@ -62,6 +69,8 @@ def _build_open_usd(env, with_python_support=False):
     if not os.path.exists(open_usd_lib):
         if is_android:
             _build_open_usd_android(env, open_usd_path, open_usd_build_path, build_target)
+        elif is_wasm:
+            _build_open_usd_wasm(env, open_usd_path, open_usd_build_path, wasm_target, build_target)
         else:
             _build_open_usd_desktop(env, open_usd_path, open_usd_build_path,
                                      platform_name, build_target, with_python_support)
@@ -306,9 +315,9 @@ def _patch_file(filepath, replacements):
 
     for old, new in replacements:
         if old not in content:
-            print(f"  WARNING: patch pattern not found in {filepath}:")
-            print(f"    {old[:80]}...")
-            continue
+            Exit(f"  ERROR: Android patch pattern not found in {filepath}:\n"
+                 f"    {old[:120]}\n"
+                 f"  The OpenUSD source may have changed. Review the Android patches in openusd.py.")
         content = content.replace(old, new, 1)
 
     with open(filepath, 'w', encoding='utf-8') as f:
@@ -460,7 +469,119 @@ def _build_open_usd_desktop(env, open_usd_path, open_usd_build_path,
     
     if result.returncode != 0:
         print(f"Failed to build openUSD")
-        Exit(f"Build aborted due to subprocess failure (exit code: {result.returncode})")        
+        Exit(f"Build aborted due to subprocess failure (exit code: {result.returncode})")
+
+def _build_open_usd_wasm(env, open_usd_path, open_usd_build_path, wasm_target, build_target):
+    """Build OpenUSD for WebAssembly using the upstream build_usd.py script.
+    
+    Args:
+        env: SCons environment with emsdk_root configured
+        open_usd_path: Path to OpenUSD source
+        open_usd_build_path: Output directory for OpenUSD install
+        wasm_target: Either "wasm32" or "wasm64"
+        build_target: Either "template_release" or "template_debug"
+    """
+    print(f"Building openUSD for WebAssembly ({wasm_target})...")
+    
+    emsdk_root = env.get('emsdk_root', os.environ.get('EMSDK_ROOT', ''))
+    if not emsdk_root:
+        Exit("EMSDK_ROOT not configured. Cannot build for WebAssembly.")
+    
+    openusd_env = os.environ.copy()
+    # Add Emscripten to PATH
+    em_path = os.path.join(emsdk_root, "upstream", "emscripten")
+    openusd_env["PATH"] = f"{em_path}{os.pathsep}{openusd_env.get('PATH', '')}"
+    openusd_env["EMSDK"] = emsdk_root
+    openusd_env["EMSDK_ROOT"] = emsdk_root
+
+    # Ensure ninja is discoverable for build_usd.py (it defaults to Ninja for wasm targets).
+    ninja_name = "ninja.exe" if platform.system() == "Windows" else "ninja"
+    ninja_candidates = [
+        os.path.join(emsdk_root, "upstream", "emscripten", ninja_name),
+        os.path.join(emsdk_root, ninja_name),
+    ]
+    emsdk_ninja_root = os.path.join(emsdk_root, "ninja")
+    if os.path.isdir(emsdk_ninja_root):
+        for entry in sorted(os.listdir(emsdk_ninja_root), reverse=True):
+            ninja_candidates.append(os.path.join(emsdk_ninja_root, entry, ninja_name))
+
+    # Reuse existing repo-local ninja from vcpkg downloads as fallback.
+    vcpkg_tools_root = os.path.abspath(os.path.join("thirdparty", "vcpkg", "downloads", "tools"))
+    if os.path.isdir(vcpkg_tools_root):
+        for entry in sorted(os.listdir(vcpkg_tools_root), reverse=True):
+            ninja_candidates.append(os.path.join(vcpkg_tools_root, entry, ninja_name))
+
+    ninja_path = None
+    for candidate in ninja_candidates:
+        if os.path.isfile(candidate):
+            ninja_path = candidate
+            break
+    if not ninja_path:
+        ninja_path = shutil.which(ninja_name)
+
+    if ninja_path:
+        ninja_dir = os.path.dirname(os.path.abspath(ninja_path))
+        openusd_env["PATH"] = f"{ninja_dir}{os.pathsep}{openusd_env.get('PATH', '')}"
+    else:
+        Exit("Ninja not found for OpenUSD wasm build.\n"
+             "Install ninja or ensure EMSDK/vcpkg ninja is available.")
+
+    # Try python3 first, fallback to python if not available
+    python_cmd = "python3"
+    try:
+        subprocess.run([python_cmd, "--version"], check=True, capture_output=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        python_cmd = "python"
+
+    # build_usd.py expects 'wasm' (for wasm32) or 'wasm64'.
+    build_target_arg = "wasm64" if wasm_target == "wasm64" else "wasm"
+    
+    # Determine CMake flags for architecture
+    if wasm_target == "wasm64":
+        memory_flags = "-sWASM64=1"
+    else:
+        memory_flags = ""
+
+    cmake_args = [
+        "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
+        "-DCMAKE_CXX_STANDARD=17",
+        "-DCMAKE_CXX_FLAGS=\"-pthread --use-port=zlib -fexceptions\"",
+        "-DCMAKE_EXE_LINKER_FLAGS=\"-sALLOW_MEMORY_GROWTH=1\"",
+        "-DCMAKE_SHARED_LINKER_FLAGS=\"-sALLOW_MEMORY_GROWTH=1\"",
+    ]
+    if memory_flags:
+        cmake_args.append(f"-DCMAKE_CXX_FLAGS_INIT=\\\"{memory_flags}\\\"")
+
+    print(f"Building openUSD for {wasm_target} with build_usd.py --build-target {build_target_arg}...")
+    result = subprocess.run([
+        python_cmd,
+        f"{open_usd_path}/build_scripts/build_usd.py",
+        f"{open_usd_build_path}",
+        "--verbose",
+        "--generator", "Ninja",
+        "--build-variant", "release" if build_target == "template_release" else "relwithdebuginfo",
+        "--build-monolithic",
+        "--no-python",
+        "--no-examples",
+        "--no-tutorials",
+        "--no-tools",
+        "--no-debug-python",
+        "--no-openvdb",
+        "--no-usdview",
+        "--no-imaging",
+        "--no-vulkan",
+        "--no-materialx",
+        "--no-docs",
+        "--onetbb",
+        "--build-target", build_target_arg,
+        "--cmake-build-args", " ".join(cmake_args),
+    ], env=openusd_env)
+    
+    if result.returncode != 0:
+        print(f"Failed to build openUSD for WebAssembly")
+        Exit(f"Build aborted due to subprocess failure (exit code: {result.returncode})")
+    
+    print(f"OpenUSD for {wasm_target} built successfully: {open_usd_build_path}")
 
 def _get_windows_msvc_env(env):
     vswhere_path = r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"

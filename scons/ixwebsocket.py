@@ -9,6 +9,7 @@ Usage in SConstruct:
 import os
 import platform
 import subprocess
+import shutil
 from SCons.Script import Exit
 
 from download_utils import download_file, extract_archive
@@ -87,6 +88,41 @@ def _probe_openssl_pkg_config():
             return (inc, lib)
     except (subprocess.CalledProcessError, FileNotFoundError):
         pass
+    return None
+
+
+def _find_emsdk_ninja(emsdk_root):
+    """Locate Ninja inside EMSDK install on Windows/macOS/Linux."""
+    exe_name = "ninja.exe" if platform.system() == "Windows" else "ninja"
+
+    # Common EMSDK layouts
+    candidates = [
+        os.path.join(emsdk_root, "upstream", "emscripten", exe_name),
+        os.path.join(emsdk_root, exe_name),
+    ]
+
+    ninja_root = os.path.join(emsdk_root, "ninja")
+    if os.path.isdir(ninja_root):
+        for entry in sorted(os.listdir(ninja_root), reverse=True):
+            candidates.append(os.path.join(ninja_root, entry, exe_name))
+
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+
+    # Fall back to PATH
+    ninja_in_path = shutil.which(exe_name)
+    if ninja_in_path:
+        return ninja_in_path
+
+    # Fall back to vcpkg's downloaded ninja (commonly present in this repo)
+    vcpkg_ninja_root = os.path.abspath(os.path.join("thirdparty", "vcpkg", "downloads", "tools"))
+    if os.path.isdir(vcpkg_ninja_root):
+        for entry in sorted(os.listdir(vcpkg_ninja_root), reverse=True):
+            candidate = os.path.join(vcpkg_ninja_root, entry, exe_name)
+            if os.path.isfile(candidate):
+                return candidate
+
     return None
 
 
@@ -191,6 +227,7 @@ def _build_ixwebsocket(env):
     platform_name = env["platform_name"]
     build_target = env["target"]
     is_android = env.get('is_android', False)
+    is_wasm = env.get('is_wasm', False)
 
     build_dir = f"{ixws_path}/build_{platform_name}_{build_target}"
 
@@ -204,15 +241,15 @@ def _build_ixwebsocket(env):
         print(f"IXWebSocket already built: {lib_file}")
         return
 
-    # Resolve OpenSSL: prefer system install, fall back to vcpkg
-    # Android: TLS is disabled for the initial build (no system OpenSSL on Android)
+    # Resolve OpenSSL: prefer system install, fall back to vcpkg.
+    # TLS is disabled on Android/WebAssembly for now.
     use_vcpkg_toolchain = False
     vcpkg_root = None
     vcpkg_triplet = None
     openssl_root_dir = None
-    use_tls = not is_android  # Disable TLS on Android for now
+    use_tls = not (is_android or is_wasm)
 
-    if not is_android:
+    if use_tls:
         if platform_name == "windows":
             # Windows has no system OpenSSL - always use vcpkg
             vcpkg_root = _ensure_vcpkg()
@@ -286,6 +323,39 @@ def _build_ixwebsocket(env):
                         break
 
         cmake_args.extend(android_cmake_args)
+    elif is_wasm:
+        emsdk_root = env.get('emsdk_root', os.environ.get('EMSDK_ROOT', ''))
+        if not emsdk_root:
+            Exit("EMSDK_ROOT not configured. Cannot build IXWebSocket for WebAssembly.")
+        emscripten_toolchain = os.path.join(
+            emsdk_root, "upstream", "emscripten", "cmake", "Modules", "Platform", "Emscripten.cmake"
+        )
+        if not os.path.isfile(emscripten_toolchain):
+            Exit(f"Emscripten toolchain file not found: {emscripten_toolchain}")
+
+        ninja_program = _find_emsdk_ninja(emsdk_root)
+        if not ninja_program:
+            Exit("Ninja was not found in EMSDK.\n"
+                 "Install/activate EMSDK tools and ensure ninja is available.\n"
+                 "Expected under EMSDK_ROOT/ninja/<version>/ninja(.exe).")
+
+        wasm_cxxflags = "-std=c++20 -fexceptions -fPIC -pthread -DPLATFORM_NAME=\\\"WebAssembly\\\""
+        wasm_cflags = "-fPIC -pthread"
+        wasm_link_flags = "-pthread -sALLOW_MEMORY_GROWTH=1"
+        if platform_name == "wasm64":
+            wasm_cxxflags += " -sWASM64=1"
+            wasm_cflags += " -sWASM64=1"
+            wasm_link_flags += " -sWASM64=1"
+
+        cmake_args.extend([
+            "-G", "Ninja",
+            f"-DCMAKE_TOOLCHAIN_FILE={emscripten_toolchain}",
+            f"-DCMAKE_MAKE_PROGRAM={ninja_program}",
+            f"-DCMAKE_CXX_FLAGS={wasm_cxxflags}",
+            f"-DCMAKE_C_FLAGS={wasm_cflags}",
+            f"-DCMAKE_EXE_LINKER_FLAGS={wasm_link_flags}",
+            f"-DCMAKE_SHARED_LINKER_FLAGS={wasm_link_flags}",
+        ])
     elif platform_name == "windows":
         toolchain_file = os.path.join(vcpkg_root, "scripts", "buildsystems", "vcpkg.cmake")
         cmake_args.extend([

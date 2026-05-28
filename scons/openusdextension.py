@@ -46,10 +46,14 @@ def _build_usd_extension(env):
 
     openusd_version = env.get('openusd_version', '')
     is_android = env.get('is_android', False)
+    is_wasm = env.get('is_wasm', False)
+    wasm_target = env.get('wasm_target', None)
 
-    # OpenUSD install path differs for Android
+    # OpenUSD install path differs for Android and Wasm
     if is_android:
         openusd_root = os.path.abspath(f"thirdparty/openusd-{openusd_version}-android")
+    elif is_wasm:
+        openusd_root = os.path.abspath(f"thirdparty/openusd-{openusd_version}-{wasm_target}")
     else:
         openusd_root = os.path.abspath(f"thirdparty/openusd-{openusd_version}")
     
@@ -61,8 +65,8 @@ def _build_usd_extension(env):
     extension_env = env.Clone()
 
     # --> dieses IF fehlte...
-    if is_android:
-        # this is required to bypass windows cmd.exe limitations when invoking the android compiler
+    if is_android or is_wasm:
+        # this is required to bypass windows cmd.exe limitations when invoking the android/emscripten compiler
         # as seen in the godot-cpp build tools script 
         if sys.platform == "win32" or sys.platform == "msys":
             sys.path.insert(0, "thirdparty/godot-cpp/tools")
@@ -86,7 +90,7 @@ def _build_usd_extension(env):
     lib_paths = [
         f"{openusd_root}/lib",
     ]
-    # Android: oneTBB headers and libs are in a separate install prefix
+    # Android and Wasm: oneTBB headers and libs are in a separate install prefix
     if is_android:
         include_paths.append(f"{onetbb_android_root}/include")
         lib_paths.append(f"{onetbb_android_root}/lib")
@@ -98,6 +102,10 @@ def _build_usd_extension(env):
         libs = [
             "usd_ms", "tbb"
         ]
+    elif is_wasm:
+        libs = [
+            "usd_m", "tbb"
+        ]
     else:
         libs = [
             "usd_ms", "tbb12" if platform_name == "windows" else "tbb.12"
@@ -107,6 +115,15 @@ def _build_usd_extension(env):
     if is_android:
         extension_env.Append(CXXFLAGS=['-fexceptions', '-frtti', '-std=c++20'])
         extension_env.Append(CCFLAGS=["-O3" if build_target == "template_release" else "-g"])
+    elif is_wasm:
+        # Emscripten/Wasm-specific flags
+        extension_env.Append(CXXFLAGS=['-fexceptions', '-frtti', '-std=c++20', '-pthread', '--use-port=zlib', '-fPIC'])
+        extension_env.Append(CCFLAGS=["-O3" if build_target == "template_release" else "-g", '-pthread', '-fPIC'])
+        extension_env.Append(LINKFLAGS=['-sALLOW_MEMORY_GROWTH=1', '-pthread'])
+        if wasm_target == "wasm64":
+            extension_env.Append(CXXFLAGS=['-sWASM64=1'])
+            extension_env.Append(CCFLAGS=['-sWASM64=1'])
+            extension_env.Append(LINKFLAGS=['-sWASM64=1'])
     elif platform.system() == "Windows" and (extension_env["CXX"] == "cl" or extension_env["CC"] == "cl"):
         extension_env.Append(CXXFLAGS=['/EHsc', '/GR', '/FS', '/arch:AVX2'])
         extension_env.Append(CCFLAGS=["/O2" if build_target == "template_release" else "/Zi"])
@@ -119,6 +136,12 @@ def _build_usd_extension(env):
         extension_env.Append(LIBS=libs + ["log", "android", "dl", "m"])
         extension_env.Append(CCFLAGS=["-fPIC", "-frtti"])
         extension_env.Append(LINKFLAGS=["-Wl,-z,relro", "-Wl,-z,now"])
+
+    elif platform_name == "wasm32" or platform_name == "wasm64":
+        # WebAssembly: static library linking
+        extension_env.Append(LIBS=libs)
+        # Wasm is a static library, so no dynamic linker flags needed
+        extension_env.Append(CPPDEFINES=["IDTX_EXPORTS"])
 
     elif platform_name == "linux":
         # Shared library settings
@@ -153,27 +176,43 @@ def _build_usd_extension(env):
     if not os.path.exists(build_dir):
         os.makedirs(build_dir)
 
-    # Output library names
-    shared_lib_name = f"libidtx_usd"
-    if platform_name == "windows":
-        shared_lib_name += ".dll"
-    elif platform_name == "macos":
-        shared_lib_name += ".dylib"
+    # Output library names and build type
+    if is_wasm:
+        # WebAssembly produces static libraries
+        static_lib_name = f"libidtx_usd.a"
+        static_library = extension_env.StaticLibrary(f"{build_dir}/{static_lib_name}", sources)
+        
+        # install/copy the header files to the shared include directory
+        include_dest = f"{extension_root}/include/idtx"
+        lib_dest = f"{extension_root}/libs/{platform_name}"
+        install_header = extension_env.Install(include_dest, extension_env.Glob(f"{extension_root}/generated/*.h"))
+        install_libs = extension_env.Install(lib_dest, static_library)
+
+        # Build the extension library and copy the created header files
+        extension_env.Default(static_library, install_header + install_libs)
+        extension_env.AddPostAction(static_library, _copy_plugin_files)
     else:
-        shared_lib_name += ".so"
+        # Desktop and Android produce shared libraries
+        shared_lib_name = f"libidtx_usd"
+        if platform_name == "windows":
+            shared_lib_name += ".dll"
+        elif platform_name == "macos":
+            shared_lib_name += ".dylib"
+        else:
+            shared_lib_name += ".so"
 
-    # Build the libraries using their respective environments
-    shared_library = extension_env.SharedLibrary(f"{build_dir}/{shared_lib_name}", sources)
+        # Build the libraries using their respective environments
+        shared_library = extension_env.SharedLibrary(f"{build_dir}/{shared_lib_name}", sources)
 
-    # install/copy the header files to the shared include directory
-    include_dest = f"{extension_root}/include/idtx"
-    lib_dest = f"{extension_root}/libs/{platform_name}"
-    install_header = extension_env.Install(include_dest, extension_env.Glob(f"{extension_root}/generated/*.h"))
-    install_libs = extension_env.Install(lib_dest, shared_library)
+        # install/copy the header files to the shared include directory
+        include_dest = f"{extension_root}/include/idtx"
+        lib_dest = f"{extension_root}/libs/{platform_name}"
+        install_header = extension_env.Install(include_dest, extension_env.Glob(f"{extension_root}/generated/*.h"))
+        install_libs = extension_env.Install(lib_dest, shared_library)
 
-    # Build the extension library and copy the created header files
-    extension_env.Default(shared_library, install_header + install_libs)
-    extension_env.AddPostAction(shared_library, _copy_plugin_files)
+        # Build the extension library and copy the created header files
+        extension_env.Default(shared_library, install_header + install_libs)
+        extension_env.AddPostAction(shared_library, _copy_plugin_files)
 
 def _copy_plugin_files(target, source, env):
     source_dir = f"./usd/generated"

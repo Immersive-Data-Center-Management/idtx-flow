@@ -8,6 +8,7 @@ Usage in SConstruct:
     env.BuildGodotCPP()
 """
 import os
+from SCons.Script import ARGUMENTS
 
 from download_utils import download_file, extract_archive
 
@@ -46,6 +47,27 @@ def _build_godot_cpp(env):
     env["use_rtti"] = "yes"
     env["use_threads"] = "yes"
 
+    # godot-cpp uses platform=web for WebAssembly targets.
+    original_platform_arg = ARGUMENTS.get("platform")
+    original_arch_arg = ARGUMENTS.get("arch")
+    original_process_path = os.environ.get("PATH", "")
+    if env.get('is_wasm', False):
+        wasm_target = env.get('wasm_target', 'wasm32')
+        if wasm_target == "wasm64":
+            # godot-cpp 4.5 toolchain exposes wasm32 architecture for web builds.
+            Exit("godot-cpp currently supports WebAssembly via platform=web with arch=wasm32. wasm64 is not supported in this pipeline yet.")
+        env["platform"] = "web"
+        env["arch"] = "wasm32"
+        ARGUMENTS["platform"] = "web"
+        ARGUMENTS["arch"] = "wasm32"
+
+        emsdk_root = env.get('emsdk_root', os.environ.get('EMSDK_ROOT', ''))
+        emscripten_path = os.path.join(emsdk_root, "upstream", "emscripten")
+        upstream_bin = os.path.join(emsdk_root, "upstream", "bin")
+        if os.path.isdir(emscripten_path):
+            os.environ["PATH"] = f"{emscripten_path}{os.pathsep}{upstream_bin}{os.pathsep}{original_process_path}"
+            env["ENV"]["PATH"] = os.environ["PATH"]
+
     # godot-cpp natively supports platform=android; forward the required settings
     if env.get('is_android', False):
         env["platform"] = "android"
@@ -62,4 +84,17 @@ def _build_godot_cpp(env):
         os.environ.pop("ANDROID_HOME", None)
         os.environ.pop("ANDROID_SDK_ROOT", None)
 
-    return env.SConscript(f"{godot_cpp_path}/SConstruct", exports=['env'])
+    try:
+        return env.SConscript(f"{godot_cpp_path}/SConstruct", exports=['env'])
+    finally:
+        if env.get('is_wasm', False):
+            if original_platform_arg is None:
+                ARGUMENTS.pop("platform", None)
+            else:
+                ARGUMENTS["platform"] = original_platform_arg
+            if original_arch_arg is None:
+                ARGUMENTS.pop("arch", None)
+            else:
+                ARGUMENTS["arch"] = original_arch_arg
+            os.environ["PATH"] = original_process_path
+            env["ENV"]["PATH"] = original_process_path

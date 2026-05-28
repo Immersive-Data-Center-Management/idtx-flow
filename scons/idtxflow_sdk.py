@@ -60,8 +60,13 @@ def _do_compose_sdk(target, source, env):
 
     open_usd_version = env.get('openusd_version', '')
     is_android = env.get('is_android', False)
+    is_wasm = env.get('is_wasm', False)
+    wasm_target = env.get('wasm_target', None)
+    
     if is_android:
         open_usd_path = f"thirdparty/openusd-{open_usd_version}-android"
+    elif is_wasm:
+        open_usd_path = f"thirdparty/openusd-{open_usd_version}-{wasm_target}"
     else:
         open_usd_path = f"thirdparty/openusd-{open_usd_version}"
 
@@ -89,6 +94,12 @@ def _do_compose_sdk(target, source, env):
         _tbb_so = os.path.join(onetbb_android_root, "lib", "libtbb.so")
         if os.path.exists(_tbb_so):
             shutil.copy(_tbb_so, f"{sdk_libs}")
+    elif platform_name == "wasm32" or platform_name == "wasm64":
+        # WebAssembly: static libraries
+        shutil.copy(f"{env['gdextension_lib_dir']}/{env['gdextension_lib']}.wasm", f"{sdk_libs}")
+        shutil.copy(f"{env['ext_bootstrap_lib_dir']}/{env['ext_bootstrap_lib']}.a", f"{sdk_libs}")
+        shutil.copy(f"{open_usd_path}/lib/libusd_m.a", f"{sdk_libs}")
+        shutil.copy(f"{open_usd_path}/lib/libtbb.a", f"{sdk_libs}")
     else:
         # Linux
         shutil.copy(f"{env['gdextension_lib_dir']}/{env['gdextension_lib']}.so", f"{sdk_libs}")
@@ -98,11 +109,17 @@ def _do_compose_sdk(target, source, env):
 
     # Copy the header files into the SDK folder that will be required to compile the plugin
     shutil.copytree(f"{open_usd_path}/include/pxr", f"{sdk_includes}/pxr", dirs_exist_ok=True)
-    # oneTBB headers: on Android they live in a separate install prefix
+    # oneTBB headers: on Android and Wasm they live in a separate install prefix
     if is_android:
         onetbb_inc = "thirdparty/onetbb-android/include"
         shutil.copytree(f"{onetbb_inc}/tbb", f"{sdk_includes}/tbb", dirs_exist_ok=True)
         shutil.copytree(f"{onetbb_inc}/oneapi", f"{sdk_includes}/oneapi", dirs_exist_ok=True)
+    elif is_wasm:
+        # For Wasm, oneTBB headers are bundled with OpenUSD install
+        if os.path.exists(f"{open_usd_path}/include/tbb"):
+            shutil.copytree(f"{open_usd_path}/include/tbb", f"{sdk_includes}/tbb", dirs_exist_ok=True)
+        if os.path.exists(f"{open_usd_path}/include/oneapi"):
+            shutil.copytree(f"{open_usd_path}/include/oneapi", f"{sdk_includes}/oneapi", dirs_exist_ok=True)
     else:
         shutil.copytree(f"{open_usd_path}/include/tbb", f"{sdk_includes}/tbb", dirs_exist_ok=True)
         shutil.copytree(f"{open_usd_path}/include/oneapi", f"{sdk_includes}/oneapi", dirs_exist_ok=True)
