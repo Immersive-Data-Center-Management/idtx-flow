@@ -288,6 +288,7 @@ def _get_libs_to_install(platform_name, openusd_version="", is_android=False):
         libs_to_install = [
             f"{usd_root}/lib/libusd_ms.so",
             f"{onetbb_root}/lib/libtbb.so",
+            f"./usd/build/{platform_name}/libidtx_usd.so",
         ]
     elif platform_name == "windows":
         usd_root = f"./thirdparty/openusd-{openusd_version}"
