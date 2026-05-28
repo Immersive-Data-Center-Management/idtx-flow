@@ -4,6 +4,7 @@
 
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/file_access.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
 
 #include <pxr/base/tf/pathUtils.h>
 #include <pxr/base/tf/stringUtils.h>
@@ -11,6 +12,7 @@
 #include <pxr/usd/ar/filesystemWritableAsset.h>
 
 #include "idtxflow/resolver/HttpResolver.h"
+#include "idtxflow/utils/Logger.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
     TF_DEFINE_PUBLIC_TOKENS(GodotResolverTokens, 
@@ -21,6 +23,8 @@ PXR_NAMESPACE_CLOSE_SCOPE
 
 using namespace godot;
 using namespace pxr;
+
+IDTX_LOG_CATEGORY("GodotAssetResolver")
 
 // Inherit from ArDefaultResolver (not ArResolver directly) so that OpenUSD's
 // TF_VERIFY("found more than one primary resolver") is satisfied.
@@ -137,7 +141,7 @@ std::shared_ptr<ArAsset> UsdGodotAssetResolver::_OpenAsset(const ArResolvedPath&
     // and open the file from there
     const std::string assetPath = resolvedPath.GetPathString();
         
-    print_error("TEST:" + String("open stage at: ") + assetPath.c_str());
+    IDTX_LOG(IDTX_INFO, "Open stage at: {}", assetPath.c_str());
 
     // path resolution for user:// and res:// need to be treated differently, especialy on android
     // as assets accessed with "res://" are usually packed inside the APK binary and could not be accessed with openUSD
@@ -161,7 +165,7 @@ std::shared_ptr<ArAsset> UsdGodotAssetResolver::_OpenAsset(const ArResolvedPath&
     Ref<FileAccess> file = FileAccess::open(String(assetPath.c_str()), FileAccess::READ);
     if (!file.is_valid())
     {
-        print_error("TEST: Unable to open file: " + String(assetPath.c_str()));
+        IDTX_LOG(IDTX_ERROR, "Unable to open file: {}", assetPath.c_str());
         return nullptr;
     }
     
@@ -169,7 +173,7 @@ std::shared_ptr<ArAsset> UsdGodotAssetResolver::_OpenAsset(const ArResolvedPath&
     std::shared_ptr<char> buffer(new char[size], std::default_delete<char[]>());
     PackedByteArray data = file->get_buffer(size);
     memcpy(buffer.get(), data.ptr(), size);
-    print_error("TEST: Stage opened and contents passed to BufferedAsset");
+    IDTX_LOG(IDTX_INFO, "Stage opened and contents passed to BufferedAsset: {}", assetPath.c_str());
     return std::make_shared<GodotBufferedAsset>(std::move(buffer), size);
 #endif
     return nullptr;
