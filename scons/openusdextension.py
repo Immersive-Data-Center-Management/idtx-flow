@@ -102,7 +102,7 @@ def _build_usd_extension(env):
             # DEBUG
             extension_env.Append(CCFLAGS=[
                 "/Zi",        # debug symbols
-                "/FS",                              # serialize PDB writes (parallel-safe)
+                "/FS",        # serialize PDB writes (parallel-safe)
                 "/Od"         # no optimization
             ])
             extension_env.Append(LINKFLAGS=[

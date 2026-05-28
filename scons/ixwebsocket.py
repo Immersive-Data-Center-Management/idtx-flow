@@ -142,6 +142,7 @@ def _install_openssl_vcpkg(vcpkg_root, triplet):
     result = subprocess.run([
         vcpkg_exe, "install", f"openssl:{triplet}",
         "--recurse",
+        "--vcpkg-root", vcpkg_root
     ], cwd=vcpkg_root)
     if result.returncode != 0:
         Exit(f"vcpkg install openssl failed (exit code: {result.returncode})")

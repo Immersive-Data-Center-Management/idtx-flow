@@ -164,6 +164,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include=".github\workflows\gdextension-build.yaml" />
+    <Content Include=".github\workflows\gdextension-pr.yaml" />
+    <Content Include=".github\workflows\gdextension-release.yaml" />
     <Content Include="addons\IDTXFlow\idtxflow.gdextension" />
     <Content Include="addons\IDTXFlow\plugin.cfg" />
     <Content Include="addons\IDTXFlow\plugin.gd" />
