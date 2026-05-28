@@ -60,12 +60,14 @@ def _build_usd_extension(env):
 
     extension_env = env.Clone()
 
-    # this is required to bypass windows cmd.exe limitations when invoking the android compiler
-    # as seen in the godot-cpp build tools script 
-    if sys.platform == "win32" or sys.platform == "msys":
-        sys.path.insert(0, "thirdparty/godot-cpp/tools")
-        import my_spawn
-        my_spawn.configure(extension_env)
+    # --> dieses IF fehlte...
+    if is_android:
+        # this is required to bypass windows cmd.exe limitations when invoking the android compiler
+        # as seen in the godot-cpp build tools script 
+        if sys.platform == "win32" or sys.platform == "msys":
+            sys.path.insert(0, "thirdparty/godot-cpp/tools")
+            import my_spawn
+            my_spawn.configure(extension_env)
         
     # Python include path is needed because the OpenUSD withPython build
     # headers transitively include Python.h (via pySafePython.h / wrap_python.hpp)

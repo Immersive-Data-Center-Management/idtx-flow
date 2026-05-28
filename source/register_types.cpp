@@ -77,6 +77,7 @@ static void _register_usd_plugins_android()
 {
     __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "ENTER _register_usd_plugins_android");
 
+    // --- Built-in OpenUSD plugins (ar, sdf, usdGeom, etc.) ---
     const String usd_src = String("res://addons/IDTXFlow/bin/android/usd");
     const String usd_dst = String("user://usd");
     const String done_marker = usd_dst + String("/.extracted");
@@ -92,8 +93,32 @@ static void _register_usd_plugins_android()
     }
 
     String usd_real = ProjectSettings::get_singleton()->globalize_path(usd_dst);
-    __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "Calling RegisterPlugins: %s", usd_real.utf8().get_data());
+    __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "Calling RegisterPlugins (usd): %s", usd_real.utf8().get_data());
     pxr::PlugRegistry::GetInstance().RegisterPlugins(usd_real.utf8().get_data());
+
+    // --- Custom schema plugins (idtx: IDTXCollisionAPI etc., godot resolver) ---
+    // These live in bin/plugin/ and are NOT inside the OpenUSD install tree.
+    // Without registering them, PlugRegistry cannot find our custom prim types
+    // and any USD stage containing IDTXCollisionAPI/IDTXCollisionSetAPI/IDTXInteractionAPI
+    // prims will silently fall back to UsdSchemaBase — attributes won't resolve.
+    const String plugin_src = String("res://addons/IDTXFlow/bin/plugin/usd");
+    const String plugin_dst = String("user://usd_plugin");
+    const String plugin_marker = plugin_dst + String("/.extracted");
+
+    if (!FileAccess::file_exists(plugin_marker)) {
+        __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "Extracting custom schema plugins...");
+        _extract_res_dir(plugin_src, plugin_dst);
+        Ref<FileAccess> marker = FileAccess::open(plugin_marker, FileAccess::WRITE);
+        if (marker.is_valid()) marker->store_string(String("ok"));
+        __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "Custom schema plugins extracted");
+    } else {
+        __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "Custom schema plugins already extracted (marker exists)");
+    }
+
+    String plugin_real = ProjectSettings::get_singleton()->globalize_path(plugin_dst);
+    __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "Calling RegisterPlugins (custom): %s", plugin_real.utf8().get_data());
+    pxr::PlugRegistry::GetInstance().RegisterPlugins(plugin_real.utf8().get_data());
+
     __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "RegisterPlugins done");
 }
 #endif // __ANDROID__
