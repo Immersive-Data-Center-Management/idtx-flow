@@ -28,9 +28,39 @@ def _generate_usd_extensions_code(env):
     openusd_bin_path = f"{openusd_root}/bin"
     openusd_env["PATH"] = f"{openusd_root}/bin{os.pathsep}{openusd_root}/lib{os.pathsep}{os.environ.get("PATH", "")}"
 
-    genschema_cmd = f"{openusd_bin_path}/usdGenSchema.cmd" if platform.system() == "Windows" else f"{openusd_bin_path}/usdGenSchema"
+    # On Windows the .cmd wrapper calls the bare `python` command, which may
+    # resolve to a different interpreter version than the one used to compile
+    # the USD .pyd extension modules.  Read the shebang from the usdGenSchema
+    # Python script to get the exact interpreter that was used at build time
+    # and invoke that directly.
+    genschema_script = os.path.join(openusd_bin_path, "usdGenSchema")
+    python_for_genschema = None
+    try:
+        with open(genschema_script, "r", encoding="utf-8") as _f:
+            _first = _f.readline().strip()
+        if _first.startswith("#!"):
+            _shebang_python = _first[2:].strip()
+            if os.path.isfile(_shebang_python):
+                python_for_genschema = _shebang_python
+    except OSError:
+        pass
+
+    if python_for_genschema is None:
+        # Fallback: try python3 then python on PATH
+        for _candidate in ("python3", "python"):
+            try:
+                subprocess.run([_candidate, "--version"], check=True, capture_output=True)
+                python_for_genschema = _candidate
+                break
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                pass
+
+    if python_for_genschema is None:
+        Exit("Could not locate a Python interpreter to run usdGenSchema.")
+
     result = subprocess.run([
-        genschema_cmd,
+        python_for_genschema,
+        genschema_script,
         "schema.usda",
         f"../generated"
     ],

@@ -32,7 +32,7 @@ IDTX_LOG_CATEGORY("GodotAssetResolver")
 // ArGetResolver() picks the most-derived type -> UsdGodotAssetResolver wins.
 AR_DEFINE_RESOLVER(UsdGodotAssetResolver, ArDefaultResolver);
 
-#ifdef __ANDROID__
+#if defined(__ANDROID__) || defined(__EMSCRIPTEN__)
 class GodotBufferedAsset : public ArAsset {
     std::shared_ptr<const char> _buffer;
     size_t _size;
@@ -54,7 +54,7 @@ public:
         return {nullptr, 0}; // Not backed by a FILE*
     }
 };
-#endif
+#endif // defined(__ANDROID__) || defined(__EMSCRIPTEN__)
 
 std::string UsdGodotAssetResolver::_GetExtension(const std::string& path) const
 {
@@ -136,47 +136,47 @@ ArResolvedPath UsdGodotAssetResolver::_ResolveForNewAsset(const std::string& ass
 
 std::shared_ptr<ArAsset> UsdGodotAssetResolver::_OpenAsset(const ArResolvedPath& resolvedPath) const
 {
-    // we retrieve the resolved path of the asset to open the same
-    // this is essentially a "res://path/to/file.usd". So calculate a real local path openUSD is capable of finding
-    // and open the file from there
     const std::string assetPath = resolvedPath.GetPathString();
         
     IDTX_LOG(IDTX_INFO, "Open stage at: {}", assetPath.c_str());
 
-    // path resolution for user:// and res:// need to be treated differently, especialy on android
-    // as assets accessed with "res://" are usually packed inside the APK binary and could not be accessed with openUSD
-    // default file access
-#ifdef __ANDROID__
+    // On Android and Web, res:// paths are packed inside the APK/PCK and cannot be opened
+    // with OpenUSD's default filesystem access.  Use Godot's FileAccess abstraction instead.
+    // user:// paths on these platforms CAN be accessed via globalize_path (writable FS).
+#if defined(__ANDROID__) || defined(__EMSCRIPTEN__)
     if (TfStringStartsWith(assetPath, GodotResolverTokens->userScheme.GetString() + "://"))
     {
-#endif
         if (ProjectSettings *project_settings = ProjectSettings::get_singleton())
         {
-            // Convert the user:// path to an absolute path
             String absolute_path = project_settings->globalize_path(resolvedPath.GetPathString().c_str());
             return ArFilesystemAsset::Open(ArResolvedPath(absolute_path.utf8().get_data()));
         }
-        
         return nullptr;
-#ifdef __ANDROID__        
     }
-    // special handling for android if the file is located in the package (res:// case)
-    // Godot's FileAccess abstraction is able to read the file contents even when inside a APK/PCK
-    Ref<FileAccess> file = FileAccess::open(String(assetPath.c_str()), FileAccess::READ);
-    if (!file.is_valid())
+    // res:// path: read via Godot FileAccess (handles APK/PCK), buffer contents for OpenUSD.
     {
-        IDTX_LOG(IDTX_ERROR, "Unable to open file: {}", assetPath.c_str());
-        return nullptr;
+        Ref<FileAccess> file = FileAccess::open(String(assetPath.c_str()), FileAccess::READ);
+        if (!file.is_valid())
+        {
+            IDTX_LOG(IDTX_ERROR, "Unable to open file: {}", assetPath.c_str());
+            return nullptr;
+        }
+        size_t size = file->get_length();
+        std::shared_ptr<char> buffer(new char[size], std::default_delete<char[]>());
+        PackedByteArray data = file->get_buffer(size);
+        memcpy(buffer.get(), data.ptr(), size);
+        IDTX_LOG(IDTX_INFO, "Stage opened and contents passed to BufferedAsset: {}", assetPath.c_str());
+        return std::make_shared<GodotBufferedAsset>(std::move(buffer), size);
     }
-    
-    size_t size = file->get_length();
-    std::shared_ptr<char> buffer(new char[size], std::default_delete<char[]>());
-    PackedByteArray data = file->get_buffer(size);
-    memcpy(buffer.get(), data.ptr(), size);
-    IDTX_LOG(IDTX_INFO, "Stage opened and contents passed to BufferedAsset: {}", assetPath.c_str());
-    return std::make_shared<GodotBufferedAsset>(std::move(buffer), size);
-#endif
+#else
+    // Desktop: globalize_path resolves both res:// and user:// to real filesystem paths.
+    if (ProjectSettings *project_settings = ProjectSettings::get_singleton())
+    {
+        String absolute_path = project_settings->globalize_path(resolvedPath.GetPathString().c_str());
+        return ArFilesystemAsset::Open(ArResolvedPath(absolute_path.utf8().get_data()));
+    }
     return nullptr;
+#endif // defined(__ANDROID__) || defined(__EMSCRIPTEN__)
 }
 
 std::shared_ptr<ArWritableAsset> UsdGodotAssetResolver::_OpenAssetForWrite(

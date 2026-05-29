@@ -545,7 +545,7 @@ def _build_open_usd_wasm(env, open_usd_path, open_usd_build_path, wasm_target, b
     cmake_args = [
         "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
         "-DCMAKE_CXX_STANDARD=17",
-        "-DCMAKE_CXX_FLAGS=\"-pthread --use-port=zlib -fexceptions\"",
+        "-DCMAKE_CXX_FLAGS=\"-pthread --use-port=zlib\"",
         "-DCMAKE_EXE_LINKER_FLAGS=\"-sALLOW_MEMORY_GROWTH=1\"",
         "-DCMAKE_SHARED_LINKER_FLAGS=\"-sALLOW_MEMORY_GROWTH=1\"",
     ]

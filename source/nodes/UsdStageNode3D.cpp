@@ -20,6 +20,18 @@ using namespace pxr;
 void UsdStageNode3D::_enter_tree()
 {
     Node3D::_enter_tree();
+
+    // _ready() is only called once per node lifetime in Godot.
+    // If this node is re-added to the scene tree after being removed (without
+    // being freed), _exit_tree() will have cleaned up our children and set
+    // node_ready_ = false, but _ready() will NOT fire again.
+    // Detect re-entry via Godot's is_node_ready() (stays true after the first
+    // _ready() call) and manually re-trigger loading.
+    if (is_node_ready() && !stage_uri_.is_empty())
+    {
+        node_ready_ = true;
+        call_deferred("open_and_convert_stage");
+    }
 }
 
 void UsdStageNode3D::_ready()
@@ -45,7 +57,31 @@ void UsdStageNode3D::_ready()
         if (!cached_scene_name_.is_empty())
         {
             Ref<PackedScene> packed_scene = ResourceLoader::get_singleton()->load(cached_scene_name_);
+            if (packed_scene.is_null())
+            {
+                // Cache exists but cannot be loaded on this platform/build. Rebuild from USD.
+                cleanup_nodes();
+                open_and_convert_stage();
+                return;
+            }
+
             Node3D* cached_root = cast_to<Node3D>(packed_scene->instantiate());
+            if (!cached_root)
+            {
+                cleanup_nodes();
+                open_and_convert_stage();
+                return;
+            }
+
+            if (cached_root->get_child_count() == 0)
+            {
+                // Corrupt or incomplete cache (e.g. saved before node ownership finalized).
+                cached_root->queue_free();
+                cleanup_nodes();
+                open_and_convert_stage();
+                return;
+            }
+
             // the instantiated node would be the cached "UsdStageNode3D". Thus just adding this to the tree
             // would create a recursion. The intention anyway was to use this node as a root only for caching. And "copy"
             // it's children after instantiation to this node would re-create the original structure anyway.

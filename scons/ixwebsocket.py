@@ -230,6 +230,8 @@ def _build_ixwebsocket(env):
     is_wasm = env.get('is_wasm', False)
 
     build_dir = f"{ixws_path}/build_{platform_name}_{build_target}"
+    if is_wasm:
+        build_dir += "_threads"
 
     # Expected output library path
     if platform_name == "windows":
@@ -339,7 +341,7 @@ def _build_ixwebsocket(env):
                  "Install/activate EMSDK tools and ensure ninja is available.\n"
                  "Expected under EMSDK_ROOT/ninja/<version>/ninja(.exe).")
 
-        wasm_cxxflags = "-std=c++20 -fexceptions -fPIC -pthread -DPLATFORM_NAME=\\\"WebAssembly\\\""
+        wasm_cxxflags = "-std=c++20 -fexceptions -fPIC -pthread -DPLATFORM_NAME=\"WebAssembly\""
         wasm_cflags = "-fPIC -pthread"
         wasm_link_flags = "-pthread -sALLOW_MEMORY_GROWTH=1"
         if platform_name == "wasm64":

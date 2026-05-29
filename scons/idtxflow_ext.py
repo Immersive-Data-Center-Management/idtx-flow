@@ -38,6 +38,7 @@ def _build_ext_bootstrap_lib(env):
 
     # Compile flags
     is_android = env.get('is_android', False)
+    is_wasm = env.get('is_wasm', False)
     if not is_android and platform.system() == "Windows" and (env["CXX"] == "cl" or env["CC"] == "cl"):
         bootstrap_env.Append(CXXFLAGS=['/EHsc', '/GR', '/std:c++20'])
         bootstrap_env.Append(CPPDEFINES=["NOMINMAX", "WIN32_LEAN_AND_MEAN"])
@@ -47,7 +48,10 @@ def _build_ext_bootstrap_lib(env):
             bootstrap_env.Append(CCFLAGS=["/O2", "/MT"])
     else:
         # GCC / Clang / Android NDK Clang
-        bootstrap_env.Append(CXXFLAGS=['-fexceptions', '-frtti', '-std=c++20'])
+        if is_wasm:
+            bootstrap_env.Append(CXXFLAGS=['-fexceptions', '-frtti', '-std=c++20'])
+        else:
+            bootstrap_env.Append(CXXFLAGS=['-fexceptions', '-frtti', '-std=c++20'])
         bootstrap_env.Append(CCFLAGS=["-fPIC"])
         bootstrap_env.Append(CCFLAGS=["-O3" if build_target == "template_release" else "-g"])
 

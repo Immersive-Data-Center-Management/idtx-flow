@@ -28,6 +28,11 @@ using namespace godot;
 // Static logger instance — lives for the lifetime of this dll
 static idtxflow::utils::IDTXFlowGodotLogger g_logger;
 
+// Version stamp written into the .extracted marker files.
+// Bump this whenever the USD plugin data layout changes so old cached
+// extractions are automatically invalidated and re-run.
+#define IDTXFLOW_USD_PLUGIN_CACHE_VERSION "0.3.0"
+
 #ifdef __ANDROID__
 // ---------------------------------------------------------------------------
 // Android-only: register USD plugin metadata from the APK's res:// directory.
@@ -82,14 +87,20 @@ static void _register_usd_plugins_android()
     const String usd_dst = String("user://usd");
     const String done_marker = usd_dst + String("/.extracted");
 
-    if (!FileAccess::file_exists(done_marker)) {
-        __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "Extracting USD plugin metadata...");
+    bool usd_needs_extract = true;
+    if (FileAccess::file_exists(done_marker)) {
+        Ref<FileAccess> mf = FileAccess::open(done_marker, FileAccess::READ);
+        if (mf.is_valid() && mf->get_as_text().strip_edges() == String(IDTXFLOW_USD_PLUGIN_CACHE_VERSION))
+            usd_needs_extract = false;
+    }
+    if (usd_needs_extract) {
+        __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "Extracting USD plugin metadata (version %s)...", IDTXFLOW_USD_PLUGIN_CACHE_VERSION);
         _extract_res_dir(usd_src, usd_dst);
         Ref<FileAccess> marker = FileAccess::open(done_marker, FileAccess::WRITE);
-        if (marker.is_valid()) marker->store_string(String("ok"));
+        if (marker.is_valid()) marker->store_string(String(IDTXFLOW_USD_PLUGIN_CACHE_VERSION));
         __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "USD plugin metadata extracted");
     } else {
-        __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "USD plugin metadata already extracted (marker exists)");
+        __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "USD plugin metadata up to date (version %s)", IDTXFLOW_USD_PLUGIN_CACHE_VERSION);
     }
 
     String usd_real = ProjectSettings::get_singleton()->globalize_path(usd_dst);
@@ -105,14 +116,20 @@ static void _register_usd_plugins_android()
     const String plugin_dst = String("user://usd_plugin");
     const String plugin_marker = plugin_dst + String("/.extracted");
 
-    if (!FileAccess::file_exists(plugin_marker)) {
-        __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "Extracting custom schema plugins...");
+    bool plugin_needs_extract = true;
+    if (FileAccess::file_exists(plugin_marker)) {
+        Ref<FileAccess> mf = FileAccess::open(plugin_marker, FileAccess::READ);
+        if (mf.is_valid() && mf->get_as_text().strip_edges() == String(IDTXFLOW_USD_PLUGIN_CACHE_VERSION))
+            plugin_needs_extract = false;
+    }
+    if (plugin_needs_extract) {
+        __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "Extracting custom schema plugins (version %s)...", IDTXFLOW_USD_PLUGIN_CACHE_VERSION);
         _extract_res_dir(plugin_src, plugin_dst);
         Ref<FileAccess> marker = FileAccess::open(plugin_marker, FileAccess::WRITE);
-        if (marker.is_valid()) marker->store_string(String("ok"));
+        if (marker.is_valid()) marker->store_string(String(IDTXFLOW_USD_PLUGIN_CACHE_VERSION));
         __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "Custom schema plugins extracted");
     } else {
-        __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "Custom schema plugins already extracted (marker exists)");
+        __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "Custom schema plugins up to date (version %s)", IDTXFLOW_USD_PLUGIN_CACHE_VERSION);
     }
 
     String plugin_real = ProjectSettings::get_singleton()->globalize_path(plugin_dst);
@@ -122,6 +139,94 @@ static void _register_usd_plugins_android()
     __android_log_print(ANDROID_LOG_INFO, "IDTXFlow_Plug", "RegisterPlugins done");
 }
 #endif // __ANDROID__
+
+#ifdef __EMSCRIPTEN__
+// ---------------------------------------------------------------------------
+// Web/Wasm: register USD plugin metadata from Godot's PCK (res://).
+//
+// Same problem as Android: libusd_m.a is a monolithic static library so
+// ArchGetAddressInfo() fails and USD falls back to ArchGetExecutablePath()
+// which returns "/". It then searches "//usd" and "//plugin/usd" — neither
+// of which exist in Emscripten's virtual filesystem.
+//
+// Fix: copy the plugInfo.json trees from res:// (PCK) to user:// (IDBFS /
+// MEMFS on web) once, then call PlugRegistry::RegisterPlugins() explicitly.
+// ---------------------------------------------------------------------------
+static void _copy_res_to_user_web(const String& src, const String& dst)
+{
+    Ref<FileAccess> fsrc = FileAccess::open(src, FileAccess::READ);
+    if (!fsrc.is_valid()) return;
+    DirAccess::make_dir_recursive_absolute(
+        ProjectSettings::get_singleton()->globalize_path(dst.get_base_dir()));
+    Ref<FileAccess> fdst = FileAccess::open(dst, FileAccess::WRITE);
+    if (!fdst.is_valid()) return;
+    fdst->store_buffer(fsrc->get_buffer(fsrc->get_length()));
+}
+
+static void _extract_res_dir_web(const String& res_dir, const String& dst_dir)
+{
+    Ref<DirAccess> dir = DirAccess::open(res_dir);
+    if (!dir.is_valid()) return;
+    dir->list_dir_begin();
+    String entry = dir->get_next();
+    while (!entry.is_empty()) {
+        if (entry != String(".") && entry != String("..")) {
+            String src_path = res_dir.path_join(entry);
+            String dst_path = dst_dir.path_join(entry);
+            if (dir->current_is_dir()) {
+                _extract_res_dir_web(src_path, dst_path);
+            } else {
+                _copy_res_to_user_web(src_path, dst_path);
+            }
+        }
+        entry = dir->get_next();
+    }
+    dir->list_dir_end();
+}
+
+static void _register_usd_plugins_web()
+{
+    // --- Built-in OpenUSD plugins (ar, sdf, usdGeom, etc.) ---
+    const String usd_src    = String("res://addons/IDTXFlow/bin/wasm32/usd");
+    const String usd_dst    = String("user://usd");
+    const String done_marker = usd_dst + String("/.extracted");
+
+    bool usd_needs_extract = true;
+    if (FileAccess::file_exists(done_marker)) {
+        Ref<FileAccess> mf = FileAccess::open(done_marker, FileAccess::READ);
+        if (mf.is_valid() && mf->get_as_text().strip_edges() == String(IDTXFLOW_USD_PLUGIN_CACHE_VERSION))
+            usd_needs_extract = false;
+    }
+    if (usd_needs_extract) {
+        _extract_res_dir_web(usd_src, usd_dst);
+        Ref<FileAccess> marker = FileAccess::open(done_marker, FileAccess::WRITE);
+        if (marker.is_valid()) marker->store_string(String(IDTXFLOW_USD_PLUGIN_CACHE_VERSION));
+    }
+
+    String usd_real = ProjectSettings::get_singleton()->globalize_path(usd_dst);
+    pxr::PlugRegistry::GetInstance().RegisterPlugins(usd_real.utf8().get_data());
+
+    // --- Custom schema plugins (idtx, godot resolver) ---
+    const String plugin_src    = String("res://addons/IDTXFlow/bin/plugin/usd");
+    const String plugin_dst    = String("user://usd_plugin");
+    const String plugin_marker = plugin_dst + String("/.extracted");
+
+    bool plugin_needs_extract = true;
+    if (FileAccess::file_exists(plugin_marker)) {
+        Ref<FileAccess> mf = FileAccess::open(plugin_marker, FileAccess::READ);
+        if (mf.is_valid() && mf->get_as_text().strip_edges() == String(IDTXFLOW_USD_PLUGIN_CACHE_VERSION))
+            plugin_needs_extract = false;
+    }
+    if (plugin_needs_extract) {
+        _extract_res_dir_web(plugin_src, plugin_dst);
+        Ref<FileAccess> marker = FileAccess::open(plugin_marker, FileAccess::WRITE);
+        if (marker.is_valid()) marker->store_string(String(IDTXFLOW_USD_PLUGIN_CACHE_VERSION));
+    }
+
+    String plugin_real = ProjectSettings::get_singleton()->globalize_path(plugin_dst);
+    pxr::PlugRegistry::GetInstance().RegisterPlugins(plugin_real.utf8().get_data());
+}
+#endif // __EMSCRIPTEN__
 
 #ifdef IDTXFLOW_MDL_ENABLED
 #include <idtxflow/converter/MdlMaterialConverter.h>
@@ -165,6 +270,12 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     // Register USD plugin metadata so PlugRegistry can find ArDefaultResolver
     // before the first ArGetResolver() call.
     _register_usd_plugins_android();
+#endif
+
+#ifdef __EMSCRIPTEN__
+    // Same as Android: copy plugInfo.json trees from PCK to the writable
+    // Emscripten filesystem, then call PlugRegistry::RegisterPlugins().
+    _register_usd_plugins_web();
 #endif
     
     GDREGISTER_CLASS(UsdStageNode3D)
