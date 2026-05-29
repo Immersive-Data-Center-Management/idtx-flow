@@ -20,6 +20,8 @@ using namespace pxr;
 void UsdStageNode3D::_enter_tree()
 {
     Node3D::_enter_tree();
+    
+    _reconstruct_node();
 }
 
 void UsdStageNode3D::_ready()
@@ -27,47 +29,11 @@ void UsdStageNode3D::_ready()
     Node3D::_ready();
     node_ready_ = true;
     
-    if (!stage_uri_.is_empty())
-    {
-        // coming here is most likely the case, when the scene has been loaded
-        // if the node has a cached scene name stored, it has been saved in the converted state and thus does not
-        // trigger conversion again as all nodes has been loaded already
-        if (cached_scene_name_.is_empty() || !FileAccess::file_exists(cached_scene_name_))
-        {
-            _cleanup_nodes();
-            open_and_convert_stage();
-            
-            return;
-        }
-        
-        // if the cached scene has been provided and the file exists, we load the cached scene, instantiate it
-        // and add it to the scene tree
-        if (!cached_scene_name_.is_empty())
-        {
-            Ref<PackedScene> packed_scene = ResourceLoader::get_singleton()->load(cached_scene_name_);
-            Node3D* cached_root = cast_to<Node3D>(packed_scene->instantiate());
-            // the instantiated node would be the cached "UsdStageNode3D". Thus, just adding this to the tree
-            // would create a recursion. The intention anyway was to use this node as a root only for caching. And "copy"
-            // it's children after instantiation to this node would re-create the original structure anyway.
-            for (int i = 0; i < cached_root->get_child_count(); i++)
-            {
-                if (Node3D* child = cast_to<Node3D>(cached_root->get_child(i)))
-                {
-                    Node3D* duplicated = cast_to<Node3D>(child->duplicate());
-                    add_child(duplicated);
-                    duplicated->set_owner(this);
-                }
-            }
-            // release the instantiated packed scene, all children have been copied over to the actual scene tree
-            cached_root->queue_free();
-        }
-    }
+    _reconstruct_node();
 }
 
 void UsdStageNode3D::_exit_tree()
 {
-    node_ready_ = false;
-    
     // Cancel any pending async load
     if (pending_load_task_)
     {
@@ -150,6 +116,48 @@ void UsdStageNode3D::open_and_convert_stage()
             // Marshal to main thread via call_deferred
             call_deferred("_on_stage_loaded");
         });
+}
+
+void UsdStageNode3D::_reconstruct_node()
+{
+    if (node_ready_)
+    {
+        if (!stage_uri_.is_empty())
+        {
+            // coming here is most likely the case, when the scene has been loaded or after an _exit_tree -> _enter_tree
+            // cycle. If the node has a cached scene name stored, it has been saved in the converted state and thus does not
+            // trigger conversion again as all nodes has been loaded already. Otherwise trigger conversion.
+            if (cached_scene_name_.is_empty() || !FileAccess::file_exists(cached_scene_name_))
+            {
+                _cleanup_nodes();
+                open_and_convert_stage();
+            
+                return;
+            }
+        
+            // if the cached scene has been provided and the file exists, we load the cached scene, instantiate it
+            // and add it to the scene tree
+            if (!cached_scene_name_.is_empty())
+            {
+                Ref<PackedScene> packed_scene = ResourceLoader::get_singleton()->load(cached_scene_name_);
+                Node3D* cached_root = cast_to<Node3D>(packed_scene->instantiate());
+                // the instantiated node would be the cached "UsdStageNode3D". Thus, just adding this to the tree
+                // would create a recursion. The intention anyway was to use this node as a root only for caching. And "copy"
+                // it's children after instantiation to this node would re-create the original structure anyway.
+                for (int i = 0; i < cached_root->get_child_count(); i++)
+                {
+                    if (Node3D* child = cast_to<Node3D>(cached_root->get_child(i)))
+                    {
+                        Node3D* duplicated = cast_to<Node3D>(child->duplicate());
+                        add_child(duplicated);
+                        duplicated->set_owner(this);
+                    }
+                }
+                // release the instantiated packed scene, all children have been copied over to the actual scene tree
+                cached_root->queue_free();
+            }
+        }
+    }
 }
 
 void UsdStageNode3D::_on_stage_loaded()

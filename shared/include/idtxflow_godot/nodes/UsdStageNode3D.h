@@ -83,6 +83,12 @@ public:
     
 protected:
     /**
+     * reconstructing the node either after loading the scene this node is contained in, or during an
+     * _exit_tree -> _enter_tree cycle
+     */
+    void _reconstruct_node();
+    
+    /**
      * Called via call_deferred from the worker thread callback.
      * Performs stage conversion and scene tree operations on the main thread.
      */
