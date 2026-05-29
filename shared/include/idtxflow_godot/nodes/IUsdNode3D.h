@@ -173,6 +173,12 @@ public: \
         static_cast<uint64_t>(reinterpret_cast<uintptr_t>(static_cast<IUsdNode3D*>(this)))); \
     }\
     ~m_class() override = default; \
+    bool _set(const godot::StringName &p_name, const godot::Variant &p_value) {\
+        /* we never set the deserialized metadata value for this internal key. */\
+        /* otherwise this would overwrite the value created in the construct */\
+        if (p_name == godot::StringName("metadata/__iusdnode3d_ptr")) return true;\
+        return false;\
+    }\
     IUSDNODE_IMPLEMENT_GETTER_SETTER \
 
 #define IUSDNODE_IMPLEMENT_GETTER_SETTER /*** Implement "redirect" to IUsdNode3D setter/getter to be used in Binding *****/ \

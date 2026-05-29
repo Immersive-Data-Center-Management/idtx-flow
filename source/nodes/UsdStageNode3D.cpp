@@ -149,8 +149,9 @@ void UsdStageNode3D::_reconstruct_node()
                     if (Node3D* child = cast_to<Node3D>(cached_root->get_child(i)))
                     {
                         Node3D* duplicated = cast_to<Node3D>(child->duplicate());
+                        // ensure that all nodes re-constructed from the packed scene retrieve their runtime properties
+                        _configure_nodes_recursive(duplicated, this);
                         add_child(duplicated);
-                        duplicated->set_owner(this);
                     }
                 }
                 // release the instantiated packed scene, all children have been copied over to the actual scene tree
@@ -229,8 +230,9 @@ void UsdStageNode3D::_configure_nodes_recursive(godot::Node3D* node, godot::Node
     // on it's own
     if (dynamic_cast<UsdStageNode3D*>(node)) return;
     
+    
     // do this for all th children
-    const std::string& stage_path = stage_->GetRootLayer()->GetRealPath();
+    const std::string& stage_path = !stage_ ? std::string() : stage_->GetRootLayer()->GetRealPath();
     for (int i = 0; i < node->get_child_count(); i++) {
         Node* child = node->get_child(i);
         IUsdNode3D* usd_node = IUsdNode3D::from_node(child);
