@@ -46,15 +46,16 @@ void UsdStageNode3D::_ready()
         {
             Ref<PackedScene> packed_scene = ResourceLoader::get_singleton()->load(cached_scene_name_);
             Node3D* cached_root = cast_to<Node3D>(packed_scene->instantiate());
-            // the instantiated node would be the cached "UsdStageNode3D". Thus just adding this to the tree
+            // the instantiated node would be the cached "UsdStageNode3D". Thus, just adding this to the tree
             // would create a recursion. The intention anyway was to use this node as a root only for caching. And "copy"
             // it's children after instantiation to this node would re-create the original structure anyway.
             for (int i = 0; i < cached_root->get_child_count(); i++)
             {
                 if (Node3D* child = cast_to<Node3D>(cached_root->get_child(i)))
                 {
-                    add_child(child->duplicate());
-                    child->set_owner(this);
+                    Node3D* duplicated = cast_to<Node3D>(child->duplicate());
+                    add_child(duplicated);
+                    duplicated->set_owner(this);
                 }
             }
             // release the instantiated packed scene, all children have been copied over to the actual scene tree
