@@ -20,6 +20,8 @@ using namespace pxr;
 void UsdStageNode3D::_enter_tree()
 {
     Node3D::_enter_tree();
+    
+    _reconstruct_node();
 }
 
 void UsdStageNode3D::_ready()
@@ -27,53 +29,18 @@ void UsdStageNode3D::_ready()
     Node3D::_ready();
     node_ready_ = true;
     
-    if (!stage_uri_.is_empty())
-    {
-        // coming here is most likely the case, when the scene has been loaded
-        // if the node has a cached scene name stored, it has been saved in the converted state and thus does not
-        // trigger conversion again as all nodes has been loaded already
-        if (cached_scene_name_.is_empty() || !FileAccess::file_exists(cached_scene_name_))
-        {
-            cleanup_nodes();
-            open_and_convert_stage();
-            
-            return;
-        }
-        
-        // if the cached scene has been provided and the file exists, we load the cached scene, instantiate it
-        // and add it to the scene tree
-        if (!cached_scene_name_.is_empty())
-        {
-            Ref<PackedScene> packed_scene = ResourceLoader::get_singleton()->load(cached_scene_name_);
-            Node3D* cached_root = cast_to<Node3D>(packed_scene->instantiate());
-            // the instantiated node would be the cached "UsdStageNode3D". Thus just adding this to the tree
-            // would create a recursion. The intention anyway was to use this node as a root only for caching. And "copy"
-            // it's children after instantiation to this node would re-create the original structure anyway.
-            for (int i = 0; i < cached_root->get_child_count(); i++)
-            {
-                if (Node3D* child = cast_to<Node3D>(cached_root->get_child(i)))
-                {
-                    add_child(child->duplicate());
-                    child->set_owner(this);
-                }
-            }
-            // release the instantiated packed scene, all children have been copied over to the actual scene tree
-            cached_root->queue_free();
-        }
-    }
+    _reconstruct_node();
 }
 
 void UsdStageNode3D::_exit_tree()
 {
-    node_ready_ = false;
-    
     // Cancel any pending async load
     if (pending_load_task_)
     {
         pending_load_task_->Cancel();
     }
     
-    cleanup_nodes();
+    _cleanup_nodes();
     Node3D::_exit_tree();
 }
 
@@ -84,7 +51,7 @@ void UsdStageNode3D::set_stage_uri(const String& path)
     
     // as the stage uri has changed we reset any previous state of this node
     stage_.Reset();
-    cleanup_nodes();
+    _cleanup_nodes();
     
     // Cancel any in-flight async load
     if (pending_load_task_)
@@ -151,6 +118,49 @@ void UsdStageNode3D::open_and_convert_stage()
         });
 }
 
+void UsdStageNode3D::_reconstruct_node()
+{
+    if (node_ready_)
+    {
+        if (!stage_uri_.is_empty())
+        {
+            // coming here is most likely the case, when the scene has been loaded or after an _exit_tree -> _enter_tree
+            // cycle. If the node has a cached scene name stored, it has been saved in the converted state and thus does not
+            // trigger conversion again as all nodes has been loaded already. Otherwise trigger conversion.
+            if (cached_scene_name_.is_empty() || !FileAccess::file_exists(cached_scene_name_))
+            {
+                _cleanup_nodes();
+                open_and_convert_stage();
+            
+                return;
+            }
+        
+            // if the cached scene has been provided and the file exists, we load the cached scene, instantiate it
+            // and add it to the scene tree
+            if (!cached_scene_name_.is_empty())
+            {
+                Ref<PackedScene> packed_scene = ResourceLoader::get_singleton()->load(cached_scene_name_);
+                Node3D* cached_root = cast_to<Node3D>(packed_scene->instantiate());
+                // the instantiated node would be the cached "UsdStageNode3D". Thus, just adding this to the tree
+                // would create a recursion. The intention anyway was to use this node as a root only for caching. And "copy"
+                // it's children after instantiation to this node would re-create the original structure anyway.
+                for (int i = 0; i < cached_root->get_child_count(); i++)
+                {
+                    if (Node3D* child = cast_to<Node3D>(cached_root->get_child(i)))
+                    {
+                        Node3D* duplicated = cast_to<Node3D>(child->duplicate());
+                        // ensure that all nodes re-constructed from the packed scene retrieve their runtime properties
+                        _configure_nodes_recursive(duplicated, this);
+                        add_child(duplicated);
+                    }
+                }
+                // release the instantiated packed scene, all children have been copied over to the actual scene tree
+                cached_root->queue_free();
+            }
+        }
+    }
+}
+
 void UsdStageNode3D::_on_stage_loaded()
 {
     // Retrieve the result (written by the worker thread)
@@ -191,15 +201,94 @@ void UsdStageNode3D::_on_stage_loaded()
     // only possible, once the nodes are added to the tree (by adding them as children to this node)
     for (Node3D* node : converted_nodes)
     {
-        configure_nodes_recursive(node, this); // we set the owner here, but defer this to ensure adding to the tree happens first
-        this->add_child(node); // this invokes _ready() on node at earliest convinent from Godot engine point of view, which exects the "config" already run
+        _configure_nodes_recursive(node, this); // we set the owner here, but defer this to ensure adding to the tree happens first
+        this->add_child(node); // this invokes _ready() on node at earliest convenient from Godot engine point of view, which expects the "config" already run
     }
     // name our-self after the root layer of the stage we opened
     set_name(stage_->GetRootLayer()->GetDisplayName().c_str());
 
     // generate and store a unique cached scene name for this converted stage
-    cached_scene_name_ = generate_cached_scene_name(stage_uri_);
+    cached_scene_name_ = _generate_cached_scene_name(stage_uri_);
     
+    call_deferred("_pack_and_save_cached_scene");
+    
+    emit_signal("stage_loading_finished", true);
+}
+
+void UsdStageNode3D::_configure_nodes_recursive(godot::Node3D* node, godot::Node* owner)
+{
+    if (!node) return;
+    
+    // store the owner
+    if (owner && node != owner) node->call_deferred("set_owner", owner);
+
+    // store the owning StageNode3D
+    if (IUsdNode3D* usd_node = IUsdNode3D::from_node(node))
+        usd_node->set_stage_node(this);
+    
+    // if this is a UsdStageNode3D itself, skip traversing the childs, as this node takes care of it
+    // on it's own
+    if (dynamic_cast<UsdStageNode3D*>(node)) return;
+    
+    
+    // do this for all th children
+    const std::string& stage_path = !stage_ ? std::string() : stage_->GetRootLayer()->GetRealPath();
+    for (int i = 0; i < node->get_child_count(); i++) {
+        Node* child = node->get_child(i);
+        IUsdNode3D* usd_node = IUsdNode3D::from_node(child);
+        // if the child is not a USD node, do nothing
+        if (!usd_node) continue;
+        
+        // if the child belongs to another stage (properly happens if there are children of a UsdStageNode3D that
+        // has been brought into the scene from the referenced stage at the same level as children that have been imported
+        // based on the layer referenced to by a payload), we will not configure the owner.
+        std::string child_stage_path = std::string(usd_node->get_stage_path().utf8().get_data());
+        if (child_stage_path == stage_path)
+            _configure_nodes_recursive(Object::cast_to<Node3D>(child), owner);
+    }
+}
+
+void UsdStageNode3D::_cleanup_nodes()
+{
+    for (int i = 0; i < get_child_count(); i++)
+    {
+        Node* child = get_child(i);
+        // remove all direct childs that are marked as USD nodes.
+        // if other nodes had been added into the child tree they will also be removed
+        // as part of this cleanup
+        if (child->has_meta("USD_NODE"))
+        {
+            remove_child(child);
+            child->queue_free();   
+        }
+    }
+}
+
+godot::String UsdStageNode3D::_generate_cached_scene_name(const godot::String& stage_uri, bool binary)
+{
+    if (stage_uri.is_empty()) return "";
+    
+    const String cache_dir = "user://usd_cache/";
+    const String filename = stage_uri.get_file().get_basename();
+    const String file_hash = String::num_int64(stage_uri.hash());
+    
+    String suffix;
+    // if the stage/layer was opened with a provided overlay layer we create a unique hash based on the layer contents
+    // to ensure the same original stage can be used and cached with different override layers that result in different
+    // converted contents for the scene
+    if (has_meta("USD_OVERRIDE_LAYER")) {
+        const String override_content = get_meta("USD_OVERRIDE_LAYER");
+        suffix = String::num_uint64(override_content.hash());
+    } else {
+        suffix = String();
+    }
+    const String extension = binary ? ".scn" : ".tscn";
+    
+    return cache_dir + filename + "_" + file_hash + "_" + suffix + extension;
+}
+
+void UsdStageNode3D::_pack_and_save_cached_scene()
+{
     // from converted stage create a packed scene and save it as cached scene
     Ref<PackedScene> packed_scene;
     packed_scene.instantiate();
@@ -219,79 +308,6 @@ void UsdStageNode3D::_on_stage_loaded()
         ResourceSaver::get_singleton()->save(packed_scene, cached_scene_name_);
     }
     packed_scene.unref();
-    
-    emit_signal("stage_loading_finished", true);
-}
-
-void UsdStageNode3D::configure_nodes_recursive(godot::Node3D* node, godot::Node* owner)
-{
-    if (!node) return;
-    
-    // store the owner
-    if (owner && node != owner) node->call_deferred("set_owner", owner);
-
-    // store the owning StageNode3D
-    if (IUsdNode3D* usd_node = IUsdNode3D::from_node(node))
-        usd_node->set_stage_node(this);
-    
-    // if this is a UsdStageNode3D itself, skip traversing the childs, as this node takes care of it
-    // on it's own
-    if (dynamic_cast<UsdStageNode3D*>(node)) return;
-    
-    // do this for all th children
-    const std::string& stage_path = stage_->GetRootLayer()->GetRealPath();
-    for (int i = 0; i < node->get_child_count(); i++) {
-        Node* child = node->get_child(i);
-        IUsdNode3D* usd_node = IUsdNode3D::from_node(child);
-        // if the child is not a USD node, do nothing
-        if (!usd_node) continue;
-        
-        // if the child belongs to another stage (properly happens if there are children of a UsdStageNode3D that
-        // has been brought into the scene from the referenced stage at the same level as children that have been imported
-        // based on the layer referenced to by a payload), we will not configure the owner.
-        std::string child_stage_path = std::string(usd_node->get_stage_path().utf8().get_data());
-        if (child_stage_path == stage_path)
-            configure_nodes_recursive(Object::cast_to<Node3D>(child), owner);
-    }
-}
-
-void UsdStageNode3D::cleanup_nodes()
-{
-    for (int i = 0; i < get_child_count(); i++)
-    {
-        Node* child = get_child(i);
-        // remove all direct childs that are marked as USD nodes.
-        // if other nodes had been added into the child tree they will also be removed
-        // as part of this cleanup
-        if (child->has_meta("USD_NODE"))
-        {
-            remove_child(child);
-            child->queue_free();   
-        }
-    }
-}
-
-godot::String UsdStageNode3D::generate_cached_scene_name(const godot::String& stage_uri, bool binary)
-{
-    if (stage_uri.is_empty()) return "";
-    
-    const String cache_dir = "user://usd_cache/";
-    const String filename = stage_uri.get_file().get_basename();
-    const String file_hash = String::num_int64(stage_uri.hash());
-    
-    String suffix;
-    // if the stage/layer was openend with a provided overlay lyer we create a unique hash based on the layer contents
-    // to ensure the same original stage can be used and cached with different override layers that result in different
-    // converted contents for the scene
-    if (has_meta("USD_OVERRIDE_LAYER")) {
-        const String override_content = get_meta("USD_OVERRIDE_LAYER");
-        suffix = String::num_uint64(override_content.hash());
-    } else {
-        suffix = String();
-    }
-    const String extension = binary ? ".scn" : ".tscn";
-    
-    return cache_dir + filename + "_" + file_hash + "_" + suffix + extension;
 }
 
 void UsdStageNode3D::_bind_methods()
@@ -311,6 +327,7 @@ void UsdStageNode3D::_bind_methods()
     
     // Registration required to allow deferred calling
     ClassDB::bind_method(D_METHOD("open_and_convert_stage"), &UsdStageNode3D::open_and_convert_stage);
+    ClassDB::bind_method(D_METHOD("_pack_and_save_cached_scene"), &UsdStageNode3D::_pack_and_save_cached_scene);
     
     // Internal deferred callback for async stage loading (not exposed to user scripts)
     ClassDB::bind_method(D_METHOD("_on_stage_loaded"), &UsdStageNode3D::_on_stage_loaded);
