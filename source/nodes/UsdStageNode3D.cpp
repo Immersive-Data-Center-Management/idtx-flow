@@ -183,6 +183,7 @@ void UsdStageNode3D::_on_stage_loaded()
     
     if (!stage_)
     {
+        print_error("Unable to open Stage. " + String(result.error_message.c_str()));
         emit_signal("stage_loading_finished", false);
         return;
     }
@@ -305,7 +306,11 @@ void UsdStageNode3D::_pack_and_save_cached_scene()
             DirAccess::make_dir_recursive_absolute(cache_dir);
         }
     
-        ResourceSaver::get_singleton()->save(packed_scene, cached_scene_name_);
+        err = ResourceSaver::get_singleton()->save(packed_scene, cached_scene_name_);
+        if (err != OK)
+        {
+            print_error("Unable to save cached scene.", err);
+        }
     }
     packed_scene.unref();
 }

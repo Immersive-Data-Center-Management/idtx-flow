@@ -125,9 +125,6 @@ std::shared_ptr<ArAsset> UsdGodotAssetResolver::_OpenAsset(const ArResolvedPath&
     // this is essentially a "res://path/to/file.usd". So calculate a real local path openUSD is capable of finding
     // and open the file from there
     const std::string assetPath = resolvedPath.GetPathString();
-        
-    print_error("TEST:" + String("open stage at: ") + assetPath.c_str());
-
     // path resolution for user:// and res:// need to be treated differently, especialy on android
     // as assets accessed with "res://" are usually packed inside the APK binary and could not be accessed with openUSD
     // default file access
@@ -150,7 +147,7 @@ std::shared_ptr<ArAsset> UsdGodotAssetResolver::_OpenAsset(const ArResolvedPath&
     Ref<FileAccess> file = FileAccess::open(String(assetPath.c_str()), FileAccess::READ);
     if (!file.is_valid())
     {
-        print_error("TEST: Unable to open file: " + String(assetPath.c_str()));
+        print_error("[UsdGodotAssetResolver] Unable to open file: " + String(assetPath.c_str()));
         return nullptr;
     }
     
@@ -158,7 +155,6 @@ std::shared_ptr<ArAsset> UsdGodotAssetResolver::_OpenAsset(const ArResolvedPath&
     std::shared_ptr<char> buffer(new char[size], std::default_delete<char[]>());
     PackedByteArray data = file->get_buffer(size);
     memcpy(buffer.get(), data.ptr(), size);
-    print_error("TEST: Stage opened and contents passed to BufferedAsset");
     return std::make_shared<GodotBufferedAsset>(std::move(buffer), size);
 #endif
     return nullptr;
