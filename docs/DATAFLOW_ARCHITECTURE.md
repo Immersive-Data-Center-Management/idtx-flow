@@ -61,7 +61,7 @@ the game engine that converts this prim into it's own entity type.
 class MockDatasource_RandomFloat "MockDatasource_RandomFloat" (
     inherits = </Datasource>
 ) {
-    float inputs:interval = 1.0   # update interval in seconds
+    float interval = 1.0          # update interval in seconds
     string outputs:data = "{}"    # inherited from Datasource
 }
 ```
@@ -95,8 +95,8 @@ class Compute_ValueFromJson "Compute_ValueFromJson" (
 inherits = </Typed>
 ) {
     string inputs:jsonData = "{}"          # connects to a Datasource outputs:data
-    string inputs:jsonPath                 # RFC 6901 JSON Pointer, e.g. "/data/value"
-    token  inputs:jsonValueType            # "float" | "double" | "string" | "none"
+    string jsonPath                        # RFC 6901 JSON Pointer, e.g. "/data/value"
+    token  jsonValueType                   # "float" | "double" | "string" | "none"
 
     double outputs:jsonValue:double = 0.0  # populated when jsonValueType = "double"
     float  outputs:jsonValue:float  = 0.0  # populated when jsonValueType = "float"
