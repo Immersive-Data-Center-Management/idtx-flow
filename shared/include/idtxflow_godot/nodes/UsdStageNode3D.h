@@ -65,10 +65,9 @@ public:
 
     /**
      * Opens the stage at stage_uri_ asynchronously on a background thread,
-     * then converts all prims into Godot entities on the main thread.
-     * A placeholder cube is shown during loading.
+     * then calls the method passed to it via name with call_deferred to continue execution on the main thread
      */
-    void open_and_convert_stage();
+    void open_stage_and_then(const godot::StringName& next_method_name);
     
     /**
      * Getter to retrieve the usd stage, this node has loaded and converted
@@ -88,12 +87,18 @@ protected:
      * _exit_tree -> _enter_tree cycle
      */
     void _reconstruct_node();
-    
+
     /**
-     * Called via call_deferred from the worker thread callback.
-     * Performs stage conversion and scene tree operations on the main thread.
+     * Called via call_deferred, once the stage has been loaded in an async worker thread to perform the actual
+     * stage conversion into the Godot scene tree. This has to happen on the main thread
      */
-    void _on_stage_loaded();
+    void _convert_stage();
+
+    /**
+     * Called via call_deferred, once the stage has been loaded in an async worker thread to load the already
+     * converted stage from it's cached scene representation. This has to happen on the main thread
+     */
+    void _load_converted_stage();
     
     /**
      * Finalize the conversion of the usdPrims->godotNodes while recursively setting the owner of each node
@@ -115,7 +120,7 @@ protected:
      * @param binary whether to use tscn or scn format
      * @return 
      */
-    godot::String _generate_cached_scene_name(const godot::String& stage_uri, bool binary = false);
+    godot::String _generate_cached_scene_name(const godot::String& stage_uri, bool binary = true);
 
     /**
      * Pack the current converted stage-scene and save the same. The call to this function will be deferred

@@ -646,7 +646,7 @@ namespace converter
             // from the data source prim create a mock data source node that will be added to the scene tree and
             // use it's _process() method to request fresh data and author it into the prim's "outputs:data" property
             UsdMockDatasourceFloatNode3D* data_source = memnew(UsdMockDatasourceFloatNode3D);
-            usd_mock_source.GetInputsIntervalAttr().Get<float>(&data_source->refresh_interval_);
+            usd_mock_source.GetIntervalAttr().Get<float>(&data_source->refresh_interval_);
             
             return data_source;
         }
