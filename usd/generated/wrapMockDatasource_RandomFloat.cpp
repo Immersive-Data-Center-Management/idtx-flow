@@ -33,9 +33,9 @@ WRAP_CUSTOM;
 
         
 static UsdAttribute
-_CreateInputsIntervalAttr(IDTXMockDatasource_RandomFloat &self,
+_CreateIntervalAttr(IDTXMockDatasource_RandomFloat &self,
                                       object defaultVal, bool writeSparsely) {
-    return self.CreateInputsIntervalAttr(
+    return self.CreateIntervalAttr(
         UsdPythonToSdfType(defaultVal, SdfValueTypeNames->Float), writeSparsely);
 }
 
@@ -81,10 +81,10 @@ void wrapIDTXMockDatasource_RandomFloat()
         .def(!self)
 
         
-        .def("GetInputsIntervalAttr",
-             &This::GetInputsIntervalAttr)
-        .def("CreateInputsIntervalAttr",
-             &_CreateInputsIntervalAttr,
+        .def("GetIntervalAttr",
+             &This::GetIntervalAttr)
+        .def("CreateIntervalAttr",
+             &_CreateIntervalAttr,
              (arg("defaultValue")=object(),
               arg("writeSparsely")=false))
 

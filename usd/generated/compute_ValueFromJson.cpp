@@ -267,7 +267,7 @@ inline bool IDTXCompute_ValueFromJson::SetJsonValue(const pxr::VtValue& value)
         return GetJsonValueTypeAttr().Set(TfToken("float"))
             && GetOutputsJsonValueFloatAttr().Set(value.UncheckedGet<float>());
     }
-    if (value.IsHolding<float>()) {
+    if (value.IsHolding<double>()) {
         return GetJsonValueTypeAttr().Set(TfToken("double"))
             && GetOutputsJsonValueDoubleAttr().Set(value.UncheckedGet<double>());
     }

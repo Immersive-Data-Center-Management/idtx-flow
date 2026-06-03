@@ -87,15 +87,15 @@ IDTXMockDatasource_RandomFloat::_GetTfType() const
 }
 
 UsdAttribute
-IDTXMockDatasource_RandomFloat::GetInputsIntervalAttr() const
+IDTXMockDatasource_RandomFloat::GetIntervalAttr() const
 {
-    return GetPrim().GetAttribute(IDTXTokens->inputsInterval);
+    return GetPrim().GetAttribute(IDTXTokens->interval);
 }
 
 UsdAttribute
-IDTXMockDatasource_RandomFloat::CreateInputsIntervalAttr(VtValue const &defaultValue, bool writeSparsely) const
+IDTXMockDatasource_RandomFloat::CreateIntervalAttr(VtValue const &defaultValue, bool writeSparsely) const
 {
-    return UsdSchemaBase::_CreateAttr(IDTXTokens->inputsInterval,
+    return UsdSchemaBase::_CreateAttr(IDTXTokens->interval,
                        SdfValueTypeNames->Float,
                        /* custom = */ false,
                        SdfVariabilityVarying,
@@ -120,7 +120,7 @@ const TfTokenVector&
 IDTXMockDatasource_RandomFloat::GetSchemaAttributeNames(bool includeInherited)
 {
     static TfTokenVector localNames = {
-        IDTXTokens->inputsInterval,
+        IDTXTokens->interval,
     };
     static TfTokenVector allNames =
         _ConcatenateAttributeNames(

@@ -93,10 +93,6 @@ struct IDTXTokensType {
     /// 
     /// Fallback value for IDTXCollisionAPI schema attribute purpose
     const TfToken guide;
-    /// \brief "inputs:interval"
-    /// 
-    /// IDTXMockDatasource_RandomFloat
-    const TfToken inputsInterval;
     /// \brief "inputs:jsonData"
     /// 
     /// IDTXCompute_ValueFromJson
@@ -121,6 +117,10 @@ struct IDTXTokensType {
     /// 
     /// IDTXInteractionAPI
     const TfToken interactionIdentifier;
+    /// \brief "interval"
+    /// 
+    /// IDTXMockDatasource_RandomFloat
+    const TfToken interval;
     /// \brief "invisible"
     /// 
     /// Fallback value for IDTXCollisionAPI schema attribute visibility

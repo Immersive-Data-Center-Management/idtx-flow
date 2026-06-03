@@ -141,25 +141,25 @@ private:
 
 public:
     // --------------------------------------------------------------------- //
-    // INPUTSINTERVAL 
+    // INTERVAL 
     // --------------------------------------------------------------------- //
     /// The update interval in seconds the mock datasource shall provide data and author the \sa outputs:data attribute in the current usd stage this prim is authored. 
     ///
     /// | ||
     /// | -- | -- |
-    /// | Declaration | `float inputs:interval = 1` |
+    /// | Declaration | `float interval = 1` |
     /// | C++ Type | float |
     /// | \ref Usd_Datatypes "Usd Type" | SdfValueTypeNames->Float |
     IDTX_API
-    UsdAttribute GetInputsIntervalAttr() const;
+    UsdAttribute GetIntervalAttr() const;
 
-    /// See GetInputsIntervalAttr(), and also 
+    /// See GetIntervalAttr(), and also 
     /// \ref Usd_Create_Or_Get_Property for when to use Get vs Create.
     /// If specified, author \p defaultValue as the attribute's default,
     /// sparsely (when it makes sense to do so) if \p writeSparsely is \c true -
     /// the default for \p writeSparsely is \c false.
     IDTX_API
-    UsdAttribute CreateInputsIntervalAttr(VtValue const &defaultValue = VtValue(), bool writeSparsely=false) const;
+    UsdAttribute CreateIntervalAttr(VtValue const &defaultValue = VtValue(), bool writeSparsely=false) const;
 
 public:
     // ===================================================================== //

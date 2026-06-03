@@ -84,7 +84,7 @@ class MockDatasource_RandomFloat "MockDatasource_RandomFloat" (
     }
 )
 {
-    float inputs:interval = 1 (
+    float interval = 1 (
         customData = {
             string userDocBrief = "The update interval in seconds the mock datasource shall provide data and author the \\sa outputs:data attribute in the current usd stage this prim is authored."
         }

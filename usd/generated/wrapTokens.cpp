@@ -29,13 +29,13 @@ void wrapIDTXTokens()
     _ADD_TOKEN(cls, float_);
     _ADD_TOKEN(cls, Grab);
     _ADD_TOKEN(cls, guide);
-    _ADD_TOKEN(cls, inputsInterval);
     _ADD_TOKEN(cls, inputsJsonData);
     _ADD_TOKEN(cls, inputsValue);
     _ADD_TOKEN(cls, interactionEnabled);
     _ADD_TOKEN(cls, interactionHighlightable);
     _ADD_TOKEN(cls, interactionHighlightColor);
     _ADD_TOKEN(cls, interactionIdentifier);
+    _ADD_TOKEN(cls, interval);
     _ADD_TOKEN(cls, invisible);
     _ADD_TOKEN(cls, jsonPath);
     _ADD_TOKEN(cls, jsonValueType);
