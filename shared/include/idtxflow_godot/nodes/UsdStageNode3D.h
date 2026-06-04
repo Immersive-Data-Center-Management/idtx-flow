@@ -106,7 +106,7 @@ protected:
      * @param node Node to configure (and all the children)
      * @param owner Owner to be set for this node
      */
-    void _configure_nodes_recursive(godot::Node3D* node, godot::Node* owner);
+    void _configure_nodes_recursive(godot::Node3D* node, godot::Node* owner, bool register_compute = false);
 
     /**
      * remove all child nodes that has been converted as part of the referenced usd stage

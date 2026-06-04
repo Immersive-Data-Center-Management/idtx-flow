@@ -233,7 +233,7 @@ void UsdStageNode3D::_load_converted_stage()
         cached_root->remove_child(child);
         child->set_owner(nullptr);
         if (Node3D* child3d = cast_to<Node3D>(child)) {
-            _configure_nodes_recursive(child3d, this);
+            _configure_nodes_recursive(child3d, this, true);
             add_child(child3d);
         } else {
             child->queue_free();
@@ -243,10 +243,18 @@ void UsdStageNode3D::_load_converted_stage()
     // release the instantiated packed scene, all children have been copied over to the actual scene tree
     cached_root->queue_free();
     
+    // only after we have transferred the cached scene into the current one we can activate the compute bridge
+    // as during stage_handle_ instantiation there is no compute property registered yet
+    auto bridge = idtxflow::exec::ExecBridgeManager::Instance().GetExecBridgeForStage(stage_handle_->Stage());
+    if (bridge && bridge->GetValueKeyCount() > 0)
+    {
+        idtxflow::exec::ExecBridgeManager::Instance().ActivateBridge(bridge);
+    }
+    
     emit_signal("stage_loading_finished", true);
 }
 
-void UsdStageNode3D::_configure_nodes_recursive(godot::Node3D* node, godot::Node* owner)
+void UsdStageNode3D::_configure_nodes_recursive(godot::Node3D* node, godot::Node* owner, bool register_compute)
 {
     if (!node) return;
     
@@ -254,13 +262,43 @@ void UsdStageNode3D::_configure_nodes_recursive(godot::Node3D* node, godot::Node
     if (owner && node != owner) node->call_deferred("set_owner", owner);
 
     // store the owning StageNode3D
-    if (IUsdNode3D* usd_node = IUsdNode3D::from_node(node))
+    IUsdNode3D* usd_node = IUsdNode3D::from_node(node);
+    if (usd_node)
         usd_node->set_stage_node(this);
     
-    // if this is a UsdStageNode3D itself, skip traversing the childs, as this node takes care of it
+    // if this is a UsdStageNode3D itself, skip traversing the childrens, as this node takes care of it
     // on it's own
     if (dynamic_cast<UsdStageNode3D*>(node)) return;
     
+    // if "register_compute" is true, the configuration happens during loading of a cached stage scene. Thus, the 
+    // stage converter did not run and registered compute attributes into the ExecComputeBridge. Do this here now
+    if (register_compute && usd_node && stage_handle_)
+    {
+        std::shared_ptr<idtxflow::exec::ExecBridge> bridge = idtxflow::exec::ExecBridgeManager::Instance()
+                .GetExecBridgeForStage(stage_handle_->Stage());
+        if (pxr::UsdPrim usdPrim = stage_handle_->Stage()->GetPrimAtPath(pxr::SdfPath(usd_node->get_prim_path().utf8().get_data())))
+        {
+            for (const pxr::UsdAttribute& attribute : usdPrim.GetAttributes())
+            {
+                if (attribute.HasAuthoredConnections())
+                    bridge->RegisterAttributeWithConnection(attribute);
+            }
+            if (bridge->GetValueKeyCount() > 0)
+            {
+                bridge->RegisterComputeResultHandler(usdPrim.GetPath(),
+                    std::shared_ptr<IExecBridgeHandler>(
+                        dynamic_cast<IExecBridgeHandler*>(usd_node),
+                        [](IExecBridgeHandler*)
+                        {
+                            /* the empty shared_ptr destructor ensures that the owner of the converted
+                             * node instance is responsible for its lifecycle and releasing the
+                             * last instance of the shared_ptr will not delete/free the contained object
+                             */
+                        }
+                    ));
+            }
+        }
+    }
     
     // do this for all th children
     const std::string& stage_path = !stage_handle_->Stage() ? std::string() : stage_handle_->Stage()->GetRootLayer()->GetRealPath();
@@ -275,7 +313,7 @@ void UsdStageNode3D::_configure_nodes_recursive(godot::Node3D* node, godot::Node
         // based on the layer referenced to by a payload), we will not configure the owner.
         std::string child_stage_path = std::string(usd_node->get_stage_path().utf8().get_data());
         if (child_stage_path == stage_path)
-            _configure_nodes_recursive(Object::cast_to<Node3D>(child), owner);
+            _configure_nodes_recursive(Object::cast_to<Node3D>(child), owner, register_compute);
     }
 }
 

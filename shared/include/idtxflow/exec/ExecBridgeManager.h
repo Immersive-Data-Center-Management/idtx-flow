@@ -131,7 +131,6 @@ namespace exec
         void RegisterComputeResultHandler(const pxr::SdfPath& primPath, std::shared_ptr<IExecBridgeHandler> handler)
         {
             if (!handler) return;
-            IDTX_LOG(IDTX_DEBUG, "Register compute hanlder for {}", primPath.GetText());
             result_handlers_[primPath].push_back(handler);
         }
 
@@ -166,8 +165,9 @@ namespace exec
                 if (computedValue == metadata.lastComputedValue) continue;
                 metadata.lastComputedValue = computedValue;
         
-                IDTX_LOG(IDTX_DEBUG, "Compute result of Attribute {} using Computation {} = {}",
-                     metadata.attributePath.GetText(), metadata.computationName.GetText(), pxr::TfStringify(computedValue).c_str());
+                // Keep this code commented for easy re-activation if error analysis is required.
+                //IDTX_LOG(IDTX_DEBUG, "Compute result of Attribute {} using Computation {} = {}",
+                //     metadata.attributePath.GetText(), metadata.computationName.GetText(), pxr::TfStringify(computedValue).c_str());
         
                 ExecComputeResult result = {
                     metadata.attributePath.GetPrimPath(),
@@ -287,7 +287,7 @@ namespace exec
         {
             if (!bridge) return;
             bridge->BuildRequest();
-            // when activating an ExecBridge run the first computation cycle immediatly
+            // when activating an ExecBridge run the first computation cycle immediately
             bridge->ComputeAndDispatch();
             
             std::lock_guard<std::mutex> lock(activation_mutex_);
