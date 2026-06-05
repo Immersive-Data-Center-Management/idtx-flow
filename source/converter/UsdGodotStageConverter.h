@@ -505,7 +505,7 @@ namespace converter
                 if (!meshDescription.meshData.Weights.is_empty())
                     mesh_arrays[godot::Mesh::ARRAY_WEIGHTS] = meshDescription.meshData.Weights;
                 
-                // depending on the stored bone weitgh count per vertex we need to pass a flag to ansure the
+                // depending on the stored bone weight count per vertex we need to pass a flag to ensure the
                 // bone and bone-weight arrays are treated the right way 
                 uint64_t flags = 0;
                 if (meshDescription.meshData.boneWeightCount == types::MeshData::BONEWEIGHT_COUNT_8)
