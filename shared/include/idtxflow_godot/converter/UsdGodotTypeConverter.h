@@ -405,9 +405,8 @@ namespace converter
             if (!bones.empty())
             {
                 // we need to always push 4 or 8 entries into the bones & weight array for each vertex in Godot.
-                // and we need to normalize those entries in case openUSD might have stored more then those
-                // 4/8 influences. In this case the weights would not sum up to 1.0f which could lead to skinning
-                // artifacts.
+                // As Godot takes the bone weights as-is we normalize those entries, so the weights would not sum up
+								// to 1.0 to prevent skinning artifacts.
                 if (boneWeights.size() > 4)
                 {
                     meshData.boneWeightCount = meshData.BONEWEIGHT_COUNT_8;
