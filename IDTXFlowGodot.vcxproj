@@ -142,6 +142,7 @@
 
   <ItemGroup>
     <Content Include="addons\IDTXFlow\idtxflow.gdextension" />
+    <Content Include="addons\IDTXFlow\main_screen.gd" />
     <Content Include="addons\IDTXFlow\plugin.cfg" />
     <Content Include="addons\IDTXFlow\plugin.gd" />
     <Content Include="docs\PLUGIN_ARCHITECTURE.md" />
