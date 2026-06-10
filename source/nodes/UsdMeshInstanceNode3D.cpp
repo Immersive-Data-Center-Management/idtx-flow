@@ -9,6 +9,8 @@
 
 using namespace godot;
 
+constexpr float MIN_SPHERE_RADIUS = 1e-6f;
+
 void UsdMeshInstanceNode3D::_ready()
 {
     MeshInstance3D::_ready();
@@ -98,7 +100,9 @@ void UsdMeshInstanceNode3D::OnComputeComplete(const std::vector<ExecComputeResul
             if (get_mesh()->is_class("SphereMesh"))
             {
                 Ref<SphereMesh> sphere_mesh(Object::cast_to<SphereMesh>(get_mesh().ptr()));
-                sphere_mesh->call_deferred("set_radius", radius);
+                // ensure that the sphere radius never get 0.0 as this would cause the following error downstream
+                // servers/rendering/renderer_scene_cull.cpp:991 - Condition "!v.is_finite()" is true.
+                sphere_mesh->call_deferred("set_radius", std::max(radius, MIN_SPHERE_RADIUS));
                 sphere_mesh->call_deferred("set_height", radius * 2.0);
             }
             continue;

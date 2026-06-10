@@ -119,7 +119,9 @@ namespace helper
 }
 
 namespace converter
-{    
+{
+    constexpr float MIN_SPHERE_RADIUS = 1e-6f;
+    
     template<>
     inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertXform(
         const godot::Transform3D& transform,
@@ -236,7 +238,7 @@ namespace converter
     }
 
     template<>
-    inline godot::Node3D* converter::UsdStageConverter<types::TargetEngineGodot>::ConvertCone(
+    inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCone(
         const godot::Transform3D& transform,
         const std::optional<AnimationDescription<types::TargetEngineGodot>>& animation,
         const std::optional<godot::Ref<godot::StandardMaterial3D>>& material,
@@ -297,7 +299,9 @@ namespace converter
     {
         godot::Ref<godot::SphereMesh> sphere;
         sphere.instantiate();
-        sphere->set_radius(sphere_radius);
+        // ensure that the sphere radius never get 0.0 as this would cause the following error downstream
+        // servers/rendering/renderer_scene_cull.cpp:991 - Condition "!v.is_finite()" is true.
+        sphere->set_radius(std::max(sphere_radius, MIN_SPHERE_RADIUS));
         sphere->set_height(sphere_radius * 2.0f);
         
         godot::Ref<godot::StandardMaterial3D> standard_material;
