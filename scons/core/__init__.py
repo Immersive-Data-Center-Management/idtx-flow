@@ -1,0 +1,1 @@
+"""Marker for the scons.core Python package (cross-platform helpers)."""
