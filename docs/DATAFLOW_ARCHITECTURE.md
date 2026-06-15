@@ -75,7 +75,7 @@ and serializes it as:
 ```
 
 and authors this string back into the `outputs:data` attribute of the prim in the live USD stage using the current active
-eit target, which is usually the session layer. If `outputs:data` is connected to a downstream compute node, OpenExec detects
+edit target, which is usually the session layer. If `outputs:data` is connected to a downstream compute node, OpenExec detects
 the changed input and marks the dependent computation as invalid, causing it to be re-evaluated when computation is triggered
 again.
 
@@ -173,7 +173,7 @@ def Sphere "TemperatureIndicator" {
 ### Motivation: Pull vs. Push
 
 OpenExec uses a __pull model__: a consumer requests a computed value, and the framework re-executes only those parts of
-the computation graph that have been invalidated since the last request. Game Engines like Godot, on the other hand, needs
+the computation graph that have been invalidated since the last request. Game Engines like Godot, on the other hand, need
 a __push model__: when a data value changes the corresponding scene node must receive the new value and update its visual
 state immediately.
 
@@ -222,7 +222,7 @@ immediately after the engine-specific `ConvertPrimPostProcess()` step.
 If the converted entity type for the Prim implements the `IExecBridgeHandler` it will be added to the result handler list
 of the `ExecBridge` instance for its stage. All computed attribute values for this prim will be delivered via the `OnComputeComplete`
 method that is invoked from the `ExecBridge::ComputeAndDispatch()` method in one batch. The implementation of `OnComputeComplete`
-is game engine specific and need to provide the actual handling or mapping of the passed attributes and values - provided in the
+is game engine specific and needs to provide the actual handling or mapping of the passed attributes and values - provided in the
 `ExecComputeResult` structure - into the properties of the respective node/entity it is implemented for.
 
 ## Implement a new Compute Node
