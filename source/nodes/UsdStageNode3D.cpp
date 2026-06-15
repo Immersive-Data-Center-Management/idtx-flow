@@ -51,8 +51,9 @@ void UsdStageNode3D::set_stage_uri(const String& path)
 {
     if (stage_uri_ == path) return;
     stage_uri_ = path;
-    
+       
     // as the stage uri has changed we reset any previous state of this node
+    cached_scene_name_ = "";
     stage_handle_.reset();
     _cleanup_nodes();
     
@@ -66,11 +67,7 @@ void UsdStageNode3D::set_stage_uri(const String& path)
     is_loading_ = false;
     
     // if the new uri is empty, there nothing more todo
-    if (stage_uri_.is_empty())
-    {
-        cached_scene_name_ = "";
-        return;
-    }
+    if (stage_uri_.is_empty()) return;
     
     // the setter might be called during deserializing this node from a saved godot scene.
     // at this stage we ar not able to immediately open and convert the stage and need to let the 
