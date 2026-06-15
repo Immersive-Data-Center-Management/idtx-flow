@@ -319,9 +319,11 @@ void UsdStageNode3D::_configure_nodes_recursive(godot::Node3D* node, godot::Node
 
 void UsdStageNode3D::_cleanup_nodes()
 {
-    for (int i = 0; i < get_child_count(); i++)
+    int32_t child_count = get_child_count();
+    // loop backward to ensure index consistency during child removal
+    for (int i = child_count; i > 0; i--)
     {
-        Node* child = get_child(i);
+        Node* child = get_child(i-1);
         // remove all direct childs that are marked as USD nodes.
         // if other nodes had been added into the child tree they will also be removed
         // as part of this cleanup
