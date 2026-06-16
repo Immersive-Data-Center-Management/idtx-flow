@@ -513,8 +513,18 @@ namespace converter
                 if (!meshDescription.meshData.Weights.is_empty())
                     mesh_arrays[godot::Mesh::ARRAY_WEIGHTS] = meshDescription.meshData.Weights;
                 
-
-                mesh->add_surface_from_arrays(godot::Mesh::PRIMITIVE_TRIANGLES, mesh_arrays);
+                // depending on the stored bone weight count per vertex we need to pass a flag to ensure the
+                // bone and bone-weight arrays are treated the right way 
+                uint64_t flags = 0;
+                if (meshDescription.meshData.boneWeightCount == types::MeshData::BONEWEIGHT_COUNT_8)
+                    flags = godot::Mesh::ARRAY_FLAG_USE_8_BONE_WEIGHTS;
+                
+                mesh->add_surface_from_arrays(
+                    godot::Mesh::PRIMITIVE_TRIANGLES,
+                    mesh_arrays,
+                    godot::Array(),
+                    godot::Dictionary(),
+                    flags);
 
                 godot::Ref<godot::StandardMaterial3D> standard_material;
                 std::optional<godot::Ref<godot::StandardMaterial3D>> material = ConvertMaterial(meshDescription.usdMaterial);
