@@ -13,7 +13,7 @@ jobs:
 
     strategy:
       matrix:
-        os: ["macos-latest", "windows-latest"]
+        os: ["macos-latest", "windows-2022"]
 
     steps:
       - name: Checkout source
