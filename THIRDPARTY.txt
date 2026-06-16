@@ -1,4 +1,4 @@
-IDTX Flow - Version 0.1.1 - April 7, 2026
+IDTX Flow - Version 0.2.0 - May 11, 2026
 
 Dependency: toml++
 Version: v3.4.0
@@ -25,7 +25,7 @@ Homepage: https://github.com/NVIDIA/MDL-SDK
 Description: NVIDIA Material Definition Language SDK - Open source tools for integrating physically-based materials into rendering applications. See thirdparty/mdl_sdk/LICENSE_THIRDPARTY.md for 40+ sub-dependencies.
 
 Dependency: OpenUSD
-Version: v25.11
+Version: v26.05
 License: Tomorrow Open Source Technology License 1.0 (Apache-2.0 variant)
 Homepage: https://github.com/PixarAnimationStudios/OpenUSD
 Description: Pixar Universal Scene Description - Efficient, scalable system for authoring, reading, and streaming scene descriptions for 3D applications.

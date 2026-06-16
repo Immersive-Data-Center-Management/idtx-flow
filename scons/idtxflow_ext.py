@@ -40,14 +40,28 @@ def _build_ext_bootstrap_lib(env):
     if platform.system() == "Windows" and (env["CXX"] == "cl" or env["CC"] == "cl"):
         bootstrap_env.Append(CXXFLAGS=['/EHsc', '/GR', '/std:c++20'])
         bootstrap_env.Append(CPPDEFINES=["NOMINMAX", "WIN32_LEAN_AND_MEAN"])
-        if build_target in ["editor", "template_debug"]:
-            bootstrap_env.Append(CCFLAGS=["/Zi", "/Od", "/MT"])
-        else:
-            bootstrap_env.Append(CCFLAGS=["/O2", "/MT"])
     else:
         bootstrap_env.Append(CXXFLAGS=['-fexceptions', '-frtti', '-std=c++20'])
         bootstrap_env.Append(CCFLAGS=["-fPIC"])
         bootstrap_env.Append(CCFLAGS=["-O3" if build_target == "template_release" else "-g"])
+
+    if platform_name == "windows":
+        bootstrap_env.Append(CCFLAGS=["/EHsc", "/MT"])
+        if build_target in ["editor", "template_debug"]:
+            # DEBUG
+            bootstrap_env.Append(CCFLAGS=[
+                "/Zi",        # debug symbols
+                "/FS",        # serialize PDB writes (parallel-safe)
+                "/Od"         # no optimization
+            ])
+            bootstrap_env.Append(LINKFLAGS=[
+                "/DEBUG"      # generate PDB (REQUIRED)
+            ])
+        else:
+            # RELEASE
+            bootstrap_env.Append(CCFLAGS=[
+                "/O2"
+            ])
 
     # Source
     sources = ["shared/src/idtxflow_ext/ExtensionBootstrap.cpp"]

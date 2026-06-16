@@ -1,4 +1,5 @@
 #usda 1.0
+#openUSD extension schema to introduce specific (HasAPI and IsA) schemas 
 (
     subLayers = [
         @usdGeom/schema.usda@
@@ -14,6 +15,82 @@ over "GLOBAL" (
 {
 }
 
+class Compute_ValueFromJson "Compute_ValueFromJson" (
+    inherits = </Typed>
+    customData = {
+        string userDocBrief = "This Schema (PrimType) registers a computation that will extract a field value from a JSON string."
+    }
+)
+{
+    string inputs:jsonData = "{}" (
+        customData = {
+            string userDocBrief = "The Json input data, the value shall be extracted from. If this is not valid json there will be no value extracted."
+        }
+    )
+    string jsonPath (
+        customData = {
+            string userDocBrief = "The path to the field within the json data the value shall be extracted from."
+        }
+    )
+    token jsonValueType (
+		allowedTokens = ["none", "float", "double", "string"]
+		customData = {
+			string userDocBrief = "The value type should match the actual data type that shall be extracted from the json path."
+		}
+	)
+    double outputs:jsonValue:double (
+        customData = {
+            string userDocBrief = "used as output, when the valueType = double."
+        }
+    )
+    float outputs:jsonValue:float (
+        customData = {
+            string userDocBrief = "used as output, when the valueType = float."
+        }
+    )
+    string outputs:jsonValue:string (
+        customData = {
+            string userDocBrief = "used as output, when the valueType = string."
+        }
+    )    
+}
+
+class Compute_ScaleDouble "Compute_ScaleDouble" (
+    inherits = </Typed>
+    customData = {
+        string userDocBrief = "This Schema (PrimType) registers a computation that will multiply the input value with the scalarFactor"
+    }
+)
+{
+    double scalarFactor = 1.0 (
+        doc = """The scalar factor that shall be multiplied to the input value"""
+    )
+    double inputs:value = 0.0 (
+        doc = """The input value to this computation. Could be connected to another compute node"""
+    )
+    double outputs:result (
+        doc = """The result of the computation"""
+    )
+}
+
+class "Datasource" (
+    inherits = </Typed>
+    doc = """Base class for all data source primitives."""
+) {
+    string outputs:data = "{}" (
+            doc = """ The data output of the data source as JSON string """
+        )
+}
+
+class MockDatasource_RandomFloat "MockDatasource_RandomFloat" (
+    inherits = </Datasource>
+    doc = """This is an example mock data source that produces random float values.\nThe float values are provided as a simple Json structure like:\n\\code\n{\n data: { value: 0.123 }\n}\n\\endcode\n
+    """
+) {
+    float interval = 1.0 (
+        doc = """The update interval in seconds the mock datasource shall provide data and author the \\sa outputs:data attribute in the current usd stage this prim is authored. """
+    )
+}
 class "CollisionAPI" (
 	doc = "Collision-related metadata attachable to geometry prims"
     inherits = </APISchemaBase>

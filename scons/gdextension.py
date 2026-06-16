@@ -47,6 +47,7 @@ def _build_extension(env):
     mdl_sdk_path = "./thirdparty/mdl_sdk"
     ixws_path = "thirdparty/ixwebsocket"
     shared_include_path = "./shared/include"
+    shared_lib_path = "./shared/libs"
     usd_extension_path = "usd"
 
     platform_name = env["platform_name"]
@@ -77,7 +78,7 @@ def _build_extension(env):
         f"{godot_cpp_path}/bin",
         f"{mdl_sdk_path}/lib",
         f"{ixws_build_dir}/Release" if platform_name == "windows" else f"{ixws_build_dir}",
-        f"{usd_extension_path}/libs/{platform_name}",
+        f"{shared_lib_path}/{platform_name}",
     ])
 
     # OpenSSL library/include paths (platform-specific)
@@ -138,7 +139,7 @@ def _build_extension(env):
 
     # generic build flags
     if platform.system() == "Windows" and (env["CXX"] == "cl" or env["CC"] == "cl"):
-        extension_env.Append(CXXFLAGS=['/EHsc', '/GR', '/FS', '/arch:AVX2', '/std:c++20'])        
+        extension_env.Append(CXXFLAGS=['/EHsc', '/GR', '/arch:AVX2', '/std:c++20'])        
     else:
         extension_env.Append(CXXFLAGS=['-fexceptions', '-frtti', '-g', '-std=c++20'])
         extension_env.Append(CCFLAGS=["-O3" if build_target == "template_release" else "-g"])
@@ -155,10 +156,15 @@ def _build_extension(env):
         # ws2_32, crypt32, user32 are required by IXWebSocket + OpenSSL on Windows
         extension_env.Append(LIBS=libs + ["advapi32", "shell32", "ole32", "ws2_32", "crypt32", "user32"])
         extension_env.Append(CPPDEFINES=["NOMINMAX", "WIN32_LEAN_AND_MEAN", "_ITERATOR_DEBUG_LEVEL=0"])
+        # deactivate this warning. This appears due to an issue in openUSD-26.05 where the definition of
+        # 'std::ostream &Vt_ArrayEditStreamImpl()' is missing the 'VT_API' decorator
+        extension_env.Append(CCFLAGS=['/wd4273'])
+        
         if build_target in ["editor", "template_debug"]:
             # DEBUG
             extension_env.Append(CCFLAGS=[
                 "/Zi",        # debug symbols
+                "/FS",                              # serialize PDB writes (parallel-safe)                
                 "/Od",        # no optimization
                 "/EHsc",
                 "/MT"
@@ -240,7 +246,6 @@ def _get_libs_to_install(platform_name, openusd_version=""):
     print("Getting libs to install...")
     usd_root = f"./thirdparty/openusd-{openusd_version}"
     mdl_sdk_root = "./thirdparty/mdl_sdk"
-    usd_extension = "usd"
     if platform_name == "windows":
         libs_to_install = [
             f"{usd_root}/lib/usd_ms.dll",
@@ -250,7 +255,7 @@ def _get_libs_to_install(platform_name, openusd_version=""):
             f"{mdl_sdk_root}/bin/dds.dll",
             f"{mdl_sdk_root}/bin/nv_openimageio.dll",
             f"{mdl_sdk_root}/bin/mdl_distiller.dll",
-            f"{usd_extension}/libs/{platform_name}/libidtx_usd.dll",
+            f"./shared/libs/{platform_name}/libidtx_usd.dll",
         ]
     elif platform_name == "macos":
         libs_to_install = [
@@ -261,7 +266,7 @@ def _get_libs_to_install(platform_name, openusd_version=""):
             f"{mdl_sdk_root}/lib/dds.so",
             f"{mdl_sdk_root}/lib/nv_openimageio.so",
             f"{mdl_sdk_root}/lib/mdl_distiller.so",
-            f"{usd_extension}/libs/{platform_name}/libidtx_usd.dylib",
+            f"./shared/libs/{platform_name}/libidtx_usd.dylib",
         ]
     else:
         libs_to_install = [
@@ -272,7 +277,7 @@ def _get_libs_to_install(platform_name, openusd_version=""):
             f"{mdl_sdk_root}/lib/dds.so",
             f"{mdl_sdk_root}/lib/nv_openimageio.so",
             f"{mdl_sdk_root}/lib/mdl_distiller.so",
-            f"{usd_extension}/libs/{platform_name}/libidtx_usd.so",
+            f"./shared/libs/{platform_name}/libidtx_usd.so",
         ]
 
     return libs_to_install
@@ -334,3 +339,5 @@ def _copy_third_party_licenses(target, source, env):
         for f in missing:
             print(f"  {f}")
         return 1
+    
+    return 0
