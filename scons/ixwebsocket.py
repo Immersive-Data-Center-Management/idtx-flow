@@ -86,6 +86,7 @@ def _probe_openssl_pkg_config():
         if inc and lib and os.path.isfile(os.path.join(inc, "openssl", "ssl.h")):
             return (inc, lib)
     except (subprocess.CalledProcessError, FileNotFoundError):
+        # exceptions are treated as "we are unable to locate OpenSSL". Thus just pass and return None later
         pass
     return None
 
@@ -141,6 +142,7 @@ def _install_openssl_vcpkg(vcpkg_root, triplet):
     result = subprocess.run([
         vcpkg_exe, "install", f"openssl:{triplet}",
         "--recurse",
+        "--vcpkg-root", vcpkg_root
     ], cwd=vcpkg_root)
     if result.returncode != 0:
         Exit(f"vcpkg install openssl failed (exit code: {result.returncode})")

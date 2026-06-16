@@ -38,6 +38,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
     name: Build
     uses: ./.github/workflows/gdextension-build.yaml
+    permissions:
+      contents: read
 
   release:
     if: github.ref == 'refs/heads/main'

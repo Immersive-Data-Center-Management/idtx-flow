@@ -1,6 +1,15 @@
 #include "UsdMeshInstanceNode3D.h"
 
+#include <godot_cpp/classes/box_mesh.hpp>
+#include <godot_cpp/classes/sphere_mesh.hpp>
+
+#include <pxr/usd/usdGeom/tokens.h>
+
+#include "idtxflow_godot//converter/UsdGodotTypeConverter.h"
+
 using namespace godot;
+
+constexpr float MIN_SPHERE_RADIUS = 1e-6f;
 
 void UsdMeshInstanceNode3D::_ready()
 {
@@ -65,6 +74,39 @@ void UsdMeshInstanceNode3D::_process(double delta)
         default:
             break;
         }                
+    }
+}
+
+void UsdMeshInstanceNode3D::OnComputeComplete(const std::vector<ExecComputeResult>& results)
+{
+    for (const auto& result : results)
+    {
+        if (result.primAttribute == pxr::UsdGeomTokens->size.GetString() &&
+            result.value.IsHolding<double>() &&
+            get_mesh()->is_class("BoxMesh"))
+        {
+            float size = static_cast<float>(result.value.Get<double>());
+            Ref<BoxMesh> box_mesh(Object::cast_to<BoxMesh>(get_mesh().ptr()));
+            // this method is invoked on a worker thread, thus we delegate the call to the game thread
+            // using call_deferred
+            box_mesh->call_deferred("set_size", godot::Vector3(size, size, size));
+            continue;
+        }
+        
+        if (result.primAttribute == pxr::UsdGeomTokens->radius.GetString() &&
+            result.value.IsHolding<double>())
+        {
+            float radius = static_cast<float>(result.value.Get<double>());
+            if (get_mesh()->is_class("SphereMesh"))
+            {
+                Ref<SphereMesh> sphere_mesh(Object::cast_to<SphereMesh>(get_mesh().ptr()));
+                // ensure that the sphere radius never get 0.0 as this would cause the following error downstream
+                // servers/rendering/renderer_scene_cull.cpp:991 - Condition "!v.is_finite()" is true.
+                sphere_mesh->call_deferred("set_radius", std::max(radius, MIN_SPHERE_RADIUS));
+                sphere_mesh->call_deferred("set_height", radius * 2.0);
+            }
+            continue;
+        }
     }
 }
 

@@ -13,6 +13,9 @@
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdGeom/xformCache.h>
 
+#include <idtx/datasource.h>
+#include <idtx/mockDatasource_RandomFloat.h>
+
 #include <idtxflow/converter/TypeConverter.h>
 #include <idtxflow/converter/StageConverter.h>
 #include <idtxflow/converter/PrimConverterRegistry.h>
@@ -21,6 +24,7 @@
 
 #include "nodes/UsdStaticBodyNode3D.h"
 #include "nodes/UsdMeshInstanceNode3D.h"
+#include "nodes/UsdMockDatasourceFloatNode3D.h"
 #include "nodes/UsdXFormNode3D.h"
 #include "nodes/UsdMultiMeshInstanceNode3D.h"
 
@@ -115,7 +119,9 @@ namespace helper
 }
 
 namespace converter
-{    
+{
+    constexpr float MIN_SPHERE_RADIUS = 1e-6f;
+    
     template<>
     inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertXform(
         const godot::Transform3D& transform,
@@ -232,7 +238,7 @@ namespace converter
     }
 
     template<>
-    inline godot::Node3D* converter::UsdStageConverter<types::TargetEngineGodot>::ConvertCone(
+    inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCone(
         const godot::Transform3D& transform,
         const std::optional<AnimationDescription<types::TargetEngineGodot>>& animation,
         const std::optional<godot::Ref<godot::StandardMaterial3D>>& material,
@@ -293,7 +299,9 @@ namespace converter
     {
         godot::Ref<godot::SphereMesh> sphere;
         sphere.instantiate();
-        sphere->set_radius(sphere_radius);
+        // ensure that the sphere radius never get 0.0 as this would cause the following error downstream
+        // servers/rendering/renderer_scene_cull.cpp:991 - Condition "!v.is_finite()" is true.
+        sphere->set_radius(std::max(sphere_radius, MIN_SPHERE_RADIUS));
         sphere->set_height(sphere_radius * 2.0f);
         
         godot::Ref<godot::StandardMaterial3D> standard_material;
@@ -630,6 +638,24 @@ namespace converter
         // override layer!
         
         return stage_node;
+    }
+    
+    template<>
+    inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertDatasource(const pxr::IDTXDatasource& usdDatasource)
+    {
+        if (usdDatasource.GetPrim().IsA<pxr::IDTXMockDatasource_RandomFloat>())
+        {
+            pxr::IDTXMockDatasource_RandomFloat usd_mock_source(usdDatasource.GetPrim());
+            
+            // from the data source prim create a mock data source node that will be added to the scene tree and
+            // use it's _process() method to request fresh data and author it into the prim's "outputs:data" property
+            UsdMockDatasourceFloatNode3D* data_source = memnew(UsdMockDatasourceFloatNode3D);
+            usd_mock_source.GetIntervalAttr().Get<float>(&data_source->refresh_interval_);
+            
+            return data_source;
+        }
+        
+        return nullptr;
     }
     
     template<>

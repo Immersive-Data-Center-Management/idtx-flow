@@ -55,10 +55,10 @@
   <!-- Windows-specific include paths -->
   <ItemDefinitionGroup Condition="'$(OS)'=='Windows_NT'">
     <ClCompile>
-      <AdditionalIncludeDirectories>thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-25.11/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Midl>
-      <AdditionalIncludeDirectories>thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-25.11/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -70,10 +70,10 @@
   <!-- macOS-specific include paths -->
   <ItemDefinitionGroup Condition="'$(OS)'!='Windows_NT'">
     <ClCompile>
-      <AdditionalIncludeDirectories>/Applications/Xcode_15.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include;/Applications/Xcode_15.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/15.0.0/include;thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-25.11/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>/Applications/Xcode_15.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include;/Applications/Xcode_15.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/15.0.0/include;thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Midl>
-      <AdditionalIncludeDirectories>/Applications/Xcode_15.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include;/Applications/Xcode_15.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/15.0.0/include;thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-25.11/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>/Applications/Xcode_15.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include;/Applications/Xcode_15.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/15.0.0/include;thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -87,6 +87,10 @@
     <ClInclude Include="shared\include\idtxflow\converter\IPrimConverter.h" />
     <ClInclude Include="shared\include\idtxflow\converter\MdlMaterialConverter.h" />
     <ClInclude Include="shared\include\idtxflow\converter\PrimConverterRegistry.h" />
+    <ClInclude Include="shared\include\idtxflow\converter\StageHandle.h" />
+    <ClInclude Include="shared\include\idtxflow\exec\ExecBridgeHandler.h" />
+    <ClInclude Include="shared\include\idtxflow\exec\ExecBridgeManager.h" />
+    <ClInclude Include="shared\include\idtxflow\exec\ExecComputeResult.h" />
     <ClInclude Include="shared\include\idtxflow\resolver\detail\Sha256.h" />
     <ClInclude Include="shared\include\idtxflow\resolver\HttpAssetCache.h" />
     <ClInclude Include="shared\include\idtxflow\resolver\HttpResolver.h" />
@@ -102,8 +106,15 @@
     <ClInclude Include="shared\include\idtxflow_godot\PrimConverterRegistryGodot.h" />
     <ClInclude Include="shared\include\idtxflow_godot\types\GodotTypes.h" />
     <ClInclude Include="shared\include\idtxflow_godot\version.h" />
+    <ClInclude Include="shared\include\idtx\api.h" />
+    <ClInclude Include="shared\include\idtx\compute_ValueFromJson.h" />
+    <ClInclude Include="shared\include\idtx\datasource.h" />
+    <ClInclude Include="shared\include\idtx\generatedSchema.module.h" />
+    <ClInclude Include="shared\include\idtx\mockDatasource_RandomFloat.h" />
+    <ClInclude Include="shared\include\idtx\tokens.h" />
     <ClInclude Include="source\converter\UsdGodotStageConverter.h" />
     <ClInclude Include="source\nodes\UsdMeshInstanceNode3D.h" />
+    <ClInclude Include="source\nodes\UsdMockDatasourceFloatNode3D.h" />
     <ClInclude Include="source\nodes\UsdMultiMeshInstanceNode3D.h" />
     <ClInclude Include="source\nodes\UsdSkeletonNode3D.h" />
     <ClInclude Include="source\nodes\UsdXFormNode3D.h" />
@@ -112,12 +123,18 @@
     <ClInclude Include="templates\extension_template\source\converters\ExamplePrimConverter.h" />
     <ClInclude Include="templates\extension_template\source\register_types.h" />
     <ClInclude Include="source\utils\IDTXFlowGodotLogger.h" />
+    <ClInclude Include="usd\generated\compute_ScaleDouble.h" />
+    <ClInclude Include="usd\generated\compute_ValueFromJson.h" />
+    <ClInclude Include="usd\generated\datasource.h" />
+    <ClInclude Include="usd\generated\mockDatasource_RandomFloat.h" />
+    <ClInclude Include="usd\generated\tokens.h" />
   </ItemGroup>
 
   <ItemGroup>
     <ClCompile Include="source\converter\PrimConverterRegistryGodot.cpp" />
     <ClCompile Include="source\nodes\IUsdNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdMeshInstanceNode3D.cpp" />
+    <ClCompile Include="source\nodes\UsdMockDatasourceFloatNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdMultiMeshInstanceNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdSkeletonNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdStageNode3D.cpp" />
@@ -126,6 +143,12 @@
     <ClCompile Include="source\resolver\UsdGodotAssetResolver.cpp" />
     <ClCompile Include="source\resolver\UsdHttpAssetResolver.cpp" />
     <ClCompile Include="templates\extension_template\source\register_types.cpp" />
+    <ClCompile Include="usd\generated\computation_scaledouble.cpp" />
+    <ClCompile Include="usd\generated\compute_ScaleDouble.cpp" />
+    <ClCompile Include="usd\generated\compute_ValueFromJson.cpp" />
+    <ClCompile Include="usd\generated\datasource.cpp" />
+    <ClCompile Include="usd\generated\mockDatasource_RandomFloat.cpp" />
+    <ClCompile Include="usd\generated\computation_valuefromjson.cpp" />
   </ItemGroup>
 
   <ItemGroup>
@@ -141,9 +164,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include=".github\workflows\gdextension-build.yaml" />
+    <Content Include=".github\workflows\gdextension-pr.yaml" />
+    <Content Include=".github\workflows\gdextension-release.yaml" />
     <Content Include="addons\IDTXFlow\idtxflow.gdextension" />
     <Content Include="addons\IDTXFlow\plugin.cfg" />
     <Content Include="addons\IDTXFlow\plugin.gd" />
+    <Content Include="docs\DATAFLOW_ARCHITECTURE.md" />
     <Content Include="docs\PLUGIN_ARCHITECTURE.md" />
     <Content Include="README.md" />
     <Content Include="SConstruct" />
@@ -151,6 +178,7 @@
     <Content Include="scons\godotcpp.py" />
     <Content Include="scons\idtxflow_ext.py" />
     <Content Include="scons\idtxflow_sdk.py" />
+    <Content Include="scons\openusdextension.py" />
     <Content Include="templates\extension_template\addons\MyIdtxflowExtension\my_idtxflow_extension.gdextension" />
     <Content Include="templates\extension_template\README.md" />
     <Content Include="templates\extension_template\SConstruct" />
@@ -159,7 +187,11 @@
     <Content Include="scons\openusd.py" />    
     <Content Include="templates\extension_template\scons\gdextension.py" />    
     <Content Include="templates\extension_template\scons\godotcpp.py" />    
-    <Content Include="usd\plugin\godot\resources\plugInfo.json" />
+    <Content Include="usd\generated\plugInfo.json" />    
+    <Content Include="usd\plugin\godot\resources\plugInfo.json" />    
+    <Content Include="usd\plugin\idtx\resources\generatedSchema.usda" />    
+    <Content Include="usd\plugin\idtx\resources\plugInfo.json" />
+    <Content Include="usd\source\schema.usda" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

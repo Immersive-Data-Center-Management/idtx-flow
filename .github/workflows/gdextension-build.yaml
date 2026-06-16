@@ -9,11 +9,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
-    
 
     strategy:
       matrix:
-        os: ["macos-latest", "windows-latest"]
+        os: ["macos-latest", "windows-2022"]
 
     steps:
       - name: Checkout source
@@ -34,11 +33,12 @@ jobs:
         uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7
         with:
           path: |
-            thirdparty/openusd-25.11*
-          key: ${{ matrix.os }}-openusd-v25.11
+            thirdparty/openusd-26.05*
+          key: ${{ matrix.os }}-openusd-v26.05
 
       - name: Build GDExtension
         working-directory: .
+        # we always need to build debug & release targets
         run: |
           scons target=template_debug
           scons target=template_release
@@ -49,8 +49,8 @@ jobs:
         uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7
         with:
           path: |
-            thirdparty/openusd-25.11*
-          key: ${{ matrix.os }}-openusd-v25.11
+            thirdparty/openusd-26.05*
+          key: ${{ matrix.os }}-openusd-v26.05
 
       - name: Prepare artifacts
         working-directory: .
