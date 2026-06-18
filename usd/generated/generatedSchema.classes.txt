@@ -3,14 +3,22 @@
 # Public Classes
 collisionAPI
 collisionSetAPI
+compute_ScaleDouble
+compute_ValueFromJson
+datasource
 interactionAPI
+mockDatasource_RandomFloat
 tokens
 
 # Python Module Files
 module.cpp
 wrapCollisionAPI.cpp
 wrapCollisionSetAPI.cpp
+wrapCompute_ScaleDouble.cpp
+wrapCompute_ValueFromJson.cpp
+wrapDatasource.cpp
 wrapInteractionAPI.cpp
+wrapMockDatasource_RandomFloat.cpp
 wrapTokens.cpp
 
 # Resource Files

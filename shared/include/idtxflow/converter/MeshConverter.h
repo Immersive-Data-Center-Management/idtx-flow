@@ -347,10 +347,10 @@ namespace converter
 				    std::vector<float> boneWeight;
 				    if (!joint_indices.empty())
 				    {
-				        // usually target engines will never allow more then 4 bone influences per vertex. Thus, limiting them here
-				        // even though openUSD might store more
-				        int num_elements = std::min(joint_index_element_size, 4);
-				        for (int element=0; element < num_elements; ++element)
+				        // target engines using the bone influences might have limits on how many bone weights
+				        // they can handle. Godot for example can handle 4 or 8 bone weights. However, this should be
+				        // handled in the target engine specialization of the MeshBuilder
+				        for (int element=0; element < joint_index_element_size; ++element)
 				        {
 				            int joint_element_index = pointIndex * joint_index_element_size + element;
 				            int joint_idx = joint_indices[joint_element_index];

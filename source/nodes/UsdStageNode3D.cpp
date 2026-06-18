@@ -6,12 +6,12 @@
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/resource_saver.hpp>
 #include <godot_cpp/classes/file_access.hpp>
-#include <godot_cpp/classes/standard_material3d.hpp>
 
 #include <idtxflow/converter/StageConverter.h>
 
 #include <idtxflow_godot/types/GodotTypes.h>
 #include <idtxflow_godot/converter/UsdGodotTypeConverter.h>
+
 #include "converter/UsdGodotStageConverter.h"
 
 using namespace godot;
@@ -20,7 +20,9 @@ using namespace pxr;
 void UsdStageNode3D::_enter_tree()
 {
     Node3D::_enter_tree();
-    
+    // As _enter_tree might be called after _exit_tree has been invoked due to switching tabs in the 3d view or the like
+    // the children has been completely revoked and the stage handle has been released.
+    // Thus we need to reconstruct the childs/nodes and re-open the underlying stage.
     _reconstruct_node();
 }
 
@@ -28,8 +30,6 @@ void UsdStageNode3D::_ready()
 {
     Node3D::_ready();
     node_ready_ = true;
-    
-    _reconstruct_node();
 }
 
 void UsdStageNode3D::_exit_tree()
@@ -38,19 +38,23 @@ void UsdStageNode3D::_exit_tree()
     if (pending_load_task_)
     {
         pending_load_task_->Cancel();
+        is_loading_ = false;
     }
     
+    stage_handle_.reset();
     _cleanup_nodes();
     Node3D::_exit_tree();
+    
 }
 
 void UsdStageNode3D::set_stage_uri(const String& path)
 {
     if (stage_uri_ == path) return;
     stage_uri_ = path;
-    
+       
     // as the stage uri has changed we reset any previous state of this node
-    stage_.Reset();
+    cached_scene_name_ = "";
+    stage_handle_.reset();
     _cleanup_nodes();
     
     // Cancel any in-flight async load
@@ -63,26 +67,26 @@ void UsdStageNode3D::set_stage_uri(const String& path)
     is_loading_ = false;
     
     // if the new uri is empty, there nothing more todo
-    if (stage_uri_.is_empty())
-    {
-        cached_scene_name_ = "";
-        return;
-    }
+    if (stage_uri_.is_empty()) return;
     
     // the setter might be called during deserializing this node from a saved godot scene.
     // at this stage we ar not able to immediately open and convert the stage and need to let the 
-    // _ready lifecycle hook do this
-    if (!node_ready_) return;
+    // _enter_tree lifecycle hook do this
+    if (!is_inside_tree()) return;
     
-    call_deferred("open_and_convert_stage");
+    _reconstruct_node();
 }
 
-void UsdStageNode3D::open_and_convert_stage()
+void UsdStageNode3D::open_stage_and_then(const godot::StringName& next_method_name)
 {
     if (stage_uri_.is_empty()) return;
     
     // Prevent duplicate loads
-    if (is_loading_) return;
+    if (is_loading_)
+    {
+        IDTX_LOGF(IDTX_DEBUG, "Open Stage for: '{}' but still loading...", stage_uri_.utf8().get_data());
+        return;
+    }
     
     is_loading_ = true;
     emit_signal("stage_loading_started");
@@ -106,21 +110,36 @@ void UsdStageNode3D::open_and_convert_stage()
     // The callback fires on the worker thread - we use call_deferred to marshal the result back to the main thread
     // for scene tree operations.
     pending_load_task_->LoadAsync(std::move(request),
-        [&](idtxflow::async::StageLoadResult result)
+        [&, next_method_name](idtxflow::async::StageLoadResult result)
         {
             // Store the result in a thread-safe manner
             {
                 std::lock_guard<std::mutex> lock(result_mutex_);
                 pending_result_ = std::move(result);
+                is_loading_ = false;
             }
+            
+            if (!pending_result_.success())
+            {
+                IDTX_LOGF(IDTX_ERROR, "Unable to open Stage. Error: '{}'", result.error_message.c_str());
+                emit_signal("stage_loading_finished", false);
+                return;
+            }
+    
+            if (!pending_result_.stage)
+            {
+                emit_signal("stage_loading_finished", false);
+                return;
+            }
+            
             // Marshal to main thread via call_deferred
-            call_deferred("_on_stage_loaded");
+            call_deferred(next_method_name);
         });
 }
 
 void UsdStageNode3D::_reconstruct_node()
 {
-    if (node_ready_)
+    if (is_inside_tree())
     {
         if (!stage_uri_.is_empty())
         {
@@ -130,7 +149,7 @@ void UsdStageNode3D::_reconstruct_node()
             if (cached_scene_name_.is_empty() || !FileAccess::file_exists(cached_scene_name_))
             {
                 _cleanup_nodes();
-                open_and_convert_stage();
+                open_stage_and_then("_convert_stage");
             
                 return;
             }
@@ -139,29 +158,14 @@ void UsdStageNode3D::_reconstruct_node()
             // and add it to the scene tree
             if (!cached_scene_name_.is_empty())
             {
-                Ref<PackedScene> packed_scene = ResourceLoader::get_singleton()->load(cached_scene_name_);
-                Node3D* cached_root = cast_to<Node3D>(packed_scene->instantiate());
-                // the instantiated node would be the cached "UsdStageNode3D". Thus, just adding this to the tree
-                // would create a recursion. The intention anyway was to use this node as a root only for caching. And "copy"
-                // it's children after instantiation to this node would re-create the original structure anyway.
-                for (int i = 0; i < cached_root->get_child_count(); i++)
-                {
-                    if (Node3D* child = cast_to<Node3D>(cached_root->get_child(i)))
-                    {
-                        Node3D* duplicated = cast_to<Node3D>(child->duplicate());
-                        // ensure that all nodes re-constructed from the packed scene retrieve their runtime properties
-                        _configure_nodes_recursive(duplicated, this);
-                        add_child(duplicated);
-                    }
-                }
-                // release the instantiated packed scene, all children have been copied over to the actual scene tree
-                cached_root->queue_free();
+                _cleanup_nodes();
+                open_stage_and_then("_load_converted_stage");
             }
         }
     }
 }
 
-void UsdStageNode3D::_on_stage_loaded()
+void UsdStageNode3D::_convert_stage()
 {
     // Retrieve the result (written by the worker thread)
     idtxflow::async::StageLoadResult result;
@@ -169,43 +173,31 @@ void UsdStageNode3D::_on_stage_loaded()
         std::lock_guard<std::mutex> lock(result_mutex_);
         result = std::move(pending_result_);
     }
-    
     is_loading_ = false;
-    
-    if (!result.success())
-    {
-        print_error("Unable to open Stage. " + String(result.error_message.c_str()));
-        emit_signal("stage_loading_finished", false);
-        return;
-    }
-    
-    stage_ = result.stage;
-    
-    if (!stage_)
-    {
-        emit_signal("stage_loading_finished", false);
-        return;
-    }
-    
+        
     // instantiate the stage converter and convert the contents of the stage into Godot Node3D entities
     auto stage_converter = std::make_unique<idtxflow::converter::UsdStageConverter<idtxflow::types::TargetEngineGodot>>(this, nullptr);
-    std::vector<Node3D*> converted_nodes = stage_converter->Convert(stage_);
-    if (converted_nodes.empty())
+    idtxflow::converter::StageConversionResult<idtxflow::types::TargetEngineGodot> conversion_result = stage_converter->Convert(result.stage);
+    if (conversion_result.ConvertedEntities.empty())
     {
         emit_signal("stage_loading_finished", true);
         return;
     }
     
+    // store the stage handle
+    stage_handle_ = std::make_unique<idtxflow::converter::StageHandle>(std::move(conversion_result.Handle));
+    
     // once all nodes are converted, we need to add them as child to the current node.
     // And we need to recursively maintain the owner of all nodes, which is
     // only possible, once the nodes are added to the tree (by adding them as children to this node)
-    for (Node3D* node : converted_nodes)
+    for (Node3D* node : conversion_result.ConvertedEntities)
     {
         _configure_nodes_recursive(node, this); // we set the owner here, but defer this to ensure adding to the tree happens first
         this->add_child(node); // this invokes _ready() on node at earliest convenient from Godot engine point of view, which expects the "config" already run
     }
+    
     // name our-self after the root layer of the stage we opened
-    set_name(stage_->GetRootLayer()->GetDisplayName().c_str());
+    set_name(stage_handle_->Stage()->GetRootLayer()->GetDisplayName().c_str());
 
     // generate and store a unique cached scene name for this converted stage
     cached_scene_name_ = _generate_cached_scene_name(stage_uri_);
@@ -215,7 +207,51 @@ void UsdStageNode3D::_on_stage_loaded()
     emit_signal("stage_loading_finished", true);
 }
 
-void UsdStageNode3D::_configure_nodes_recursive(godot::Node3D* node, godot::Node* owner)
+void UsdStageNode3D::_load_converted_stage()
+{
+    // Retrieve the result (written by the worker thread)
+    idtxflow::async::StageLoadResult result;
+    {
+        std::lock_guard<std::mutex> lock(result_mutex_);
+        result = std::move(pending_result_);
+    }
+    is_loading_ = false;
+    
+    // store the stage handle
+    stage_handle_ = std::make_unique<idtxflow::converter::StageHandle>(std::move(result.stage));
+    
+    Ref<PackedScene> packed_scene = ResourceLoader::get_singleton()->load(cached_scene_name_);
+    Node3D* cached_root = cast_to<Node3D>(packed_scene->instantiate());
+    // the instantiated node would be the cached "UsdStageNode3D". Thus, just adding this to the tree
+    // would create a recursion. The intention anyway was to use this node as a root only for caching. And "copy"
+    // it's children after instantiation to this node would re-create the original structure anyway.
+    while (cached_root->get_child_count() > 0) {
+        Node* child = cached_root->get_child(0);
+        cached_root->remove_child(child);
+        child->set_owner(nullptr);
+        if (Node3D* child3d = cast_to<Node3D>(child)) {
+            _configure_nodes_recursive(child3d, this, true);
+            add_child(child3d);
+        } else {
+            child->queue_free();
+        }
+    }
+    
+    // release the instantiated packed scene, all children have been copied over to the actual scene tree
+    cached_root->queue_free();
+    
+    // only after we have transferred the cached scene into the current one we can activate the compute bridge
+    // as during stage_handle_ instantiation there is no compute property registered yet
+    auto bridge = idtxflow::exec::ExecBridgeManager::Instance().GetExecBridgeForStage(stage_handle_->Stage());
+    if (bridge && bridge->GetValueKeyCount() > 0)
+    {
+        idtxflow::exec::ExecBridgeManager::Instance().ActivateBridge(bridge);
+    }
+    
+    emit_signal("stage_loading_finished", true);
+}
+
+void UsdStageNode3D::_configure_nodes_recursive(godot::Node3D* node, godot::Node* owner, bool register_compute)
 {
     if (!node) return;
     
@@ -223,16 +259,46 @@ void UsdStageNode3D::_configure_nodes_recursive(godot::Node3D* node, godot::Node
     if (owner && node != owner) node->call_deferred("set_owner", owner);
 
     // store the owning StageNode3D
-    if (IUsdNode3D* usd_node = IUsdNode3D::from_node(node))
+    IUsdNode3D* usd_node = IUsdNode3D::from_node(node);
+    if (usd_node)
         usd_node->set_stage_node(this);
     
-    // if this is a UsdStageNode3D itself, skip traversing the childs, as this node takes care of it
+    // if this is a UsdStageNode3D itself, skip traversing the childrens, as this node takes care of it
     // on it's own
     if (dynamic_cast<UsdStageNode3D*>(node)) return;
     
+    // if "register_compute" is true, the configuration happens during loading of a cached stage scene. Thus, the 
+    // stage converter did not run and registered compute attributes into the ExecComputeBridge. Do this here now
+    if (register_compute && usd_node && stage_handle_)
+    {
+        std::shared_ptr<idtxflow::exec::ExecBridge> bridge = idtxflow::exec::ExecBridgeManager::Instance()
+                .GetExecBridgeForStage(stage_handle_->Stage());
+        if (pxr::UsdPrim usdPrim = stage_handle_->Stage()->GetPrimAtPath(pxr::SdfPath(usd_node->get_prim_path().utf8().get_data())))
+        {
+            for (const pxr::UsdAttribute& attribute : usdPrim.GetAttributes())
+            {
+                if (attribute.HasAuthoredConnections())
+                    bridge->RegisterAttributeWithConnection(attribute);
+            }
+            if (bridge->GetValueKeyCount() > 0)
+            {
+                bridge->RegisterComputeResultHandler(usdPrim.GetPath(),
+                    std::shared_ptr<IExecBridgeHandler>(
+                        dynamic_cast<IExecBridgeHandler*>(usd_node),
+                        [](IExecBridgeHandler*)
+                        {
+                            /* the empty shared_ptr destructor ensures that the owner of the converted
+                             * node instance is responsible for its lifecycle and releasing the
+                             * last instance of the shared_ptr will not delete/free the contained object
+                             */
+                        }
+                    ));
+            }
+        }
+    }
     
     // do this for all th children
-    const std::string& stage_path = !stage_ ? std::string() : stage_->GetRootLayer()->GetRealPath();
+    const std::string& stage_path = !stage_handle_->Stage() ? std::string() : stage_handle_->Stage()->GetRootLayer()->GetRealPath();
     for (int i = 0; i < node->get_child_count(); i++) {
         Node* child = node->get_child(i);
         IUsdNode3D* usd_node = IUsdNode3D::from_node(child);
@@ -244,15 +310,17 @@ void UsdStageNode3D::_configure_nodes_recursive(godot::Node3D* node, godot::Node
         // based on the layer referenced to by a payload), we will not configure the owner.
         std::string child_stage_path = std::string(usd_node->get_stage_path().utf8().get_data());
         if (child_stage_path == stage_path)
-            _configure_nodes_recursive(Object::cast_to<Node3D>(child), owner);
+            _configure_nodes_recursive(Object::cast_to<Node3D>(child), owner, register_compute);
     }
 }
 
 void UsdStageNode3D::_cleanup_nodes()
 {
-    for (int i = 0; i < get_child_count(); i++)
+    int32_t child_count = get_child_count();
+    // loop backward to ensure index consistency during child removal
+    for (int i = child_count; i > 0; i--)
     {
-        Node* child = get_child(i);
+        Node* child = get_child(i-1);
         // remove all direct childs that are marked as USD nodes.
         // if other nodes had been added into the child tree they will also be removed
         // as part of this cleanup
@@ -295,7 +363,7 @@ void UsdStageNode3D::_pack_and_save_cached_scene()
     Error err = packed_scene->pack(this);
     if (err != OK)
     {
-        print_error("Unable to pack Scene.", err);
+        IDTX_LOGF(IDTX_ERROR, "Unable to pack Scene. Error: {}", static_cast<int>(err));
     } else
     {
         // save the packed scene at the location calculated before
@@ -322,15 +390,15 @@ void UsdStageNode3D::_bind_methods()
     ClassDB::bind_method(D_METHOD("get_cached_scene_name"), &UsdStageNode3D::get_cached_scene_name);
     ADD_PROPERTY(
         PropertyInfo(Variant::STRING, "cached_scene_name", PROPERTY_HINT_NONE, "",
-            PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_READ_ONLY),
+            PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_READ_ONLY),
         "set_cached_scene_name", "get_cached_scene_name");
     
     // Registration required to allow deferred calling
-    ClassDB::bind_method(D_METHOD("open_and_convert_stage"), &UsdStageNode3D::open_and_convert_stage);
     ClassDB::bind_method(D_METHOD("_pack_and_save_cached_scene"), &UsdStageNode3D::_pack_and_save_cached_scene);
     
-    // Internal deferred callback for async stage loading (not exposed to user scripts)
-    ClassDB::bind_method(D_METHOD("_on_stage_loaded"), &UsdStageNode3D::_on_stage_loaded);
+    // Internal deferred callbacks invoked after async stage loading (not exposed to user scripts)
+    ClassDB::bind_method(D_METHOD("_convert_stage"), &UsdStageNode3D::_convert_stage);
+    ClassDB::bind_method(D_METHOD("_load_converted_stage"), &UsdStageNode3D::_load_converted_stage);
     
     // Signals for async loading lifecycle
     ADD_SIGNAL(MethodInfo("stage_loading_started"));

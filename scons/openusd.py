@@ -40,7 +40,6 @@ def _build_open_usd(env, with_python_support=False):
 
     platform_name = env["platform_name"]
     build_target = env["target"]
-    build_arch = env["arch"]
 
     # check if we have build the openUSD lib already
     open_usd_build_path = f"thirdparty/openusd-{open_usd_version}" if not with_python_support else f"thirdparty/openusd-{open_usd_version}-withPython"
