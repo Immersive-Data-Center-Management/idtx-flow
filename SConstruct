@@ -6,7 +6,7 @@ from  SCons.Environment import Environment
 from SCons.Script import ARGUMENTS, Exit
 
 # USD Version configuration
-openusd_version = "25.11"
+openusd_version = "26.05"
 
 # Determine the target platform (may differ from host when cross-compiling)
 target_platform = ARGUMENTS.get('platform', None)

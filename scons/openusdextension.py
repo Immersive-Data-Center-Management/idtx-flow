@@ -53,7 +53,8 @@ def _build_usd_extension(env):
     else:
         openusd_root = os.path.abspath(f"thirdparty/openusd-{openusd_version}")
     
-    extension_root = f"./usd"
+    extension_root = "./usd"
+    idtxflow_sdk_path = "./shared"
 
     platform_name = env["platform_name"]
     build_target = env["target"]
@@ -81,7 +82,7 @@ def _build_usd_extension(env):
         f"{openusd_root}/include",
         python_include,
     ]
-    
+
     lib_paths = [
         f"{openusd_root}/lib",
     ]
@@ -103,12 +104,8 @@ def _build_usd_extension(env):
         ]
 
     # generic build flags
-    if is_android:
-        extension_env.Append(CXXFLAGS=['-fexceptions', '-frtti', '-std=c++20'])
-        extension_env.Append(CCFLAGS=["-O3" if build_target == "template_release" else "-g"])
-    elif platform.system() == "Windows" and (extension_env["CXX"] == "cl" or extension_env["CC"] == "cl"):
-        extension_env.Append(CXXFLAGS=['/EHsc', '/GR', '/FS', '/arch:AVX2'])
-        extension_env.Append(CCFLAGS=["/O2" if build_target == "template_release" else "/Zi"])
+    if platform.system() == "Windows" and (extension_env["CXX"] == "cl" or extension_env["CC"] == "cl"):
+        extension_env.Append(CXXFLAGS=['/EHsc', '/GR', '/FS', '/arch:AVX2'])        
     else:
         extension_env.Append(CXXFLAGS=['-fexceptions', '-frtti', '-g'])
         extension_env.Append(CCFLAGS=["-O3" if build_target == "template_release" else "-g"])
@@ -134,6 +131,25 @@ def _build_usd_extension(env):
         extension_env.Append(LIBS=common_libs)
         extension_env.Append(CCFLAGS=["/EHsc", "/MD"])  # Use /MD for shared
         extension_env.Append(CPPDEFINES=common_defines + ["IDTX_EXPORTS"])
+        # deactivate this warning. This appears due to an issue in openUSD-26.05 where the definition of
+        # 'std::ostream &Vt_ArrayEditStreamImpl()' is missing the 'VT_API' decorator
+        extension_env.Append(CCFLAGS=['/wd4273'])
+
+        if build_target in ["editor", "template_debug"]:
+            # DEBUG
+            extension_env.Append(CCFLAGS=[
+                "/Zi",        # debug symbols
+                "/FS",        # serialize PDB writes (parallel-safe)
+                "/Od"         # no optimization
+            ])
+            extension_env.Append(LINKFLAGS=[
+                "/DEBUG"      # generate PDB (REQUIRED)
+            ])
+        else:
+            # RELEASE
+            extension_env.Append(CCFLAGS=[
+                "/O2"
+            ])
 
     elif platform_name == "macos":
         # Shared library settings
@@ -165,8 +181,8 @@ def _build_usd_extension(env):
     shared_library = extension_env.SharedLibrary(f"{build_dir}/{shared_lib_name}", sources)
 
     # install/copy the header files to the shared include directory
-    include_dest = f"{extension_root}/include/idtx"
-    lib_dest = f"{extension_root}/libs/{platform_name}"
+    include_dest = f"{idtxflow_sdk_path}/include/idtx"
+    lib_dest = f"{idtxflow_sdk_path}/libs/{platform_name}"
     install_header = extension_env.Install(include_dest, extension_env.Glob(f"{extension_root}/generated/*.h"))
     install_libs = extension_env.Install(lib_dest, shared_library)
 

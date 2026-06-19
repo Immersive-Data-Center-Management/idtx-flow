@@ -40,7 +40,6 @@ def _downloadMdlSdk(env):
         return
 
     platform_id = platform.system().lower()
-    shared_deps_root = env.get('SHARED_DEPS_ROOT', '')
     mdl_root = os.path.join("./thirdparty", "mdl_sdk")
 
     if os.path.isdir(mdl_root):

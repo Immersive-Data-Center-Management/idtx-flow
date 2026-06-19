@@ -27,6 +27,12 @@ namespace types
 
     struct MeshData
     {
+        enum BoneWeightCount : uint32_t
+        {
+            BONEWEIGHT_COUNT_4 = 4,
+            BONEWEIGHT_COUNT_8 = 8,
+        };
+        
         godot::PackedVector3Array Vertices;
         godot::PackedInt32Array Triangles;
         godot::PackedVector3Array Normals;
@@ -34,6 +40,9 @@ namespace types
         godot::PackedColorArray VertexColors;
         godot::PackedInt32Array Bones;
         godot::PackedFloat32Array Weights;
+        // to be able to create the mesh array surface with the correct bone weight count we store this information here
+        // default bone weight count per vertex is 4
+        BoneWeightCount boneWeightCount = BONEWEIGHT_COUNT_4;
     };
 
     template<>
