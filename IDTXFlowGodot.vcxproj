@@ -116,6 +116,7 @@
     <ClInclude Include="source\nodes\UsdMeshInstanceNode3D.h" />
     <ClInclude Include="source\nodes\UsdMockDatasourceFloatNode3D.h" />
     <ClInclude Include="source\nodes\UsdMultiMeshInstanceNode3D.h" />
+    <ClInclude Include="source\nodes\UsdPathNode3D.h" />
     <ClInclude Include="source\nodes\UsdSkeletonNode3D.h" />
     <ClInclude Include="source\nodes\UsdXFormNode3D.h" />
     <ClInclude Include="source\register_types.h" />
@@ -136,6 +137,7 @@
     <ClCompile Include="source\nodes\UsdMeshInstanceNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdMockDatasourceFloatNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdMultiMeshInstanceNode3D.cpp" />
+    <ClCompile Include="source\nodes\UsdPathNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdSkeletonNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdStageNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdXFormNode3D.cpp" />

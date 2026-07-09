@@ -256,6 +256,23 @@ namespace converter
         }
 
         /**
+         * Convert a BasisCurve prim into a spline.
+         * @param transform transform of the prim.
+         * @param vertexCounts number of curve points; stored as array to support non-contiguous curves.
+         * @param points position data for points and their respective in/out handles. 
+         * Data is stored as inHandle p1, p1, outHandle p1, inHandle p2, p2, outHandle,p2, etc. 
+         * @param wrap is the curve 'periodic' (closed) or 'nonperiodic' (open)?
+         * @param basis is the curve a 'bezier', 'bspline' or 'catmullRom' curve?
+         * @return 
+         */
+        typename Types::ConvertedEntity* ConvertBasisCurve(
+            const typename Types::Transform& transform,
+            const pxr::VtArray<int>& vertexCounts,
+            const pxr::VtArray<pxr::GfVec3f>& points, 
+            const pxr::TfToken wrap,
+            const pxr::TfToken basis);
+        
+        /**
          * Convert a single Prim from USD into the game engine corresponding entity type
          * @param usdPrim The prim to be converted
          * @param outPruneChildren Set this to true to skip all childrens from processing after this one
@@ -502,7 +519,7 @@ namespace converter
                 {
                     convertedEntity = ConvertGprim(usdGprim);
                 }
-            } else if (usdPrim.IsA<pxr::UsdSkelRoot>())
+            }else if (usdPrim.IsA<pxr::UsdSkelRoot>())
             {
                 // the SkelRoot prim is the root prim for all skeletons. Thus any skeleton prim has to be converted as
                 // a child of the SkelRoot. An USD with a skeleton without a SkelRoot as parent is malformed.
@@ -708,7 +725,29 @@ namespace converter
                 std::vector<MeshDescription<typename UsdMeshConverter<TargetEngine>::MeshDataType>> meshDescriptions = meshConverter.Convert(usdMesh);
                                 
                 return ConvertMesh(TypeConverter::toTransform(matrix), gPrimAnimation, meshDescriptions, displayColors, colorInterpolation);
-            }
+            
+            }  else if (usdPrim.IsA<pxr::UsdGeomBasisCurves>())
+            {
+                pxr::UsdGeomBasisCurves usdBasisCurves(usdPrim);
+                
+                pxr::UsdAttribute vertexCountsAttribute = usdBasisCurves.GetCurveVertexCountsAttr();
+                pxr::UsdAttribute pointsAttribute = usdBasisCurves.GetPointsAttr();
+                pxr::UsdAttribute wrapAttribute = usdBasisCurves.GetWrapAttr();
+                pxr::UsdAttribute basisAttribute = usdBasisCurves.GetBasisAttr();
+                
+                pxr::VtArray<int> vertexCounts;
+                pxr::VtArray<pxr::GfVec3f> points;
+                pxr::TfToken wrap;
+                pxr::TfToken basis;
+                
+                vertexCountsAttribute.Get(&vertexCounts);
+                pointsAttribute.Get(&points);
+                wrapAttribute.Get(&wrap);
+                basisAttribute.Get(&basis);
+                
+                return ConvertBasisCurve(TypeConverter::toTransform(matrix), vertexCounts, points, wrap, basis);
+                
+            } 
             
             return nullptr;
         }

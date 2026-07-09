@@ -1,5 +1,6 @@
 #pragma once
 
+#include <__msvc_ranges_to.hpp>
 #include <godot_cpp/classes/node3d.hpp>
 #include <godot_cpp/classes/box_mesh.hpp>
 #include <godot_cpp/classes/sphere_mesh.hpp>
@@ -27,6 +28,7 @@
 #include "nodes/UsdMockDatasourceFloatNode3D.h"
 #include "nodes/UsdXFormNode3D.h"
 #include "nodes/UsdMultiMeshInstanceNode3D.h"
+#include "nodes/UsdPathNode3D.h"
 
 /**
  * Implement Godot engine specialization of the UsdStageConverter
@@ -337,6 +339,42 @@ namespace converter
         
         return converted_node;
     }
+    
+    typename godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertBasisCurve(
+        const godot::Transform3D& transform,
+        const pxr::VtArray<int>& vertexCounts,
+        const pxr::VtArray<pxr::GfVec3f>& points, 
+        const pxr::TfToken wrap,
+        const pxr::TfToken basis)
+    {
+        godot::PackedVector3Array point_array;
+        bool closed = false;
+        
+        // curve closed?
+        if (wrap == pxr::UsdGeomTokens->periodic)  { closed = true; }
+        
+        // godot's path3d can only represent one contiguous curve per node
+        // so we just take into account the first index of the vertexCounts array here!
+        int vert_count = vertexCounts[0];
+        
+        // points type conversion
+        for (const auto& point : points)
+        {
+            point_array.append(UsdTypeConverter<types::TargetEngineGodot>::toVector3(point));
+        }
+        
+        
+        UsdPathNode3D* converted_node = memnew(UsdPathNode3D);
+        godot::Ref<godot::Curve3D> curve;
+        curve.instantiate();
+        curve->set_closed(closed);
+        
+        converted_node->set_transformData(transform);
+        converted_node->convert_points(curve, vert_count, point_array, closed);
+        converted_node->set_curve(curve);
+        
+        return converted_node;
+    };
     
     template<>
     inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCollisionRoot(

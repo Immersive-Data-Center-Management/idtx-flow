@@ -10,6 +10,7 @@
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
 #include <idtxflow/exec/ExecBridgeManager.h>
 
+#include "nodes/UsdPathNode3D.h"
 #include "nodes/UsdStaticBodyNode3D.h"
 #include "nodes/UsdMeshInstanceNode3D.h"
 #include "nodes/UsdMockDatasourceFloatNode3D.h"
@@ -67,6 +68,7 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     GDREGISTER_CLASS(UsdSkeletonNode3D)
     GDREGISTER_CLASS(UsdMockDatasourceFloatNode3D)
     GDREGISTER_CLASS(UsdStaticBodyNode3D)
+    GDREGISTER_CLASS(UsdPathNode3D)
     
 #ifdef IDTXFLOW_MDL_ENABLED
     // activate the mdl material conversion
