@@ -1,7 +1,7 @@
 @tool
 extends EditorPlugin
 
-const MainScreenScript := preload("res://addons/IDTXFlow/main_screen.gd")
+const MainScreenScript := preload("res://addons/IDTXFlow/import_manager/import_manager.gd")
 
 var _main_screen: Control = null
 

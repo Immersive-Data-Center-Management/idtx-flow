@@ -1,0 +1,333 @@
+@tool
+extends PanelContainer
+
+## Root Control for the USD Import Manager wizard.
+##
+## Added as a child of the editor's main screen (via plugin.gd). Uses a
+## PanelContainer so the whole wizard automatically fills the parent tab and
+## has a proper background. Children are laid out in a plain VBoxContainer.
+##
+## The wizard supports two import sources:
+##
+##   Local (res://)
+##     1. step_select_source  - choose source: click "Import USD from local files"
+##     2. step_browse_files   - browse res:// for USD files (usd/usda/usdc/usdz)
+##     3. step_configure      - define import settings (placeholder)
+##     4. step_confirm        - review selection and trigger the import
+##
+##   Asset Server
+##     1. step_select_source   - enter server URL → Connect → server_login_panel
+##                               authenticates (demo/demo for the mock backend)
+##     2. step_browse_server   - browse the asset server file tree via ServerMockData
+##                               (replace with real HTTP calls when the backend is ready)
+##     3. step_configure       - same placeholder settings step as local
+##     4. step_confirm         - review server-side metadata and trigger the import
+##
+## The mock backend (server_mock_data.gd) keeps the server flow fully navigable without any real network connectivity.
+
+const WizardTheme := preload("res://addons/IDTXFlow/import_manager/wizard_theme.gd")
+
+# Step scripts are resolved with load() at runtime to avoid parse-time
+# preload dependency ordering issues when the plugin is first compiled.
+const STEP_SELECT_SOURCE_PATH := "res://addons/IDTXFlow/import_manager/step_select_source.gd"
+const STEP_BROWSE_FILES_PATH  := "res://addons/IDTXFlow/import_manager/step_browse_files.gd"
+const STEP_BROWSE_SERVER_PATH := "res://addons/IDTXFlow/import_manager/step_browse_server.gd"
+const STEP_CONFIGURE_PATH     := "res://addons/IDTXFlow/import_manager/step_configure.gd"
+const STEP_CONFIRM_PATH       := "res://addons/IDTXFlow/import_manager/step_confirm.gd"
+const SERVER_SESSION_PATH     := "res://addons/IDTXFlow/import_manager/server_session.gd"
+
+# Shared wizard state.
+# "source" is either "local" or "server".
+# "selected_path" is a res:// URI for local files, or a server-side "/..." path.
+# "selected_meta" is the server metadata dict (empty for local imports).
+var _import_state: Dictionary = {
+	"source": "",
+	"selected_path": "",
+	"selected_meta": {},
+}
+
+var _server_session: RefCounted
+
+var _editor_interface: EditorInterface
+
+var _step_container: Control
+var _title_bar: Control
+var _step_select: Node
+var _step_browse: Node          # local file browser
+var _step_browse_server: Node   # server file browser
+var _step_configure: Node
+var _step_confirm: Node
+
+# Which step-2 variant is currently in use (based on chosen source).
+var _active_browse_step: Node = null
+
+var _current_step_index: int = 1
+
+
+func set_editor_interface(editor_interface: EditorInterface) -> void:
+	_editor_interface = editor_interface
+	# Match the editor's own UI scale (e.g. 100%, 150%, 200%).
+	if editor_interface and editor_interface.has_method("get_editor_scale"):
+		WizardTheme.editor_scale = editor_interface.get_editor_scale()
+
+
+func _init() -> void:
+	name = "IDTXFlowImportManager"
+	size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+
+func _apply_bg_style() -> void:
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = WizardTheme.COLOR_BG
+	bg.content_margin_left = WizardTheme.px(16)
+	bg.content_margin_right = WizardTheme.px(16)
+	bg.content_margin_top = WizardTheme.px(12)
+	bg.content_margin_bottom = WizardTheme.px(12)
+	add_theme_stylebox_override("panel", bg)
+
+
+func _ready() -> void:
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_apply_bg_style()
+	_build_ui()
+	_show_step(1)
+
+
+func _build_ui() -> void:
+	var root_vb := VBoxContainer.new()
+	root_vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	root_vb.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root_vb.add_theme_constant_override("separation", WizardTheme.px(10))
+	add_child(root_vb)
+
+	# Title bar
+	_title_bar = _build_title_bar()
+	root_vb.add_child(_title_bar)
+
+	# Step container - VBoxContainer so children with SIZE_EXPAND_FILL grow
+	_step_container = VBoxContainer.new()
+	_step_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_step_container.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root_vb.add_child(_step_container)
+
+	_step_select = (load(STEP_SELECT_SOURCE_PATH) as GDScript).new()
+	_step_container.add_child(_step_select)
+	_step_select.visible = false
+	_step_select.local_files_requested.connect(_on_step1_local_files)
+	_step_select.server_login_succeeded.connect(_on_step1_server_login)
+	_step_select.cancel_requested.connect(_on_cancel)
+
+	_step_browse = (load(STEP_BROWSE_FILES_PATH) as GDScript).new()
+	_step_container.add_child(_step_browse)
+	_step_browse.visible = false
+	_step_browse.file_selected.connect(_on_step2_file_selected_local)
+	_step_browse.back_requested.connect(_on_step2_back)
+	_step_browse.cancel_requested.connect(_on_cancel)
+	_step_browse.next_requested.connect(_on_step2_next)
+
+	_step_browse_server = (load(STEP_BROWSE_SERVER_PATH) as GDScript).new()
+	_step_container.add_child(_step_browse_server)
+	_step_browse_server.visible = false
+	_step_browse_server.file_selected.connect(_on_step2_file_selected_server)
+	_step_browse_server.back_requested.connect(_on_step2_back)
+	_step_browse_server.cancel_requested.connect(_on_cancel)
+	_step_browse_server.next_requested.connect(_on_step2_next)
+
+	_step_configure = (load(STEP_CONFIGURE_PATH) as GDScript).new()
+	_step_container.add_child(_step_configure)
+	_step_configure.visible = false
+	_step_configure.import_requested.connect(_on_step3_import)
+	_step_configure.back_requested.connect(_on_step3_back)
+	_step_configure.cancel_requested.connect(_on_cancel)
+
+	_step_confirm = (load(STEP_CONFIRM_PATH) as GDScript).new()
+	_step_container.add_child(_step_confirm)
+	_step_confirm.visible = false
+	_step_confirm.confirmed.connect(_on_step4_confirmed)
+	_step_confirm.back_requested.connect(_on_step4_back)
+	_step_confirm.cancel_requested.connect(_on_cancel)
+
+
+func _build_title_bar() -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", WizardTheme.px(6))
+
+	var icon_rect := TextureRect.new()
+	var s := WizardTheme.px(18)
+	icon_rect.custom_minimum_size = Vector2(s, s)
+	icon_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	var icon := WizardTheme.get_editor_icon(self, "Filesystem", "Load")
+	if icon:
+		icon_rect.texture = icon
+	icon_rect.modulate = WizardTheme.COLOR_PRIMARY
+	row.add_child(icon_rect)
+
+	var title := Label.new()
+	title.text = "USD Importer"
+	title.add_theme_color_override("font_color", WizardTheme.COLOR_TEXT)
+	title.add_theme_font_size_override("font_size", WizardTheme.fs(WizardTheme.FONT_SIZE_TITLE))
+	row.add_child(title)
+
+	return row
+
+
+# --------------------------------------------------------------------------
+# Step navigation
+# --------------------------------------------------------------------------
+
+func _show_step(index: int) -> void:
+	_current_step_index = index
+	_step_select.visible = index == 1
+
+	# Step 2: one of two browsers, depending on chosen source.
+	var use_server: bool = _import_state.get("source", "") == "server"
+	_step_browse.visible        = index == 2 and not use_server
+	_step_browse_server.visible = index == 2 and use_server
+	_active_browse_step = _step_browse_server if use_server else _step_browse
+
+	_step_configure.visible = index == 3
+	_step_confirm.visible   = index == 4
+
+	if index == 4:
+		var meta: Dictionary = _import_state.get("selected_meta", {})
+		if not meta.is_empty() and _step_confirm.has_method("set_selected_meta"):
+			_step_confirm.set_selected_meta(meta)
+		elif _step_confirm.has_method("set_selected_path"):
+			_step_confirm.set_selected_path(_import_state.get("selected_path", ""))
+
+
+# --------------------------------------------------------------------------
+# Step signal handlers
+# --------------------------------------------------------------------------
+
+func _on_step1_local_files() -> void:
+	_import_state["source"] = "local"
+	_import_state["selected_meta"] = {}
+	if _step_browse.has_method("reset"):
+		_step_browse.reset()
+	_show_step(2)
+
+
+func _on_step1_server_login(url: String, username: String, remember: bool) -> void:
+	_import_state["source"] = "server"
+	_import_state["selected_meta"] = {}
+
+	# Build/reset the server session container.
+	if _server_session == null:
+		_server_session = (load(SERVER_SESSION_PATH) as GDScript).new()
+	else:
+		_server_session.reset()
+	_server_session.server_url = url
+	_server_session.username = username
+	_server_session.remember_credentials = remember
+	_server_session.authenticated = true
+
+	if _step_browse_server.has_method("set_server_url"):
+		_step_browse_server.set_server_url(url)
+	if _step_browse_server.has_method("reset"):
+		_step_browse_server.reset()
+
+	_show_step(2)
+
+
+func _on_step2_file_selected_local(path: String) -> void:
+	_import_state["selected_path"] = path
+	_import_state["selected_meta"] = {}
+
+
+func _on_step2_file_selected_server(path: String, meta: Dictionary) -> void:
+	_import_state["selected_path"] = path
+	_import_state["selected_meta"] = meta
+
+
+func _on_step2_next() -> void:
+	# Pull the latest selection from whichever browse step is active.
+	if _active_browse_step and _active_browse_step.has_method("get_selected_path"):
+		var p: String = _active_browse_step.get_selected_path()
+		if not p.is_empty():
+			_import_state["selected_path"] = p
+	if _active_browse_step and _active_browse_step.has_method("get_selected_meta"):
+		_import_state["selected_meta"] = _active_browse_step.get_selected_meta()
+	_show_step(3)
+
+
+func _on_step2_back() -> void:
+	_show_step(1)
+
+
+func _on_step3_import() -> void:
+	_show_step(4)
+
+
+func _on_step3_back() -> void:
+	_show_step(2)
+
+
+func _on_step4_confirmed() -> void:
+	_perform_import()
+	_reset_and_go_home()
+
+
+func _on_step4_back() -> void:
+	_show_step(3)
+
+
+func _on_cancel() -> void:
+	_reset_and_go_home()
+
+
+func _reset_and_go_home() -> void:
+	_import_state["source"] = ""
+	_import_state["selected_path"] = ""
+	_import_state["selected_meta"] = {}
+	if _step_browse and _step_browse.has_method("reset"):
+		_step_browse.reset()
+	if _step_browse_server and _step_browse_server.has_method("reset"):
+		_step_browse_server.reset()
+	_show_step(1)
+
+
+# --------------------------------------------------------------------------
+# Actual import
+# --------------------------------------------------------------------------
+
+func _perform_import() -> void:
+	var file_path: String = _import_state.get("selected_path", "")
+	if file_path.is_empty():
+		push_warning("[IDTXFlow] No file selected; aborting import.")
+		return
+
+	var target_node: Node = _get_target_scene_node()
+	if target_node == null:
+		push_warning("[IDTXFlow] No target scene node available; open a scene first.")
+		return
+
+	# Create the USD stage node and correctly wire it into the scene:
+	#   1) add_child (so the node has an ancestor)
+	#   2) set owner (so it gets saved with the scene)
+	#   3) set stage_uri (triggers the import)
+	var stage_node := UsdStageNode3D.new()
+	target_node.add_child(stage_node)
+
+	var scene_root: Node = null
+	if _editor_interface:
+		scene_root = _editor_interface.get_edited_scene_root()
+	stage_node.owner = scene_root if scene_root != null else target_node
+
+	stage_node.stage_uri = file_path
+
+	print("[IDTXFlow] Imported '%s' as child of '%s'." % [file_path, target_node.name])
+
+
+func _get_target_scene_node() -> Node:
+	if _editor_interface == null:
+		return null
+
+	var selection := _editor_interface.get_selection()
+	if selection:
+		var nodes := selection.get_selected_nodes()
+		if not nodes.is_empty():
+			return nodes[0]
+
+	return _editor_interface.get_edited_scene_root()
