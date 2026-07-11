@@ -36,6 +36,7 @@
 #include <pxr/usd/usdGeom/metrics.h>
 #include <pxr/usd/usdGeom/xform.h>
 #include <pxr/usd/usdGeom/gprim.h>
+#include <pxr/usd/usdSkel/bindingAPI.h>
 #include <pxr/usd/usdGeom/cube.h>
 #include <pxr/usd/usdGeom/cone.h>
 #include <pxr/usd/usdGeom/cylinder.h>
@@ -481,8 +482,15 @@ namespace converter
                 std::optional<AnimationDescription<TargetEngine>> xFormAnimation = animationConverter.Convert(usdXform, StageTimecodesPerSec);
 
                 convertedEntity = ConvertXform(TypeConverter::toTransform(matrix), xFormAnimation);
-            } else if (usdPrim.IsA<pxr::UsdGeomGprim>() && !pxr::UsdSkelRoot::Find(usdPrim))
+            } else if (usdPrim.IsA<pxr::UsdGeomGprim>()
+                       && !(pxr::UsdSkelRoot::Find(usdPrim)
+                            && pxr::UsdSkelBindingAPI(usdPrim).GetJointWeightsPrimvar().HasValue()))
             {
+                // Convert a geometric prim that is not a skinning target. Only meshes
+                // that actually carry skinning weights are handled by the SkelRoot /
+                // skeleton path; static geometry parented under a SkelRoot (props and
+                // accessories) has no weights and must still convert as a regular mesh
+                // instead of being dropped.
                 pxr::UsdGeomGprim usdGprim(usdPrim);
                 // convert a geometric prim that is not skinning a skeleton.
                 // This one has transform and visual appearance, either as primitive or as
