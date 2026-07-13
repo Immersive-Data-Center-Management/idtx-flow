@@ -164,7 +164,10 @@ def _build_extension(env):
             # DEBUG
             extension_env.Append(CCFLAGS=[
                 "/Zi",        # debug symbols
-                "/FS",                              # serialize PDB writes (parallel-safe)                
+                "/FS",                              # serialize PDB writes (parallel-safe)
+                # per-object PDB so parallel (-j) compiles never share the default
+                # vc140.pdb with godot-cpp's separate build env (avoids C1041).
+                "/Fd${TARGET}.pdb",
                 "/Od",        # no optimization
                 "/EHsc",
                 "/MT"
