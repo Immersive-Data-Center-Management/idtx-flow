@@ -15,6 +15,7 @@
 #include "nodes/UsdMockDatasourceFloatNode3D.h"
 #include "nodes/UsdMultiMeshInstanceNode3D.h"
 #include "nodes/UsdXFormNode3D.h"
+#include "exporter/UsdExporter.h"
 #include "utils/IDTXFlowGodotLogger.h"
 
 using namespace godot;
@@ -67,6 +68,7 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     GDREGISTER_CLASS(UsdSkeletonNode3D)
     GDREGISTER_CLASS(UsdMockDatasourceFloatNode3D)
     GDREGISTER_CLASS(UsdStaticBodyNode3D)
+    GDREGISTER_CLASS(UsdExporter)
     
 #ifdef IDTXFLOW_MDL_ENABLED
     // activate the mdl material conversion

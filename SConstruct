@@ -43,8 +43,8 @@ env['arch'] = ARGUMENTS.get('arch', arch )
 env['target'] = ARGUMENTS.get('target', 'template_debug')
 
 if platform.system() == "Windows" and (env["CXX"] == "cl" or env["CC"] == "cl"):
-    # MSVC: Enable C++20
-    env.Append(CXXFLAGS=['/std:c++20'])
+    # MSVC: Enable C++20 and file-sharing for parallel PDB writes
+    env.Append(CXXFLAGS=['/FS', '/std:c++20'])
 else:
     # GCC/Clang: Enable C++20
     env.Append(CXXFLAGS=['-std=c++20'])
