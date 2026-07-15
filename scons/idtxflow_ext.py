@@ -52,6 +52,11 @@ def _build_ext_bootstrap_lib(env):
             bootstrap_env.Append(CCFLAGS=[
                 "/Zi",        # debug symbols
                 "/FS",        # serialize PDB writes (parallel-safe)
+                # per-object PDB: without an explicit /Fd, cl writes to the default
+                # vc140.pdb in the cwd, which collides with godot-cpp's concurrent
+                # compiles (a separate SCons env that does not share our /FS) and
+                # fails under -j with C1041. A unique PDB per object removes the race.
+                "/Fd${TARGET}.pdb",
                 "/Od"         # no optimization
             ])
             bootstrap_env.Append(LINKFLAGS=[
