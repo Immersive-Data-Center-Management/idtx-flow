@@ -119,16 +119,23 @@ void UsdStageNode3D::open_stage_and_then(const godot::StringName& next_method_na
                 is_loading_ = false;
             }
             
+            // NOTE: this callback runs on the worker thread. Godot's
+            // emit_signal touches per-node dispatch structures that are not
+            // thread-safe, so any signal we emit from here must be marshalled
+            // to the main thread via call_deferred("emit_signal", ...).
+            // Otherwise Godot rejects the dispatch with a
+            // "Caller thread can't call this function in this node" error
+            // and GDScript subscribers never receive the failure notification.
             if (!pending_result_.success())
             {
                 IDTX_LOGF(IDTX_ERROR, "Unable to open Stage. Error: '{}'", result.error_message.c_str());
-                emit_signal("stage_loading_finished", false);
+                call_deferred("emit_signal", "stage_loading_finished", false);
                 return;
             }
     
             if (!pending_result_.stage)
             {
-                emit_signal("stage_loading_finished", false);
+                call_deferred("emit_signal", "stage_loading_finished", false);
                 return;
             }
             
