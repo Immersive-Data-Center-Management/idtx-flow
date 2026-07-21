@@ -3,13 +3,15 @@ extends VBoxContainer
 
 ## Step 3 - Configure import settings. Placeholder controls only.
 
-signal import_requested
+signal next_requested
 signal back_requested
 signal cancel_requested
 
 const WizardTheme  := preload("res://addons/IDTXFlow/import_manager/wizard_theme.gd")
 const WizardHeader := preload("res://addons/IDTXFlow/import_manager/wizard_header.gd")
 const WizardFooter := preload("res://addons/IDTXFlow/import_manager/wizard_footer.gd")
+
+const CAPTION_WIDTH := 140
 
 
 func _init() -> void:
@@ -25,58 +27,48 @@ func _ready() -> void:
 func _build() -> void:
 	var header := WizardHeader.new()
 	add_child(header)
-	header.setup(3, 3, "Configure:", "Define import settings")
+	header.setup(3, 4, "Configure:", "Define import settings")
 
+	# Two-column layout: Prim Types on the left, Import Definition + Import
+	# Settings stacked on the right.
 	var cols := HBoxContainer.new()
-	cols.add_theme_constant_override("separation", WizardTheme.px(10))
 	cols.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	cols.size_flags_vertical = Control.SIZE_FILL
+	cols.add_theme_constant_override("separation", WizardTheme.px(12))
 	add_child(cols)
 
-	# Left column: Prim Types
-	var left := _make_section("Prim Types")
-	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	cols.add_child(left)
+	# Left column ------------------------------------------------------
+	var left_col := VBoxContainer.new()
+	left_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left_col.add_theme_constant_override("separation", WizardTheme.px(6))
+	cols.add_child(left_col)
 
-	var prim_body := _get_section_body(left)
-	var include_row := HBoxContainer.new()
-	include_row.add_theme_constant_override("separation", 16)
-	prim_body.add_child(include_row)
+	var prim_types := _make_section("Prim Types")
+	left_col.add_child(prim_types)
+	var prim_body := _get_section_content(prim_types)
+	prim_body.add_child(_make_checkbox_row("A", true))
+	prim_body.add_child(_make_checkbox_row("B", true))
+	prim_body.add_child(_make_checkbox_row("C", true))
+	prim_body.add_child(_make_checkbox_row("D", false))
 
-	var include_lbl := Label.new()
-	include_lbl.text = "Include"
-	include_lbl.add_theme_color_override("font_color", WizardTheme.COLOR_TEXT_MUTED)
-	include_lbl.add_theme_font_size_override("font_size", WizardTheme.fs(WizardTheme.FONT_SIZE_BODY))
-	include_row.add_child(include_lbl)
-
-	var options := VBoxContainer.new()
-	options.add_theme_constant_override("separation", 4)
-	include_row.add_child(options)
-
-	options.add_child(_make_checkbox("A", true))
-	options.add_child(_make_checkbox("C", true))
-	options.add_child(_make_checkbox("C", true))
-	options.add_child(_make_checkbox("D", false))
-
-	# Right column: two stacked sections
-	var right := VBoxContainer.new()
-	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	right.add_theme_constant_override("separation", 12)
-	cols.add_child(right)
+	# Right column -----------------------------------------------------
+	var right_col := VBoxContainer.new()
+	right_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right_col.add_theme_constant_override("separation", WizardTheme.px(6))
+	cols.add_child(right_col)
 
 	var import_def := _make_section("Import Definition")
-	right.add_child(import_def)
-	var def_body := _get_section_body(import_def)
-	def_body.add_child(_make_checkbox("Cameras", true))
-	def_body.add_child(_make_checkbox("Lights", true))
+	right_col.add_child(import_def)
+	var def_body := _get_section_content(import_def)
+	def_body.add_child(_make_checkbox_row("Cameras", true))
+	def_body.add_child(_make_checkbox_row("Lights", true))
 
 	var import_settings := _make_section("Import Settings")
-	right.add_child(import_settings)
-	var settings_body := _get_section_body(import_settings)
-	settings_body.add_child(_make_setting_row("Scale", "1.000"))
-	settings_body.add_child(_make_setting_row("Light Intensity …", "1.000"))
+	right_col.add_child(import_settings)
+	var settings_body := _get_section_content(import_settings)
+	settings_body.add_child(_make_spin_row("Scale", 1.0, 0.001, 1000.0, 0.001))
+	settings_body.add_child(_make_spin_row("Light Intensity", 1.0, 0.0, 100.0, 0.1))
 
-	# Spacer
+	# Push footer to the bottom.
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	add_child(spacer)
@@ -84,78 +76,104 @@ func _build() -> void:
 	# Footer
 	var footer := WizardFooter.new()
 	add_child(footer)
-	footer.setup(true, "Import", true)
+	footer.setup(true, "Next", true)
 	footer.back_pressed.connect(func(): back_requested.emit())
 	footer.cancel_pressed.connect(func(): cancel_requested.emit())
-	footer.primary_pressed.connect(func(): import_requested.emit())
+	footer.primary_pressed.connect(func(): next_requested.emit())
 
 
-func _make_section(title: String) -> PanelContainer:
-	var pc := PanelContainer.new()
-	pc.add_theme_stylebox_override("panel", WizardTheme.make_panel_style(WizardTheme.COLOR_PANEL))
-	pc.size_flags_vertical = Control.SIZE_FILL
+# ---------------------------------------------------------------------------
+# Section helper
+# ---------------------------------------------------------------------------
 
-	var vb := VBoxContainer.new()
-	vb.name = "SectionRoot"
-	vb.add_theme_constant_override("separation", 8)
-	pc.add_child(vb)
+func _make_section(title: String) -> FoldableContainer:
+	var fc := FoldableContainer.new()
+	fc.title = title
+	fc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	fc.folded = false
 
-	# Header with chevron (visual only)
-	var header_row := HBoxContainer.new()
-	header_row.add_theme_constant_override("separation", 4)
-	vb.add_child(header_row)
+	# Match the editor's configured corner radius
+	var radius := WizardTheme.corner_radius()
+	# Look up colors from `self` (already in tree); fc isn't added yet.
+	var panel_bg := get_theme_color("dark_color_2", "Editor") if has_theme_color("dark_color_2", "Editor") else Color(0, 0, 0, 0.12)
+	var title_bg := get_theme_color("dark_color_3", "Editor") if has_theme_color("dark_color_3", "Editor") else Color(0, 0, 0, 0.2)
 
-	var chevron := Label.new()
-	chevron.text = "▾"
-	chevron.add_theme_color_override("font_color", WizardTheme.COLOR_TEXT_MUTED)
-	chevron.add_theme_font_size_override("font_size", WizardTheme.fs(WizardTheme.FONT_SIZE_BODY))
-	header_row.add_child(chevron)
+	# Title bar (expanded): rounded TOP corners only, so it sits flush on the panel below.
+	var title_sb := WizardTheme.make_solid_style(title_bg, 0)
+	title_sb.corner_radius_top_left = radius
+	title_sb.corner_radius_top_right = radius
+	title_sb.content_margin_left = WizardTheme.px(8)
+	title_sb.content_margin_right = WizardTheme.px(8)
+	title_sb.content_margin_top = WizardTheme.px(4)
+	title_sb.content_margin_bottom = WizardTheme.px(4)
+	fc.add_theme_stylebox_override("title_panel", title_sb)
 
-	var title_lbl := Label.new()
-	title_lbl.text = title
-	title_lbl.add_theme_color_override("font_color", WizardTheme.COLOR_TEXT)
-	title_lbl.add_theme_font_size_override("font_size", WizardTheme.fs(WizardTheme.FONT_SIZE_BODY))
-	header_row.add_child(title_lbl)
+	# Title bar (collapsed / folded): all four corners rounded since no panel shows.
+	var title_collapsed_sb := title_sb.duplicate()
+	title_collapsed_sb.corner_radius_bottom_left = radius
+	title_collapsed_sb.corner_radius_bottom_right = radius
+	fc.add_theme_stylebox_override("title_collapsed_panel", title_collapsed_sb)
 
-	# Body container
-	var body := VBoxContainer.new()
-	body.name = "SectionBody"
-	body.add_theme_constant_override("separation", 6)
-	vb.add_child(body)
+	# Content panel: rounded BOTTOM corners only.
+	var panel_sb := WizardTheme.make_solid_style(panel_bg, 0)
+	panel_sb.corner_radius_bottom_left = radius
+	panel_sb.corner_radius_bottom_right = radius
+	panel_sb.content_margin_left = WizardTheme.px(8)
+	panel_sb.content_margin_right = WizardTheme.px(8)
+	panel_sb.content_margin_top = WizardTheme.px(6)
+	panel_sb.content_margin_bottom = WizardTheme.px(6)
+	fc.add_theme_stylebox_override("panel", panel_sb)
 
-	return pc
+	var content := VBoxContainer.new()
+	content.name = "Content"
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content.add_theme_constant_override("separation", WizardTheme.px(4))
+	fc.add_child(content)
 
-
-func _get_section_body(section: PanelContainer) -> VBoxContainer:
-	var root := section.get_child(0) as VBoxContainer
-	return root.get_node("SectionBody") as VBoxContainer
-
-
-func _make_checkbox(text: String, checked: bool) -> CheckBox:
-	var cb := CheckBox.new()
-	cb.text = text
-	cb.button_pressed = checked
-	cb.add_theme_color_override("font_color", WizardTheme.COLOR_TEXT)
-	cb.add_theme_font_size_override("font_size", WizardTheme.fs(WizardTheme.FONT_SIZE_BODY))
-	return cb
+	return fc
 
 
-func _make_setting_row(caption: String, value: String) -> HBoxContainer:
+func _get_section_content(section: FoldableContainer) -> VBoxContainer:
+	return section.get_node("Content") as VBoxContainer
+
+
+# ---------------------------------------------------------------------------
+# Property row helpers
+# ---------------------------------------------------------------------------
+
+# Left-caption + right-editor row layout
+func _make_property_row(caption: String, editor: Control) -> HBoxContainer:
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_theme_constant_override("separation", WizardTheme.px(8))
 
 	var lbl := Label.new()
 	lbl.text = caption
-	lbl.add_theme_color_override("font_color", WizardTheme.COLOR_TEXT_MUTED)
-	lbl.add_theme_font_size_override("font_size", WizardTheme.fs(WizardTheme.FONT_SIZE_BODY))
-	lbl.custom_minimum_size = Vector2(WizardTheme.px(140), 0)
+	# SIZE_FILL (without EXPAND) so the caption stays at its fixed-width column
+	# and does not steal horizontal space from the editor on its right.
+	lbl.size_flags_horizontal = Control.SIZE_FILL
+	lbl.custom_minimum_size = Vector2(WizardTheme.px(CAPTION_WIDTH), 0)
 	row.add_child(lbl)
 
-	var le := LineEdit.new()
-	le.text = value
-	le.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	le.custom_minimum_size = Vector2(0, WizardTheme.px(WizardTheme.INPUT_HEIGHT))
-	WizardTheme.apply_line_edit_style(le)
-	row.add_child(le)
+	editor.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(editor)
 
 	return row
+
+
+func _make_checkbox_row(caption: String, checked: bool) -> HBoxContainer:
+	var cb := CheckBox.new()
+	cb.button_pressed = checked
+	return _make_property_row(caption, cb)
+
+
+func _make_spin_row(caption: String, value: float, min_v: float, max_v: float, step: float) -> HBoxContainer:
+	var sb := SpinBox.new()
+	sb.min_value = min_v
+	sb.max_value = max_v
+	sb.step = step
+	sb.value = value
+	if sb.has_method("set_use_rounded_values"):
+		sb.set_use_rounded_values(false)
+	sb.custom_minimum_size = Vector2(0, WizardTheme.px(WizardTheme.INPUT_HEIGHT))
+	return _make_property_row(caption, sb)

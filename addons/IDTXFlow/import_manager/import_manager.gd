@@ -4,26 +4,22 @@ extends PanelContainer
 ## Root Control for the USD Import Manager wizard.
 ##
 ## Added as a child of the editor's main screen (via plugin.gd). Uses a
-## PanelContainer so the whole wizard automatically fills the parent tab and
-## has a proper background. Children are laid out in a plain VBoxContainer.
+## PanelContainer so the whole wizard automatically fills the parent tab.
 ##
-## The wizard supports two import sources:
+## Two import sources are supported:
 ##
 ##   Local (res://)
-##     1. step_select_source  - choose source: click "Import USD from local files"
+##     1. step_select_source  - choose source
 ##     2. step_browse_files   - browse res:// for USD files (usd/usda/usdc/usdz)
 ##     3. step_configure      - define import settings (placeholder)
 ##     4. step_confirm        - review selection and trigger the import
 ##
 ##   Asset Server
-##     1. step_select_source   - enter server URL → Connect → server_login_panel
-##                               authenticates (demo/demo for the mock backend)
-##     2. step_browse_server   - browse the asset server file tree via ServerMockData
-##                               (replace with real HTTP calls when the backend is ready)
-##     3. step_configure       - same placeholder settings step as local
-##     4. step_confirm         - review server-side metadata and trigger the import
-##
-## The mock backend (server_mock_data.gd) keeps the server flow fully navigable without any real network connectivity.
+##     1. step_select_source   - enter server URL and log in (demo/demo for the mock backend)
+##     2. step_browse_server   - browse the asset server file tree
+##                               (ServerMockData for now; swap for HTTP later)
+##     3. step_configure       - same placeholder settings step
+##     4. step_confirm         - review server metadata and trigger the import
 
 const WizardTheme := preload("res://addons/IDTXFlow/import_manager/wizard_theme.gd")
 
@@ -37,21 +33,27 @@ const STEP_CONFIRM_PATH       := "res://addons/IDTXFlow/import_manager/step_conf
 const SERVER_SESSION_PATH     := "res://addons/IDTXFlow/import_manager/server_session.gd"
 
 # Shared wizard state.
-# "source" is either "local" or "server".
-# "selected_path" is a res:// URI for local files, or a server-side "/..." path.
-# "selected_meta" is the server metadata dict (empty for local imports).
+#   "source"        : "local" or "server"
+#   "selected_path" : res:// URI for local, or server-side "/..." path
+#   "selected_meta" : server metadata dict (empty for local imports)
+#   "destination"  : "current" (import under selected/root of current scene)
+#                    or "new" (create a fresh scene with the stage as root)
 var _import_state: Dictionary = {
 	"source": "",
 	"selected_path": "",
 	"selected_meta": {},
+	"destination": "current",
 }
+
+# Set to true while we've hooked into EditorSelection.selection_changed so the
+# step-4 "Target:" info line updates live. Reset when leaving step 4.
+var _selection_listener_connected: bool = false
 
 var _server_session: RefCounted
 
 var _editor_interface: EditorInterface
 
 var _step_container: Control
-var _title_bar: Control
 var _step_select: Node
 var _step_browse: Node          # local file browser
 var _step_browse_server: Node   # server file browser
@@ -60,8 +62,6 @@ var _step_confirm: Node
 
 # Which step-2 variant is currently in use (based on chosen source).
 var _active_browse_step: Node = null
-
-var _current_step_index: int = 1
 
 
 func set_editor_interface(editor_interface: EditorInterface) -> void:
@@ -77,19 +77,8 @@ func _init() -> void:
 	size_flags_vertical = Control.SIZE_EXPAND_FILL
 
 
-func _apply_bg_style() -> void:
-	var bg := StyleBoxFlat.new()
-	bg.bg_color = WizardTheme.COLOR_BG
-	bg.content_margin_left = WizardTheme.px(16)
-	bg.content_margin_right = WizardTheme.px(16)
-	bg.content_margin_top = WizardTheme.px(12)
-	bg.content_margin_bottom = WizardTheme.px(12)
-	add_theme_stylebox_override("panel", bg)
-
-
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_apply_bg_style()
 	_build_ui()
 	_show_step(1)
 
@@ -101,11 +90,8 @@ func _build_ui() -> void:
 	root_vb.add_theme_constant_override("separation", WizardTheme.px(10))
 	add_child(root_vb)
 
-	# Title bar
-	_title_bar = _build_title_bar()
-	root_vb.add_child(_title_bar)
+	root_vb.add_child(_build_title_bar())
 
-	# Step container - VBoxContainer so children with SIZE_EXPAND_FILL grow
 	_step_container = VBoxContainer.new()
 	_step_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_step_container.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -137,16 +123,17 @@ func _build_ui() -> void:
 	_step_configure = (load(STEP_CONFIGURE_PATH) as GDScript).new()
 	_step_container.add_child(_step_configure)
 	_step_configure.visible = false
-	_step_configure.import_requested.connect(_on_step3_import)
+	_step_configure.next_requested.connect(_on_step3_next)
 	_step_configure.back_requested.connect(_on_step3_back)
 	_step_configure.cancel_requested.connect(_on_cancel)
 
 	_step_confirm = (load(STEP_CONFIRM_PATH) as GDScript).new()
 	_step_container.add_child(_step_confirm)
 	_step_confirm.visible = false
-	_step_confirm.confirmed.connect(_on_step4_confirmed)
+	_step_confirm.confirm_requested.connect(_on_step4_confirmed)
 	_step_confirm.back_requested.connect(_on_step4_back)
 	_step_confirm.cancel_requested.connect(_on_cancel)
+	_step_confirm.destination_changed.connect(_on_destination_changed)
 
 
 func _build_title_bar() -> Control:
@@ -160,12 +147,11 @@ func _build_title_bar() -> Control:
 	var icon := WizardTheme.get_editor_icon(self, "Filesystem", "Load")
 	if icon:
 		icon_rect.texture = icon
-	icon_rect.modulate = WizardTheme.COLOR_PRIMARY
+	icon_rect.modulate = WizardTheme.get_accent_color(self)
 	row.add_child(icon_rect)
 
 	var title := Label.new()
 	title.text = "USD Importer"
-	title.add_theme_color_override("font_color", WizardTheme.COLOR_TEXT)
 	title.add_theme_font_size_override("font_size", WizardTheme.fs(WizardTheme.FONT_SIZE_TITLE))
 	row.add_child(title)
 
@@ -177,7 +163,6 @@ func _build_title_bar() -> Control:
 # --------------------------------------------------------------------------
 
 func _show_step(index: int) -> void:
-	_current_step_index = index
 	_step_select.visible = index == 1
 
 	# Step 2: one of two browsers, depending on chosen source.
@@ -195,6 +180,65 @@ func _show_step(index: int) -> void:
 			_step_confirm.set_selected_meta(meta)
 		elif _step_confirm.has_method("set_selected_path"):
 			_step_confirm.set_selected_path(_import_state.get("selected_path", ""))
+		_hook_selection_listener()
+		_update_target_info()
+	else:
+		_unhook_selection_listener()
+
+
+# --------------------------------------------------------------------------
+# Step 4 target-info + destination handling
+# --------------------------------------------------------------------------
+
+func _hook_selection_listener() -> void:
+	if _selection_listener_connected or _editor_interface == null:
+		return
+	var sel := _editor_interface.get_selection()
+	if sel:
+		sel.selection_changed.connect(_update_target_info)
+		_selection_listener_connected = true
+
+
+func _unhook_selection_listener() -> void:
+	if not _selection_listener_connected or _editor_interface == null:
+		return
+	var sel := _editor_interface.get_selection()
+	if sel and sel.selection_changed.is_connected(_update_target_info):
+		sel.selection_changed.disconnect(_update_target_info)
+	_selection_listener_connected = false
+
+
+## Pushes the current "target scene node" info (or an "open a scene" hint) to
+## the confirm step so it can update the label under the "Import into current
+## scene" radio.
+func _update_target_info() -> void:
+	if _step_confirm == null or not _step_confirm.has_method("set_current_target_info"):
+		return
+
+	if _editor_interface == null:
+		_step_confirm.set_current_target_info("", "", false)
+		return
+
+	var scene_root := _editor_interface.get_edited_scene_root()
+	if scene_root == null:
+		_step_confirm.set_current_target_info("", "", false)
+		return
+
+	var target := _get_target_scene_node()
+	if target == null:
+		_step_confirm.set_current_target_info(scene_root.name, "root", true)
+		return
+
+	var sub: String
+	if target == scene_root:
+		sub = "root"
+	else:
+		sub = String(scene_root.get_path_to(target))
+	_step_confirm.set_current_target_info(target.name, sub, true)
+
+
+func _on_destination_changed(destination: String) -> void:
+	_import_state["destination"] = destination
 
 
 # --------------------------------------------------------------------------
@@ -213,7 +257,6 @@ func _on_step1_server_login(url: String, username: String, remember: bool) -> vo
 	_import_state["source"] = "server"
 	_import_state["selected_meta"] = {}
 
-	# Build/reset the server session container.
 	if _server_session == null:
 		_server_session = (load(SERVER_SESSION_PATH) as GDScript).new()
 	else:
@@ -256,7 +299,7 @@ func _on_step2_back() -> void:
 	_show_step(1)
 
 
-func _on_step3_import() -> void:
+func _on_step3_next() -> void:
 	_show_step(4)
 
 
@@ -266,7 +309,6 @@ func _on_step3_back() -> void:
 
 func _on_step4_confirmed() -> void:
 	_perform_import()
-	_reset_and_go_home()
 
 
 func _on_step4_back() -> void:
@@ -289,24 +331,31 @@ func _reset_and_go_home() -> void:
 
 
 # --------------------------------------------------------------------------
-# Actual import
+# Import
 # --------------------------------------------------------------------------
 
+## Kicks off an asynchronous USD stage import and returns immediately.
+## `_on_stage_loading_finished` handles the outcome when the C++ side emits
+## `stage_loading_finished(success)` on the main thread.
 func _perform_import() -> void:
 	var file_path: String = _import_state.get("selected_path", "")
 	if file_path.is_empty():
-		push_warning("[IDTXFlow] No file selected; aborting import.")
+		push_warning("[IDTXFlow] [Import Manager] No file selected; aborting import.")
 		return
 
+	var destination: String = _import_state.get("destination", "current")
+	if destination == "new":
+		_perform_import_into_new_scene(file_path)
+	else:
+		_perform_import_into_current_scene(file_path)
+
+
+func _perform_import_into_current_scene(file_path: String) -> void:
 	var target_node: Node = _get_target_scene_node()
 	if target_node == null:
-		push_warning("[IDTXFlow] No target scene node available; open a scene first.")
+		push_warning("[IDTXFlow] [Import Manager] No target scene node available; open a scene first.")
 		return
 
-	# Create the USD stage node and correctly wire it into the scene:
-	#   1) add_child (so the node has an ancestor)
-	#   2) set owner (so it gets saved with the scene)
-	#   3) set stage_uri (triggers the import)
 	var stage_node := UsdStageNode3D.new()
 	target_node.add_child(stage_node)
 
@@ -315,9 +364,169 @@ func _perform_import() -> void:
 		scene_root = _editor_interface.get_edited_scene_root()
 	stage_node.owner = scene_root if scene_root != null else target_node
 
+	stage_node.stage_loading_finished.connect(
+		_on_stage_loading_finished.bind(stage_node, file_path, false),
+		CONNECT_ONE_SHOT
+	)
 	stage_node.stage_uri = file_path
 
-	print("[IDTXFlow] Imported '%s' as child of '%s'." % [file_path, target_node.name])
+
+## Builds a fresh Node3D root + empty UsdStageNode3D child, parents it under
+## the wizard so the C++ side sees it inside the editor SceneTree, then
+## triggers the async import. The scene is opened as a new tab only after a
+## successful import (see `_on_stage_loading_finished`). On failure the
+## in-memory tree is discarded and nothing touches the disk or the editor.
+func _perform_import_into_new_scene(file_path: String) -> void:
+	var root_name: String = file_path.get_file().get_basename()
+	if root_name.is_empty():
+		root_name = "UsdImport"
+
+	var new_root := Node3D.new()
+	new_root.name = root_name
+
+	var stage_node := UsdStageNode3D.new()
+	new_root.add_child(stage_node)
+	stage_node.owner = new_root
+
+	# Parent under the wizard control so the node enters the editor's
+	# SceneTree; UsdStageNode3D only starts loading once it is inside a tree.
+	add_child(new_root)
+
+	stage_node.stage_loading_finished.connect(
+		_on_stage_loading_finished.bind(stage_node, file_path, true, new_root),
+		CONNECT_ONE_SHOT
+	)
+	stage_node.stage_uri = file_path
+
+
+## Signal handler for `stage_loading_finished`.
+##
+## Bound arguments:
+##   stage_node   - the imported node (may already be freed on failure).
+##   file_path    - USD source URI, used for logging.
+##   is_new_scene - true when the import is targeting a fresh scene.
+##   new_root     - only meaningful when `is_new_scene`; the in-memory root
+##                  that will be packed and opened as a new tab on success,
+##                  or freed on failure.
+func _on_stage_loading_finished(
+	success: bool,
+	stage_node: Node,
+	file_path: String,
+	is_new_scene: bool = false,
+	new_root: Node = null,
+) -> void:
+	if not success:
+		push_error("[IDTXFlow] [Import Manager] Failed to import '%s'. Removing empty stage node." % file_path)
+		if is_new_scene and is_instance_valid(new_root):
+			new_root.queue_free()
+		elif is_instance_valid(stage_node):
+			stage_node.queue_free()
+		return
+
+	if is_new_scene:
+		_finalize_new_scene_import(stage_node, file_path, new_root)
+		return
+
+	print("[IDTXFlow] [Import Manager] Imported '%s' as child of '%s'." % [file_path, stage_node.get_parent().name])
+
+	_reset_and_go_home()
+
+	if _editor_interface:
+		_editor_interface.set_main_screen_editor("3D")
+		var sel := _editor_interface.get_selection()
+		if sel:
+			sel.clear()
+			sel.add_node(stage_node)
+		_editor_interface.edit_node(stage_node)
+
+
+## Packs the imported in-memory scene, writes it to a fresh `res://<name>.tscn`
+## (with collision suffix), and opens it as a new scene tab.
+func _finalize_new_scene_import(stage_node: Node, file_path: String, new_root: Node) -> void:
+	# Let the C++-side deferred `set_owner` calls (from _configure_nodes_recursive)
+	# settle so all imported prims have `owner == new_root` before packing.
+	await get_tree().process_frame
+
+	if not is_instance_valid(new_root):
+		push_error("[IDTXFlow] [Import Manager] New-scene root was freed before packing; aborting.")
+		return
+
+	# Detach from the wizard so the packed scene doesn't include our Control.
+	if new_root.get_parent() == self:
+		remove_child(new_root)
+
+	var packed := PackedScene.new()
+	var pack_err := packed.pack(new_root)
+	if pack_err != OK:
+		push_error("[IDTXFlow] [Import Manager] PackedScene.pack failed (err=%d); aborting." % pack_err)
+		new_root.queue_free()
+		return
+
+	var target_path := _next_unused_res_scene_path(new_root.name)
+	var save_err := ResourceSaver.save(packed, target_path)
+	if save_err != OK:
+		push_error("[IDTXFlow] [Import Manager] Failed to save scene '%s' (err=%d); aborting." % [target_path, save_err])
+		new_root.queue_free()
+		return
+
+	# The in-memory copy is no longer needed; the file on disk holds the state.
+	new_root.queue_free()
+
+	if _editor_interface == null:
+		push_warning("[IDTXFlow] [Import Manager] No editor interface; scene saved at '%s'." % target_path)
+		return
+
+	_editor_interface.open_scene_from_path(target_path)
+	await get_tree().process_frame
+
+	var new_scene_root := _editor_interface.get_edited_scene_root()
+	if new_scene_root == null:
+		push_error("[IDTXFlow] [Import Manager] Failed to open new scene tab from '%s'." % target_path)
+		return
+
+	print("[IDTXFlow] [Import Manager] Imported '%s' as '%s'." % [file_path, target_path])
+
+	_reset_and_go_home()
+
+	_editor_interface.set_main_screen_editor("3D")
+	var new_stage_node := _find_stage_node(new_scene_root)
+	if new_stage_node:
+		var sel := _editor_interface.get_selection()
+		if sel:
+			sel.clear()
+			sel.add_node(new_stage_node)
+		_editor_interface.edit_node(new_stage_node)
+
+
+## Returns the first path of the form `res://<basename>.tscn` (or `_1`, `_2`,
+## ...) that does not exist on disk yet, so we don't overwrite user files.
+func _next_unused_res_scene_path(basename: String) -> String:
+	var stem: String = basename
+	if stem.is_empty():
+		stem = "UsdImport"
+	var candidate := "res://%s.tscn" % stem
+	if not FileAccess.file_exists(candidate):
+		return candidate
+	var i := 1
+	while true:
+		candidate = "res://%s_%d.tscn" % [stem, i]
+		if not FileAccess.file_exists(candidate):
+			return candidate
+		i += 1
+	return candidate
+
+
+## Depth-first search for the first UsdStageNode3D descendant of `root`.
+func _find_stage_node(root: Node) -> Node:
+	if root == null:
+		return null
+	if root.get_class() == "UsdStageNode3D":
+		return root
+	for i in root.get_child_count():
+		var found := _find_stage_node(root.get_child(i))
+		if found:
+			return found
+	return null
 
 
 func _get_target_scene_node() -> Node:
@@ -331,3 +540,6 @@ func _get_target_scene_node() -> Node:
 			return nodes[0]
 
 	return _editor_interface.get_edited_scene_root()
+
+func _exit_tree() -> void:
+	_unhook_selection_listener()

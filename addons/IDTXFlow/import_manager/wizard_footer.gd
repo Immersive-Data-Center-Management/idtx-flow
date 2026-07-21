@@ -44,23 +44,26 @@ func _ensure_built() -> void:
 
 	# Separator on top --------------------------------------------------
 	var sep := HSeparator.new()
-	var sep_style := WizardTheme.make_flat_style(WizardTheme.COLOR_BORDER, 0)
-	sep.add_theme_stylebox_override("separator", sep_style)
-	sep.add_theme_constant_override("separation", 1)
 	add_child(sep)
+
+	# Margin wrapper ----------------------------------------------------
+	var margin := MarginContainer.new()
+	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	margin.add_theme_constant_override("margin_top", WizardTheme.px(8))
+	margin.add_theme_constant_override("margin_bottom", WizardTheme.px(8))
+	add_child(margin)
 
 	# Row --------------------------------------------------------------
 	_row = HBoxContainer.new()
 	_row.add_theme_constant_override("separation", WizardTheme.px(8))
 	_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	add_child(_row)
+	margin.add_child(_row)
 
-	var min_btn := Vector2(WizardTheme.px(72), WizardTheme.px(WizardTheme.BTN_HEIGHT))
+	var min_btn := Vector2(WizardTheme.px(92), WizardTheme.px(WizardTheme.BTN_HEIGHT))
 
 	_back_btn = Button.new()
 	_back_btn.text = "Back"
 	_back_btn.custom_minimum_size = min_btn
-	WizardTheme.apply_secondary_button(_back_btn)
 	_back_btn.pressed.connect(_on_back)
 	_row.add_child(_back_btn)
 
@@ -71,14 +74,16 @@ func _ensure_built() -> void:
 	_cancel_btn = Button.new()
 	_cancel_btn.text = "Cancel"
 	_cancel_btn.custom_minimum_size = min_btn
-	WizardTheme.apply_secondary_button(_cancel_btn)
 	_cancel_btn.pressed.connect(_on_cancel)
 	_row.add_child(_cancel_btn)
 
 	_primary_btn = Button.new()
 	_primary_btn.text = "Next"
 	_primary_btn.custom_minimum_size = min_btn
-	WizardTheme.apply_primary_button(_primary_btn)
+
+	var host: Control = self
+	_primary_btn.add_theme_color_override("font_color", WizardTheme.get_accent_color(host))
+	_primary_btn.add_theme_color_override("font_hover_color", WizardTheme.get_accent_color(host))
 	_primary_btn.pressed.connect(_on_primary)
 	_row.add_child(_primary_btn)
 

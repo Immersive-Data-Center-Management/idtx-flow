@@ -18,6 +18,10 @@ const ServerLoginPanel  := preload("res://addons/IDTXFlow/import_manager/server_
 
 const DEFAULT_URL := "https://aetherra-prime.aas-showroom.msp02.shoot.garden.example/usd"
 
+# Shared visible height for the URL row (input + Connect) and the
+# "Import USD from local files" button so all three align.
+const ROW_HEIGHT := 44
+
 var _url_input: LineEdit
 var _connect_btn: Button
 var _login_panel: Node
@@ -36,7 +40,7 @@ func _ready() -> void:
 func _build() -> void:
 	var header := WizardHeader.new()
 	add_child(header)
-	header.setup(1, 3, "Select importer:", "Connect to the USD asset server or import from local files")
+	header.setup(1, 4, "Select importer:", "Connect to the USD asset server or import from local files")
 
 	# Body: a centered narrow column
 	var body_center := CenterContainer.new()
@@ -52,8 +56,6 @@ func _build() -> void:
 	# --- Asset Server URL row ------------------------------------------
 	var url_caption := Label.new()
 	url_caption.text = "Asset Server URL"
-	url_caption.add_theme_color_override("font_color", WizardTheme.COLOR_TEXT_CAPTION)
-	url_caption.add_theme_font_size_override("font_size", WizardTheme.fs(WizardTheme.FONT_SIZE_CAPTION))
 	body.add_child(url_caption)
 
 	var url_row := HBoxContainer.new()
@@ -64,14 +66,12 @@ func _build() -> void:
 	_url_input.placeholder_text = "Input URL"
 	_url_input.text = DEFAULT_URL
 	_url_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_url_input.custom_minimum_size = Vector2(0, WizardTheme.px(WizardTheme.INPUT_HEIGHT))
-	WizardTheme.apply_line_edit_style(_url_input)
+	_url_input.custom_minimum_size = Vector2(0, WizardTheme.px(ROW_HEIGHT))
 	url_row.add_child(_url_input)
 
 	_connect_btn = Button.new()
 	_connect_btn.text = "Connect"
-	_connect_btn.custom_minimum_size = Vector2(WizardTheme.px(80), WizardTheme.px(WizardTheme.BTN_HEIGHT))
-	WizardTheme.apply_primary_button(_connect_btn)
+	_connect_btn.custom_minimum_size = Vector2(WizardTheme.px(80), WizardTheme.px(ROW_HEIGHT))
 	_connect_btn.pressed.connect(_on_connect_pressed)
 	url_row.add_child(_connect_btn)
 
@@ -79,8 +79,6 @@ func _build() -> void:
 	var or_label := Label.new()
 	or_label.text = "or"
 	or_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	or_label.add_theme_color_override("font_color", WizardTheme.COLOR_TEXT_CAPTION)
-	or_label.add_theme_font_size_override("font_size", WizardTheme.fs(WizardTheme.FONT_SIZE_CAPTION))
 	or_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	body.add_child(or_label)
 
@@ -88,8 +86,7 @@ func _build() -> void:
 	var local_btn := Button.new()
 	local_btn.text = "  Import USD from local files"
 	local_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	local_btn.custom_minimum_size = Vector2(0, WizardTheme.px(44))
-	WizardTheme.apply_ghost_button(local_btn)
+	local_btn.custom_minimum_size = Vector2(0, WizardTheme.px(ROW_HEIGHT))
 	local_btn.pressed.connect(_on_local_pressed)
 	body.add_child(local_btn)
 
@@ -99,8 +96,6 @@ func _build() -> void:
 
 	# --- Login panel (hidden until Connect is pressed) -----------------
 	var sep := HSeparator.new()
-	sep.add_theme_stylebox_override("separator", WizardTheme.make_flat_style(WizardTheme.COLOR_BORDER, 0))
-	sep.add_theme_constant_override("separation", 1)
 	sep.visible = false
 	body.add_child(sep)
 

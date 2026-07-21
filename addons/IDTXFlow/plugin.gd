@@ -2,8 +2,10 @@
 extends EditorPlugin
 
 const MainScreenScript := preload("res://addons/IDTXFlow/import_manager/import_manager.gd")
+const UsdStageInspectorPlugin := preload("res://addons/IDTXFlow/usd_stage_inspector_plugin.gd")
 
 var _main_screen: Control = null
+var _inspector_plugin: EditorInspectorPlugin = null
 
 
 func _enter_tree() -> void:
@@ -17,8 +19,17 @@ func _enter_tree() -> void:
 	# Hidden by default; the editor shows it when the user selects this main screen.
 	_make_visible(false)
 
+	# Register the custom Inspector row (with "Connect" reload button) for
+	# UsdStageNode3D.stage_uri.
+	_inspector_plugin = UsdStageInspectorPlugin.new()
+	add_inspector_plugin(_inspector_plugin)
+
 
 func _exit_tree() -> void:
+	if _inspector_plugin != null:
+		remove_inspector_plugin(_inspector_plugin)
+		_inspector_plugin = null
+
 	if _main_screen != null:
 		_main_screen.queue_free()
 		_main_screen = null

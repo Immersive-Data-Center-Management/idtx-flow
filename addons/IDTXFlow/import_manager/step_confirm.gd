@@ -2,24 +2,33 @@
 extends VBoxContainer
 
 ## Step 4 - Confirm Selection.
-## Shows a 3-node step indicator (nodes 1 & 2 completed, node 3 active),
-## a title, and the selected asset detail card. Confirm triggers the import.
+## Header (Step 4 of 4) + Import-destination radios + AssetDetailPanel + footer.
 
-signal confirmed
+signal confirm_requested
 signal back_requested
 signal cancel_requested
+signal destination_changed(destination: String)
 
 const WizardTheme    := preload("res://addons/IDTXFlow/import_manager/wizard_theme.gd")
+const WizardHeader   := preload("res://addons/IDTXFlow/import_manager/wizard_header.gd")
 const WizardFooter   := preload("res://addons/IDTXFlow/import_manager/wizard_footer.gd")
 const AssetPanel     := preload("res://addons/IDTXFlow/import_manager/asset_detail_panel.gd")
 
+# Destination string identifiers.
+const DEST_CURRENT := "current"
+const DEST_NEW     := "new"
+
 var _asset_panel: Node
+
+var _radio_current: CheckBox
+var _radio_new: CheckBox
+var _target_info_label: Label
 
 
 func _init() -> void:
 	size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	size_flags_vertical = Control.SIZE_EXPAND_FILL
-	add_theme_constant_override("separation", 16)
+	add_theme_constant_override("separation", WizardTheme.px(10))
 
 
 func _ready() -> void:
@@ -36,103 +45,121 @@ func set_selected_meta(meta: Dictionary) -> void:
 		_asset_panel.populate_from_dict(meta)
 
 
+## Updates the "Target:" info line beneath the "Import into current scene"
+## radio. When `enabled` is false the current-scene option is greyed out and
+## the "new scene" option is auto-selected.
+func set_current_target_info(display_name: String, sub_text: String, enabled: bool) -> void:
+	if _target_info_label:
+		if enabled:
+			_target_info_label.text = "Target: %s  (%s)" % [display_name, sub_text]
+		else:
+			_target_info_label.text = "No scene open. Open a scene to use this option."
+
+	if _radio_current:
+		_radio_current.disabled = not enabled
+		if not enabled and _radio_current.button_pressed:
+			# Fall back to "new scene" so we don't leave a disabled radio selected.
+			_radio_new.button_pressed = true
+
+
+func get_destination() -> String:
+	if _radio_new and _radio_new.button_pressed:
+		return DEST_NEW
+	return DEST_CURRENT
+
+
 func _build() -> void:
-	# Top area: step indicator + title -----------------------------------
-	var top_panel := PanelContainer.new()
-	top_panel.add_theme_stylebox_override("panel", WizardTheme.make_panel_style(WizardTheme.COLOR_PANEL))
-	top_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	add_child(top_panel)
+	var header := WizardHeader.new()
+	add_child(header)
+	header.setup(4, 4, "Confirm:", "Review and import selected asset")
 
-	var top_vb := VBoxContainer.new()
-	top_vb.add_theme_constant_override("separation", 10)
-	top_panel.add_child(top_vb)
+	# Import destination section
+	add_child(_build_destination_section())
 
-	var indicator := _build_step_indicator()
-	top_vb.add_child(indicator)
-
-	var title := Label.new()
-	title.text = "Confirm Selection"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_color_override("font_color", WizardTheme.COLOR_TEXT)
-	title.add_theme_font_size_override("font_size", WizardTheme.fs(WizardTheme.FONT_SIZE_HEADING))
-	top_vb.add_child(title)
-
-	var subtitle := Label.new()
-	subtitle.text = "This will import the asset into view"
-	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	subtitle.add_theme_color_override("font_color", WizardTheme.COLOR_TEXT_CAPTION)
-	subtitle.add_theme_font_size_override("font_size", WizardTheme.fs(WizardTheme.FONT_SIZE_CAPTION))
-	top_vb.add_child(subtitle)
-
-	# Body: centered asset panel -----------------------------------------
+	# Selected asset card, centered
 	var body_center := CenterContainer.new()
 	body_center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	body_center.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	add_child(body_center)
 
 	_asset_panel = AssetPanel.new()
-	(_asset_panel as Control).custom_minimum_size = Vector2(WizardTheme.px(360), 0)
+	# Give the panel a real minimum height - CenterContainer sizes its child
+	# to the child's minimum size, and the panel's content region is built
+	# from anchor-based (PRESET_FULL_RECT) children that contribute no
+	# minimum height. Without this, only the "Asset Details:" header shows.
+	(_asset_panel as Control).custom_minimum_size = Vector2(WizardTheme.px(360), WizardTheme.px(420))
 	body_center.add_child(_asset_panel)
 	if _asset_panel.has_method("set_header_style"):
 		_asset_panel.set_header_style(1)  # SELECTED_ASSET
 
-	# Footer -------------------------------------------------------------
 	var footer := WizardFooter.new()
 	add_child(footer)
-	footer.setup(true, "Confirm", true)
+	footer.setup(true, "Import", true)
 	footer.back_pressed.connect(func(): back_requested.emit())
 	footer.cancel_pressed.connect(func(): cancel_requested.emit())
-	footer.primary_pressed.connect(func(): confirmed.emit())
+	footer.primary_pressed.connect(func(): confirm_requested.emit())
 
 
-func _build_step_indicator() -> Control:
-	var row := HBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("separation", 0)
-	row.custom_minimum_size = Vector2(0, WizardTheme.px(40))
+func _build_destination_section() -> Control:
+	var section := VBoxContainer.new()
+	section.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	section.add_theme_constant_override("separation", WizardTheme.px(4))
 
-	# Circle 1 (done, green)
-	row.add_child(_make_circle(true, "✓", WizardTheme.COLOR_SUCCESS))
-	row.add_child(_make_line(WizardTheme.COLOR_SUCCESS))
-	# Circle 2 (done, green)
-	row.add_child(_make_circle(true, "✓", WizardTheme.COLOR_SUCCESS))
-	row.add_child(_make_line(WizardTheme.COLOR_SUCCESS))
-	# Circle 3 (active, blue)
-	row.add_child(_make_circle(false, "3", WizardTheme.COLOR_PRIMARY))
+	var heading := Label.new()
+	heading.text = "Import destination"
+	heading.add_theme_font_size_override("font_size", WizardTheme.fs(WizardTheme.FONT_SIZE_HEADING))
+	section.add_child(heading)
 
-	return row
+	# CheckBox controls in a shared ButtonGroup behave as mutually exclusive
+	# radio buttons.
+	var group := ButtonGroup.new()
+
+	_radio_current = CheckBox.new()
+	_radio_current.text = "Import into current scene"
+	_radio_current.button_group = group
+	_radio_current.button_pressed = true
+	_radio_current.toggled.connect(_on_radio_current_toggled)
+	section.add_child(_radio_current)
+
+	_target_info_label = Label.new()
+	_target_info_label.text = "Target: -"
+	_target_info_label.add_theme_color_override("font_color", WizardTheme.get_muted_color(self))
+	_target_info_label.add_theme_font_size_override("font_size", WizardTheme.fs(WizardTheme.FONT_SIZE_CAPTION))
+	# Slight indent so it reads as a child of the radio above.
+	var indent := HBoxContainer.new()
+	indent.add_theme_constant_override("separation", 0)
+	var spacer_l := Control.new()
+	spacer_l.custom_minimum_size = Vector2(WizardTheme.px(24), 0)
+	indent.add_child(spacer_l)
+	indent.add_child(_target_info_label)
+	section.add_child(indent)
+
+	_radio_new = CheckBox.new()
+	_radio_new.text = "Import into new scene"
+	_radio_new.button_group = group
+	_radio_new.toggled.connect(_on_radio_new_toggled)
+	section.add_child(_radio_new)
+
+	var new_info := Label.new()
+	new_info.text = "A new scene will be created with the imported USD stage as its root."
+	new_info.add_theme_color_override("font_color", WizardTheme.get_muted_color(self))
+	new_info.add_theme_font_size_override("font_size", WizardTheme.fs(WizardTheme.FONT_SIZE_CAPTION))
+	var indent2 := HBoxContainer.new()
+	indent2.add_theme_constant_override("separation", 0)
+	var spacer_l2 := Control.new()
+	spacer_l2.custom_minimum_size = Vector2(WizardTheme.px(24), 0)
+	indent2.add_child(spacer_l2)
+	indent2.add_child(new_info)
+	section.add_child(indent2)
+
+	return section
 
 
-func _make_circle(is_check: bool, text: String, bg_color: Color) -> Control:
-	var panel := Panel.new()
-	var d := WizardTheme.px(28)
-	panel.custom_minimum_size = Vector2(d, d)
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = bg_color
-	var r := d / 2
-	sb.corner_radius_top_left = r
-	sb.corner_radius_top_right = r
-	sb.corner_radius_bottom_left = r
-	sb.corner_radius_bottom_right = r
-	panel.add_theme_stylebox_override("panel", sb)
-
-	var lbl := Label.new()
-	lbl.text = text
-	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	lbl.add_theme_color_override("font_color", Color.WHITE)
-	lbl.add_theme_font_size_override("font_size", WizardTheme.fs(WizardTheme.FONT_SIZE_BODY))
-	lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	panel.add_child(lbl)
-
-	return panel
+func _on_radio_current_toggled(pressed: bool) -> void:
+	if pressed:
+		destination_changed.emit(DEST_CURRENT)
 
 
-func _make_line(color: Color) -> Control:
-	var line := Panel.new()
-	line.custom_minimum_size = Vector2(WizardTheme.px(100), WizardTheme.px(2))
-	line.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = color
-	line.add_theme_stylebox_override("panel", sb)
-	return line
+func _on_radio_new_toggled(pressed: bool) -> void:
+	if pressed:
+		destination_changed.emit(DEST_NEW)
