@@ -1,10 +1,14 @@
 @tool
 extends VBoxContainer
 
-## Step 2 - Browse an asset SERVER for USD files. Uses `server_mock_data`
-## as a stand-in for real server responses. Layout mirrors
-## `step_browse_files.gd` but the data source is different (metadata comes
-## from the server response, not from disk).
+## Step 2 - Browse the asset SERVER for USD files.
+##
+## Backed by the real IDTX backend via the `IdtxClient` engine singleton
+## (GET /api/v1/files). The backend returns a flat file list; we present it
+## grouped by the `directory` field: a non-selectable directory header row
+## followed by its files. Selecting a file emits `file_selected(path, meta)`
+## and enables Next; the selection contract (get_selected_path/meta) is
+## unchanged so import_manager.gd keeps working.
 
 signal file_selected(path: String, meta: Dictionary)
 signal back_requested
@@ -15,16 +19,11 @@ const WizardTheme    := preload("res://addons/IDTXFlow/import_manager/wizard_the
 const WizardHeader   := preload("res://addons/IDTXFlow/import_manager/wizard_header.gd")
 const WizardFooter   := preload("res://addons/IDTXFlow/import_manager/wizard_footer.gd")
 const AssetPanel     := preload("res://addons/IDTXFlow/import_manager/asset_detail_panel.gd")
-const ServerMockData := preload("res://addons/IDTXFlow/import_manager/server_mock_data.gd")
 
 var _server_url: String = ""
-var _current_path: String = ServerMockData.ROOT_PATH
 var _selected_path: String = ""
 var _selected_meta: Dictionary = {}
-
-# Path history for Back/Forward navigation.
-var _history: Array[String] = [ServerMockData.ROOT_PATH]
-var _history_index: int = 0
+var _loading: bool = false
 
 # Grid vs list view.
 var _is_grid_view: bool = false
@@ -34,10 +33,9 @@ var _item_list: ItemList
 var _detail_panel: Node
 var _detail_container: PanelContainer
 var _footer: Node
+var _status_label: Label
 
-var _back_btn: Button
-var _forward_btn: Button
-var _up_btn: Button
+var _refresh_btn: Button
 var _list_btn: Button
 var _grid_btn: Button
 
@@ -51,8 +49,7 @@ func _init() -> void:
 func _ready() -> void:
 	_build()
 	_apply_view_mode()
-	_populate_list()
-	_update_nav_buttons()
+	_refresh()
 
 
 func set_server_url(url: String) -> void:
@@ -62,14 +59,10 @@ func set_server_url(url: String) -> void:
 
 
 func reset() -> void:
-	_current_path = ServerMockData.ROOT_PATH
 	_selected_path = ""
 	_selected_meta = {}
-	_history = [ServerMockData.ROOT_PATH]
-	_history_index = 0
 	if _item_list:
-		_populate_list()
-		_update_nav_buttons()
+		_refresh()
 
 
 func get_selected_path() -> String:
@@ -80,10 +73,20 @@ func get_selected_meta() -> Dictionary:
 	return _selected_meta
 
 
+func _idtx() -> Object:
+	if not Engine.has_singleton("IdtxClient"):
+		return null
+	return Engine.get_singleton("IdtxClient")
+
+
+# ---------------------------------------------------------------------------
+# UI
+# ---------------------------------------------------------------------------
+
 func _build() -> void:
 	var header := WizardHeader.new()
 	add_child(header)
-	header.setup(2, 4, "Browse:", "Select file to import from the asset server")
+	header.setup(2, 4, "Browse:", "Select a file to import from the asset server")
 
 	_build_path_bar()
 	_build_split()
@@ -96,7 +99,7 @@ func _build_path_bar() -> void:
 	add_child(row)
 
 	var cap := Label.new()
-	cap.text = "Path:"
+	cap.text = "Server:"
 	row.add_child(cap)
 
 	_path_display = LineEdit.new()
@@ -105,19 +108,10 @@ func _build_path_bar() -> void:
 	_path_display.custom_minimum_size = Vector2(0, WizardTheme.px(WizardTheme.INPUT_HEIGHT))
 	row.add_child(_path_display)
 
-	_back_btn = _make_nav_button("<", "Back")
-	_back_btn.pressed.connect(_on_back_pressed)
-	row.add_child(_back_btn)
+	_refresh_btn = _make_nav_button("⟳", "Refresh")
+	_refresh_btn.pressed.connect(_refresh)
+	row.add_child(_refresh_btn)
 
-	_forward_btn = _make_nav_button(">", "Forward")
-	_forward_btn.pressed.connect(_on_forward_pressed)
-	row.add_child(_forward_btn)
-
-	_up_btn = _make_nav_button("^", "Parent folder")
-	_up_btn.pressed.connect(_on_up_pressed)
-	row.add_child(_up_btn)
-
-	# Visual divider between nav and view-mode toggles.
 	var vsep := VSeparator.new()
 	vsep.modulate = Color(1, 1, 1, 0.35)
 	row.add_child(vsep)
@@ -162,6 +156,10 @@ func _build_split() -> void:
 
 
 func _build_footer() -> void:
+	_status_label = Label.new()
+	_status_label.modulate = Color(1, 1, 1, 0.6)
+	add_child(_status_label)
+
 	_footer = WizardFooter.new()
 	add_child(_footer)
 	_footer.setup(true, "Next", false)
@@ -181,97 +179,150 @@ func _make_nav_button(text: String, tooltip: String = "") -> Button:
 
 
 func _display_path() -> String:
-	# Combine the base URL with the current logical path for display.
-	var base := _server_url
-	if base.is_empty():
-		return _current_path
-	if base.ends_with("/"):
-		base = base.substr(0, base.length() - 1)
-	return base + _current_path
+	return _server_url
 
 
 # ---------------------------------------------------------------------------
-# Listing
+# Listing (real /files, grouped by directory)
 # ---------------------------------------------------------------------------
 
-func _populate_list() -> void:
+func _refresh() -> void:
+	if _item_list == null:
+		return
 	_item_list.clear()
 	_selected_path = ""
 	_selected_meta = {}
 	_detail_container.visible = false
-	_footer.set_primary_enabled(false)
+	if _footer:
+		_footer.set_primary_enabled(false)
 	_path_display.text = _display_path()
 
-	var entries: Array = ServerMockData.get_directory(_current_path)
+	var client := _idtx()
+	if client == null:
+		_set_status("IDTX client not available (GDExtension not loaded).")
+		return
+
+	if _loading:
+		return
+	_loading = true
+	_set_status("Loading files…")
+
+	client.files_listed.connect(_on_files_listed, CONNECT_ONE_SHOT)
+	client.request_failed.connect(_on_request_failed, CONNECT_ONE_SHOT)
+	client.list_files("", "")
+
+
+func _on_files_listed(files: Array) -> void:
+	_loading = false
+	_disconnect_list_handlers()
+	_populate_from_files(files)
+	_set_status("%d file(s)" % files.size())
+
+
+func _on_request_failed(op: String, http_code: int, code: String, message: String) -> void:
+	# Only react to list_files failures here.
+	if op != "list_files":
+		return
+	_loading = false
+	_disconnect_list_handlers()
+	var msg := message
+	if msg.is_empty():
+		msg = "%d %s" % [http_code, code]
+	_set_status("Failed to list files: %s" % msg)
+
+
+func _disconnect_list_handlers() -> void:
+	var client := _idtx()
+	if client == null:
+		return
+	if client.files_listed.is_connected(_on_files_listed):
+		client.files_listed.disconnect(_on_files_listed)
+	if client.request_failed.is_connected(_on_request_failed):
+		client.request_failed.disconnect(_on_request_failed)
+
+
+func _populate_from_files(files: Array) -> void:
+	_item_list.clear()
+
 	var folder_icon := WizardTheme.get_editor_icon(self, "Folder")
 	var file_icon := WizardTheme.get_editor_icon(self, "PackedScene", "ResourcePreloader")
 
-	# Directories first, then files (already declared in that order in mock data).
-	for e in entries:
-		if bool(e.get("is_dir", false)):
-			var idx := _item_list.add_item(String(e["name"]) + "/", folder_icon)
-			_item_list.set_item_metadata(idx, e)
+	# Group entries by their 'directory' field. The backend may return Windows
+	# separators (e.g. "Teapot\geo"); normalize to forward slashes for display
+	# and, more importantly, for the paths we send back to /sessions and /download.
+	var groups := {}   # directory -> Array of entry dicts
+	for f in files:
+		if typeof(f) != TYPE_DICTIONARY:
+			continue
+		var directory := String(f.get("directory", "")).replace("\\", "/")
+		if not groups.has(directory):
+			groups[directory] = []
+		groups[directory].append(f)
 
-	for e in entries:
-		if not bool(e.get("is_dir", false)):
-			var idx := _item_list.add_item(String(e["name"]), file_icon)
-			_item_list.set_item_metadata(idx, e)
+	# Sort directory names ("" root first, then alphabetical).
+	var dir_names := groups.keys()
+	dir_names.sort_custom(func(a, b):
+		if a == "":
+			return true
+		if b == "":
+			return false
+		return String(a) < String(b))
 
+	for directory in dir_names:
+		# Directory header row (non-selectable).
+		var header_text: String = "/" if String(directory).is_empty() else (String(directory) + "/")
+		var hidx := _item_list.add_item(header_text, folder_icon)
+		_item_list.set_item_selectable(hidx, false)
+		_item_list.set_item_metadata(hidx, {"is_dir": true})
 
-# ---------------------------------------------------------------------------
-# Navigation
-# ---------------------------------------------------------------------------
+		# File rows under this directory, sorted by filename.
+		var entries: Array = groups[directory]
+		entries.sort_custom(func(a, b):
+			return String(a.get("filename", "")) < String(b.get("filename", "")))
 
-func _navigate_to(path: String) -> void:
-	if path == _current_path:
-		return
-	# Truncate any forward history when navigating to a new path.
-	if _history_index < _history.size() - 1:
-		_history.resize(_history_index + 1)
-	_history.append(path)
-	_history_index = _history.size() - 1
-	_current_path = path
-	_populate_list()
-	_update_nav_buttons()
-
-
-func _on_back_pressed() -> void:
-	if _history_index <= 0:
-		return
-	_history_index -= 1
-	_current_path = _history[_history_index]
-	_populate_list()
-	_update_nav_buttons()
-
-
-func _on_forward_pressed() -> void:
-	if _history_index >= _history.size() - 1:
-		return
-	_history_index += 1
-	_current_path = _history[_history_index]
-	_populate_list()
-	_update_nav_buttons()
-
-
-func _on_up_pressed() -> void:
-	if _current_path == ServerMockData.ROOT_PATH:
-		return
-	var last_slash := _current_path.rfind("/")
-	var parent := ServerMockData.ROOT_PATH
-	if last_slash > 0:
-		parent = _current_path.substr(0, last_slash)
-		if parent.is_empty():
-			parent = ServerMockData.ROOT_PATH
-	_navigate_to(parent)
+		for f in entries:
+			var filename := String(f.get("filename", ""))
+			# Normalize Windows separators and any stray leading slash so the
+			# path matches the backend's /sessions + /download contract.
+			var filepath := String(f.get("filepath", "")).replace("\\", "/").lstrip("/")
+			# Build the entry dict expected by the detail panel / selection contract.
+			var meta := {
+				"name": filename,
+				"path": filepath,             # used by get_selected_path()
+				"is_dir": false,
+				"size_bytes": int(f.get("size", 0)),
+				"modified": _format_modified(f.get("modified", 0)),
+				"description": String(directory),
+			}
+			var idx := _item_list.add_item("    " + filename, file_icon)
+			_item_list.set_item_metadata(idx, meta)
 
 
-func _update_nav_buttons() -> void:
-	if _back_btn:
-		_back_btn.disabled = (_history_index <= 0)
-	if _forward_btn:
-		_forward_btn.disabled = (_history_index >= _history.size() - 1)
-	if _up_btn:
-		_up_btn.disabled = (_current_path == ServerMockData.ROOT_PATH)
+func _set_status(msg: String) -> void:
+	if _status_label:
+		_status_label.text = msg
+
+
+## The backend `modified` is an opaque numeric timestamp
+## (file_time_type::time_since_epoch().count()). We can't reliably interpret its
+## unit, so present a readable date when the value plausibly looks like Unix
+## seconds/millis, otherwise just stringify it. (Used for display only.)
+func _format_modified(value) -> String:
+	var n := int(value)
+	if n <= 0:
+		return ""
+	var secs := n
+	# Heuristic: values far larger than "now in seconds" are millis/nanos.
+	if secs > 100_000_000_000:          # > ~year 5138 in seconds → likely millis
+		secs = int(secs / 1000)
+	if secs > 100_000_000_000:          # still huge → likely micros
+		secs = int(secs / 1000)
+	if secs > 100_000_000_000:          # still huge → likely nanos
+		secs = int(secs / 1000)
+	if secs > 1_000_000_000 and secs < 100_000_000_000:
+		return Time.get_datetime_string_from_unix_time(secs).substr(0, 10)
+	# Fallback: opaque value, show as-is.
+	return str(value)
 
 
 # ---------------------------------------------------------------------------
@@ -343,10 +394,9 @@ func _on_item_activated(index: int) -> void:
 	if typeof(meta) != TYPE_DICTIONARY:
 		return
 	if bool(meta.get("is_dir", false)):
-		_navigate_to(String(meta.get("path", "/")))
-	else:
-		_on_item_selected(index)
-		_on_next()
+		return  # directory headers are not navigable (flat, grouped list)
+	_on_item_selected(index)
+	_on_next()
 
 
 func _on_next() -> void:

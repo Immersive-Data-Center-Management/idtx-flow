@@ -113,6 +113,8 @@
     <ClInclude Include="shared\include\idtx\mockDatasource_RandomFloat.h" />
     <ClInclude Include="shared\include\idtx\tokens.h" />
     <ClInclude Include="source\converter\UsdGodotStageConverter.h" />
+    <ClInclude Include="source\net\IdtxClient.h" />
+    <ClInclude Include="source\net\UsdTransformSync.h" />
     <ClInclude Include="source\nodes\UsdMeshInstanceNode3D.h" />
     <ClInclude Include="source\nodes\UsdMockDatasourceFloatNode3D.h" />
     <ClInclude Include="source\nodes\UsdMultiMeshInstanceNode3D.h" />
@@ -132,6 +134,8 @@
 
   <ItemGroup>
     <ClCompile Include="source\converter\PrimConverterRegistryGodot.cpp" />
+    <ClCompile Include="source\net\IdtxClient.cpp" />
+    <ClCompile Include="source\net\UsdTransformSync.cpp" />
     <ClCompile Include="source\nodes\IUsdNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdMeshInstanceNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdMockDatasourceFloatNode3D.cpp" />

@@ -32,6 +32,12 @@ const STEP_CONFIGURE_PATH     := "res://addons/IDTXFlow/import_manager/step_conf
 const STEP_CONFIRM_PATH       := "res://addons/IDTXFlow/import_manager/step_confirm.gd"
 const SERVER_SESSION_PATH     := "res://addons/IDTXFlow/import_manager/server_session.gd"
 
+# DEBUG_COLLAB_MODE - when true, server imports open a "collaborative_edit"
+# session instead of "single_edit", so a SECOND WS client can join the SAME session and drive/observe
+# transforms for §13 steps 7 (outbound) and 8 (inbound). v1 ships single_edit,
+# so leave this false for normal use.
+const DEBUG_COLLAB_MODE := false
+
 # Shared wizard state.
 #   "source"        : "local" or "server"
 #   "selected_path" : res:// URI for local, or server-side "/..." path
@@ -62,6 +68,11 @@ var _step_confirm: Node
 
 # Which step-2 variant is currently in use (based on chosen source).
 var _active_browse_step: Node = null
+
+# Active collaboration session id (server source only). Set when a session is
+# created, cleared on teardown. Used to DELETE /api/v1/sessions/<id> and close
+# the WS when the user cancels or the plugin/scene exits (§6.4).
+var _active_session_id: String = ""
 
 
 func set_editor_interface(editor_interface: EditorInterface) -> void:
@@ -316,7 +327,32 @@ func _on_step4_back() -> void:
 
 
 func _on_cancel() -> void:
+	# Cancelling the wizard tears down any active server collaboration session.
+	_teardown_active_session()
 	_reset_and_go_home()
+
+
+## Close the session WebSocket and DELETE the collaboration session (§6.4).
+## Safe to call when no session is active (no-op). Called on wizard cancel and
+## on plugin/scene exit so we don't leak sessions on the backend.
+func _teardown_active_session() -> void:
+	var client := _idtx()
+	if client == null:
+		_active_session_id = ""
+		return
+
+	# Detach transform sync + close the socket first so no further frames flush.
+	if client.has_method("detach_transform_sync"):
+		client.detach_transform_sync()
+	if client.has_method("close_session_socket"):
+		client.close_session_socket()
+
+	# Then DELETE the session on the backend (best-effort; 404 is fine).
+	if not _active_session_id.is_empty() and client.has_method("delete_session"):
+		print("[IDTXFlow] [Import Manager] Tearing down session '%s'." % _active_session_id)
+		client.delete_session(_active_session_id)
+
+	_active_session_id = ""
 
 
 func _reset_and_go_home() -> void:
@@ -334,20 +370,106 @@ func _reset_and_go_home() -> void:
 # Import
 # --------------------------------------------------------------------------
 
+func _idtx() -> Object:
+	if not Engine.has_singleton("IdtxClient"):
+		return null
+	return Engine.get_singleton("IdtxClient")
+
+
 ## Kicks off an asynchronous USD stage import and returns immediately.
 ## `_on_stage_loading_finished` handles the outcome when the C++ side emits
 ## `stage_loading_finished(success)` on the main thread.
+##
+## For the "server" source we first create a collaboration session
+## (POST /api/v1/sessions), then import the stage from the authenticated
+## download URL and open the session WebSocket. Local imports are unchanged.
 func _perform_import() -> void:
 	var file_path: String = _import_state.get("selected_path", "")
 	if file_path.is_empty():
 		push_warning("[IDTXFlow] [Import Manager] No file selected; aborting import.")
 		return
 
+	var source: String = _import_state.get("source", "")
+	if source == "server":
+		_perform_server_import(file_path)
+	else:
+		_perform_local_import(file_path)
+
+
+## Local (res://) import path — unchanged behavior.
+func _perform_local_import(file_path: String) -> void:
 	var destination: String = _import_state.get("destination", "current")
 	if destination == "new":
 		_perform_import_into_new_scene(file_path)
 	else:
 		_perform_import_into_current_scene(file_path)
+
+
+## Server import path: create a session, then import from the authenticated
+## download URL and open the session WebSocket. `file_path` is the server-side
+## `filepath` (e.g. "scenes/foo.usda").
+func _perform_server_import(file_path: String) -> void:
+	var client := _idtx()
+	if client == null:
+		push_error("[IDTXFlow] [Import Manager] IDTX client not available; cannot start server import.")
+		return
+
+	client.session_created.connect(_on_session_created, CONNECT_ONE_SHOT)
+	client.request_failed.connect(_on_session_request_failed, CONNECT_ONE_SHOT)
+	# v1 uses single_edit. DEBUG_COLLAB_MODE opens collaborative_edit instead so a
+	# 2nd WS client (the E2E harness) can join the same session for §13 steps 7/8.
+	var mode: String = "collaborative_edit" if DEBUG_COLLAB_MODE else "single_edit"
+	if DEBUG_COLLAB_MODE:
+		print("[IDTXFlow] [Import Manager] DEBUG_COLLAB_MODE on → creating '%s' session." % mode)
+	client.create_session(file_path, mode)
+
+
+func _on_session_created(session: Dictionary) -> void:
+	var client := _idtx()
+	if client and client.request_failed.is_connected(_on_session_request_failed):
+		client.request_failed.disconnect(_on_session_request_failed)
+
+	var usd_file: String = String(session.get("usd_file", _import_state.get("selected_path", "")))
+	var session_id: String = String(session.get("session_id", ""))
+	var ws_rel: String = String(session.get("ws_url", ""))
+
+	# Remember the active session so we can DELETE it + close the WS on teardown.
+	_active_session_id = session_id
+
+	# Surface the session id / ws_url so it can be grabbed for the E2E harness
+	# (godot-client-plan/e2e). Copy the printed --sid into the watch/send-xform
+	# commands to drive §13 steps 7 (outbound) and 8 (inbound).
+	print("[IDTXFlow] [Import Manager] Session created: session_id=%s  ws_url=%s  usd_file=%s"
+		% [session_id, ws_rel, usd_file])
+	print("[IDTXFlow] [Import Manager]   E2E: python idtx_e2e.py send-xform --sid %s --prim /World/Sphere --rot 0 45 0"
+		% session_id)
+	print("[IDTXFlow] [Import Manager]   E2E: python idtx_e2e.py watch --sid %s" % session_id)
+
+	# Compute the authenticated remote stage URL; the JWT fetcher (installed on the
+	# USD asset resolver) attaches the bearer token for the download.
+	var stage_url: String = client.download_url(usd_file)
+
+	# Open the session WebSocket (handshake / transform sync).
+	if not session_id.is_empty() and not ws_rel.is_empty():
+		var ws_full: String = client.ws_base_url() + ws_rel
+		client.open_session_socket(session_id, ws_full)
+
+	# Now import the stage from the remote URL, reusing the existing paths but with
+	# a remote stage_uri instead of a local res:// path.
+	var destination: String = _import_state.get("destination", "current")
+	if destination == "new":
+		_perform_import_into_new_scene(stage_url)
+	else:
+		_perform_import_into_current_scene(stage_url)
+
+
+func _on_session_request_failed(op: String, http_code: int, code: String, message: String) -> void:
+	if op != "create_session":
+		return
+	var client := _idtx()
+	if client and client.session_created.is_connected(_on_session_created):
+		client.session_created.disconnect(_on_session_created)
+	push_error("[IDTXFlow] [Import Manager] Session create failed (%d %s): %s" % [http_code, code, message])
 
 
 func _perform_import_into_current_scene(file_path: String) -> void:
@@ -422,6 +544,16 @@ func _on_stage_loading_finished(
 		elif is_instance_valid(stage_node):
 			stage_node.queue_free()
 		return
+
+	# For server imports, attach live-stage transform sync (§9.4) to the freshly
+	# loaded stage node so gizmo edits broadcast and inbound broadcasts apply.
+	if _import_state.get("source", "") == "server":
+		var client := _idtx()
+		if client and client.has_method("attach_transform_sync"):
+			client.attach_transform_sync(stage_node, true)
+			# Arm outbound broadcasting only after the USD-conversion transform
+			# writes have settled, so they don't produce phantom broadcasts.
+			_arm_sync_deferred(client)
 
 	if is_new_scene:
 		_finalize_new_scene_import(stage_node, file_path, new_root)
@@ -529,6 +661,16 @@ func _find_stage_node(root: Node) -> Node:
 	return null
 
 
+## Arm the transform sync a few frames after load so the transform writes done
+## during USD conversion don't trigger phantom outbound broadcasts.
+func _arm_sync_deferred(client: Object) -> void:
+	# Wait a couple of frames for conversion-time transform notifications to flush.
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if is_instance_valid(client) and client.has_method("arm_transform_sync"):
+		client.arm_transform_sync()
+
+
 func _get_target_scene_node() -> Node:
 	if _editor_interface == null:
 		return null
@@ -543,3 +685,7 @@ func _get_target_scene_node() -> Node:
 
 func _exit_tree() -> void:
 	_unhook_selection_listener()
+	# Ensure any active collaboration session is torn down when the wizard leaves
+	# the tree (editor closing, plugin disabled, scene change), so we don't leak
+	# a session / WS on the backend (§6.4).
+	_teardown_active_session()

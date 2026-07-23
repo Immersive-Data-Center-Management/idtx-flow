@@ -16,7 +16,7 @@ const WizardHeader      := preload("res://addons/IDTXFlow/import_manager/wizard_
 const WizardFooter      := preload("res://addons/IDTXFlow/import_manager/wizard_footer.gd")
 const ServerLoginPanel  := preload("res://addons/IDTXFlow/import_manager/server_login_panel.gd")
 
-const DEFAULT_URL := "https://aetherra-prime.aas-showroom.msp02.shoot.garden.example/usd"
+const DEFAULT_URL := "http://localhost:8080"
 
 # Shared visible height for the URL row (input + Connect) and the
 # "Import USD from local files" button so all three align.

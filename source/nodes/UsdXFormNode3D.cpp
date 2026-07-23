@@ -1,6 +1,19 @@
 #include "UsdXFormNode3D.h"
 
+#include "../net/IdtxClient.h"
+
 using namespace godot;
+
+void UsdXformNode3D::_notification(int p_what)
+{
+    if (p_what == NOTIFICATION_TRANSFORM_CHANGED)
+    {
+        if (IdtxClient* client = IdtxClient::get_singleton())
+        {
+            client->notify_local_transform_changed(this);
+        }
+    }
+}
 
 void UsdXformNode3D::_bind_methods()
 {

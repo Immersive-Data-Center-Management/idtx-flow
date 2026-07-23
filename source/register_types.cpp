@@ -9,12 +9,16 @@
 #include <idtxflow/resolver/HttpResolver.h>
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
 #include <idtxflow/exec/ExecBridgeManager.h>
+#include <idtxflow/net/JwtHttpFetcher.h>
+
+#include <godot_cpp/classes/engine.hpp>
 
 #include "nodes/UsdStaticBodyNode3D.h"
 #include "nodes/UsdMeshInstanceNode3D.h"
 #include "nodes/UsdMockDatasourceFloatNode3D.h"
 #include "nodes/UsdMultiMeshInstanceNode3D.h"
 #include "nodes/UsdXFormNode3D.h"
+#include "net/IdtxClient.h"
 #include "utils/IDTXFlowGodotLogger.h"
 
 using namespace godot;
@@ -67,6 +71,7 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     GDREGISTER_CLASS(UsdSkeletonNode3D)
     GDREGISTER_CLASS(UsdMockDatasourceFloatNode3D)
     GDREGISTER_CLASS(UsdStaticBodyNode3D)
+    GDREGISTER_CLASS(IdtxClient)
     
 #ifdef IDTXFLOW_MDL_ENABLED
     // activate the mdl material conversion
@@ -81,9 +86,13 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     idtxflow::converter::StartupMdlMaterialConverter(extension_dir, additionalModulPaths);
 #endif
     
-    // Configure the HTTP asset resolver with the default IXWebSocket-based fetcher
-    pxr::UsdHttpAssetResolver::Configure(
-        ProjectSettings::get_singleton()->globalize_path("user://usd_cache").utf8().get_data());
+    // Configure the HTTP asset resolver with a JWT-injecting fetcher so protected
+    // /api/v1/download/<usd_file> assets can be fetched. The fetcher reads the
+    // current token from IdtxTokenHolder at fetch time (set on login), so token
+    // rotation needs no reconfiguration. See IMPLEMENTATION_PLAN §4.7.
+    pxr::UsdHttpAssetResolver::ConfigureWithFetcher(
+        ProjectSettings::get_singleton()->globalize_path("user://usd_cache").utf8().get_data(),
+        idtxflow::net::JwtHttpFetcher{});
     
     // Run the openExec computation bridge
     idtxflow::exec::ExecBridgeManager::Instance().Start();

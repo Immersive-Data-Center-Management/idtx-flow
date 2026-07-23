@@ -93,7 +93,9 @@ func populate_from_dict(meta: Dictionary) -> void:
 	var size_bytes := int(meta.get("size_bytes", 0))
 	_file_size_value.text = _format_size(size_bytes) if size_bytes > 0 else "-"
 
-	var modified := String(meta.get("modified", ""))
+	# `modified` may be a String (local/mock) or an int timestamp (server /files);
+	# str() accepts any Variant, whereas String(<int>) is an invalid constructor call.
+	var modified := str(meta.get("modified", ""))
 	_modified_value.text = modified if not modified.is_empty() else "-"
 
 

@@ -9,7 +9,6 @@ extends VBoxContainer
 signal login_succeeded(url: String, username: String, remember: bool)
 
 const WizardTheme    := preload("res://addons/IDTXFlow/import_manager/wizard_theme.gd")
-const ServerMockData := preload("res://addons/IDTXFlow/import_manager/server_mock_data.gd")
 
 var _server_url: String = ""
 
@@ -134,14 +133,52 @@ func _ensure_built() -> void:
 	add_child(_remember_cb)
 
 
+func _idtx() -> Object:
+	if not Engine.has_singleton("IdtxClient"):
+		return null
+	return Engine.get_singleton("IdtxClient")
+
+
 func _try_login() -> void:
 	var user := _username_input.text
 	var pw := _password_input.text
-	if ServerMockData.get_credentials_valid(user, pw):
-		_hide_error()
-		login_succeeded.emit(_server_url, user, _remember_cb.button_pressed)
-	else:
-		_show_error("Authentication failed. Invalid username or password.")
+
+	var client := _idtx()
+	if client == null:
+		_show_error("IDTX client not available (GDExtension not loaded). Rebuild and restart the editor.")
+		return
+
+	# Auto-set the base URL from the typed server URL, then authenticate.
+	client.set_base_url(_server_url)
+
+	_hide_error()
+	_connect_btn.disabled = true
+	_connect_btn.text = "Connecting…"
+
+	client.login_succeeded.connect(_on_login_ok, CONNECT_ONE_SHOT)
+	client.login_failed.connect(_on_login_fail, CONNECT_ONE_SHOT)
+	client.login(user, pw)
+
+
+func _on_login_ok(_token: String, _expires_in: int) -> void:
+	var client := _idtx()
+	if client and client.login_failed.is_connected(_on_login_fail):
+		client.login_failed.disconnect(_on_login_fail)
+	_connect_btn.disabled = false
+	_connect_btn.text = "Connect"
+	login_succeeded.emit(_server_url, _username_input.text, _remember_cb.button_pressed)
+
+
+func _on_login_fail(http_code: int, code: String, message: String) -> void:
+	var client := _idtx()
+	if client and client.login_succeeded.is_connected(_on_login_ok):
+		client.login_succeeded.disconnect(_on_login_ok)
+	_connect_btn.disabled = false
+	_connect_btn.text = "Connect"
+	var msg := message
+	if msg.is_empty():
+		msg = "Authentication failed (%d %s)." % [http_code, code]
+	_show_error(msg)
 
 
 func _show_error(msg: String) -> void:

@@ -9,6 +9,14 @@ var _inspector_plugin: EditorInspectorPlugin = null
 
 
 func _enter_tree() -> void:
+	# Register the IdtxClient autoload so the native client node lives in the
+	# SceneTree (and thus receives _process → drives IdtxSessionSocket::poll(),
+	# flushing outbound transform updates). add_autoload_singleton() persists an
+	# [autoload] entry into project.godot, so this also applies to exported /
+	# packaged games (the entry is read at runtime independently of this
+	# editor-only plugin).
+	add_autoload_singleton("IdtxClientAutoload", "res://addons/IDTXFlow/idtx_client_autoload.gd")
+
 	# Create the main screen and attach it to the editor's main viewport.
 	_main_screen = MainScreenScript.new()
 	_main_screen.name = "IDTXFlowMainScreen"
@@ -33,6 +41,8 @@ func _exit_tree() -> void:
 	if _main_screen != null:
 		_main_screen.queue_free()
 		_main_screen = null
+
+	remove_autoload_singleton("IdtxClientAutoload")
 
 
 func _get_plugin_name() -> String:
