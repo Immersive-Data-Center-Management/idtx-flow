@@ -59,6 +59,7 @@ def _build_usd_extension(env):
 
     extension_env.Append(CPPPATH=[
         f"{extension_root}/generated",
+        f"{extension_root}/source",
         f"{openusd_root}/include",
         python_include,
     ])
@@ -124,7 +125,9 @@ def _build_usd_extension(env):
         extension_env.Append(CPPDEFINES=["IDTX_EXPORTS"])
 
     # Source files excluding the python wrapper files as we do not need them
-    sources = list(set(extension_env.Glob(f"{extension_root}/generated/*.cpp", exclude=f"{extension_root}/generated/wrap*.cpp")))
+    sources = list(set(
+        extension_env.Glob(f"{extension_root}/generated/*.cpp", exclude=f"{extension_root}/generated/wrap*.cpp") +
+        extension_env.Glob(f"{extension_root}/source/*.cpp")))
 
     # Set build directories
     build_dir = f"{extension_root}/build/{platform_name}"

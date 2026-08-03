@@ -55,10 +55,10 @@
   <!-- Windows-specific include paths -->
   <ItemDefinitionGroup Condition="'$(OS)'=='Windows_NT'">
     <ClCompile>
-      <AdditionalIncludeDirectories>thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;usd/generated;usd/source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Midl>
-      <AdditionalIncludeDirectories>thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;usd/generated;usd/source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -70,10 +70,10 @@
   <!-- macOS-specific include paths -->
   <ItemDefinitionGroup Condition="'$(OS)'!='Windows_NT'">
     <ClCompile>
-      <AdditionalIncludeDirectories>/Applications/Xcode_15.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include;/Applications/Xcode_15.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/15.0.0/include;thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>/Applications/Xcode_15.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include;/Applications/Xcode_15.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/15.0.0/include;thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;usd/generated;usd/source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Midl>
-      <AdditionalIncludeDirectories>/Applications/Xcode_15.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include;/Applications/Xcode_15.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/15.0.0/include;thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>/Applications/Xcode_15.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include;/Applications/Xcode_15.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/15.0.0/include;thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;usd/generated;usd/source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -107,25 +107,33 @@
     <ClInclude Include="shared\include\idtxflow_godot\types\GodotTypes.h" />
     <ClInclude Include="shared\include\idtxflow_godot\version.h" />
     <ClInclude Include="shared\include\idtx\api.h" />
+    <ClInclude Include="shared\include\idtx\compute_Environment.h" />
     <ClInclude Include="shared\include\idtx\compute_ValueFromJson.h" />
     <ClInclude Include="shared\include\idtx\datasource.h" />
     <ClInclude Include="shared\include\idtx\generatedSchema.module.h" />
     <ClInclude Include="shared\include\idtx\mockDatasource_RandomFloat.h" />
+    <ClInclude Include="shared\include\idtx\restDatasource.h" />
     <ClInclude Include="shared\include\idtx\tokens.h" />
     <ClInclude Include="source\converter\UsdGodotStageConverter.h" />
+    <ClInclude Include="source\exec\GodotEnvironmentProviders.h" />
     <ClInclude Include="source\nodes\UsdMeshInstanceNode3D.h" />
     <ClInclude Include="source\nodes\UsdMockDatasourceFloatNode3D.h" />
     <ClInclude Include="source\nodes\UsdMultiMeshInstanceNode3D.h" />
+    <ClInclude Include="source\nodes\UsdRestDatasourceNode3D.h" />
     <ClInclude Include="source\nodes\UsdSkeletonNode3D.h" />
     <ClInclude Include="source\nodes\UsdXFormNode3D.h" />
     <ClInclude Include="source\register_types.h" />
     <ClInclude Include="source\resolver\UsdGodotAssetResolver.h" />
+    <ClInclude Include="source\utils\IDTXFlowProjectSettings.h" />
     <ClInclude Include="templates\extension_template\source\converters\ExamplePrimConverter.h" />
     <ClInclude Include="templates\extension_template\source\register_types.h" />
     <ClInclude Include="source\utils\IDTXFlowGodotLogger.h" />
+    <ClInclude Include="usd\generated\compute_Environment.h" />
     <ClInclude Include="usd\generated\compute_ScaleDouble.h" />
     <ClInclude Include="usd\generated\compute_ValueFromJson.h" />
+    <ClInclude Include="usd\generated\compute_VarReplacements.h" />
     <ClInclude Include="usd\generated\datasource.h" />
+    <ClInclude Include="usd\generated\EnvironmentProvider.h" />
     <ClInclude Include="usd\generated\mockDatasource_RandomFloat.h" />
     <ClInclude Include="usd\generated\tokens.h" />
   </ItemGroup>
@@ -136,6 +144,7 @@
     <ClCompile Include="source\nodes\UsdMeshInstanceNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdMockDatasourceFloatNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdMultiMeshInstanceNode3D.cpp" />
+    <ClCompile Include="source\nodes\UsdRestDatasourceNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdSkeletonNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdStageNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdXFormNode3D.cpp" />
@@ -143,12 +152,236 @@
     <ClCompile Include="source\resolver\UsdGodotAssetResolver.cpp" />
     <ClCompile Include="source\resolver\UsdHttpAssetResolver.cpp" />
     <ClCompile Include="templates\extension_template\source\register_types.cpp" />
-    <ClCompile Include="usd\generated\computation_scaledouble.cpp" />
+    <ClCompile Include="usd\generated\compute_Environment.cpp" />
     <ClCompile Include="usd\generated\compute_ScaleDouble.cpp" />
     <ClCompile Include="usd\generated\compute_ValueFromJson.cpp" />
+    <ClCompile Include="usd\generated\compute_VarReplacements.cpp" />
     <ClCompile Include="usd\generated\datasource.cpp" />
+    <ClCompile Include="usd\generated\EnvironmentProviderRegistry.cpp" />
     <ClCompile Include="usd\generated\mockDatasource_RandomFloat.cpp" />
-    <ClCompile Include="usd\generated\computation_valuefromjson.cpp" />
+    <ClCompile Include="usd\source\computation_environment.cpp">
+      <AssemblerOutput>NoListing</AssemblerOutput>
+      <AssemblerListingLocation>IDTXFlowGodot\x64\Debug\</AssemblerListingLocation>
+      <UndefineAllPreprocessorDefinitions>false</UndefineAllPreprocessorDefinitions>
+      <BrowseInformation>false</BrowseInformation>
+      <BrowseInformationFile>IDTXFlowGodot\x64\Debug\</BrowseInformationFile>
+      <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <CompileAs>Default</CompileAs>
+      <UseDynamicDebugging>false</UseDynamicDebugging>
+      <ConformanceMode>Default</ConformanceMode>
+      <DiagnosticsFormat>Column</DiagnosticsFormat>
+      <DisableLanguageExtensions>false</DisableLanguageExtensions>
+      <ErrorReporting>Prompt</ErrorReporting>
+      <ExpandAttributedSource>false</ExpandAttributedSource>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <EnableASAN>false</EnableASAN>
+      <EnableFuzzer>false</EnableFuzzer>
+      <EnableFiberSafeOptimizations>false</EnableFiberSafeOptimizations>
+      <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
+      <EnableVectorLength>NotSet</EnableVectorLength>
+      <FloatingPointModel>Precise</FloatingPointModel>
+      <ForceConformanceInForLoopScope>true</ForceConformanceInForLoopScope>
+      <GenerateModuleDependencies>false</GenerateModuleDependencies>
+      <GenerateSourceDependencies>false</GenerateSourceDependencies>
+      <GenerateXMLDocumentationFiles>false</GenerateXMLDocumentationFiles>
+      <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
+      <IntrinsicFunctions>false</IntrinsicFunctions>
+      <IgnoreStandardIncludePath>false</IgnoreStandardIncludePath>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <LanguageStandard_C>Default</LanguageStandard_C>
+      <ModuleDependenciesFile>IDTXFlowGodot\x64\Debug\</ModuleDependenciesFile>
+      <ModuleOutputFile>IDTXFlowGodot\x64\Debug\</ModuleOutputFile>
+      <OmitDefaultLibName>false</OmitDefaultLibName>
+      <FavorSizeOrSpeed>Neither</FavorSizeOrSpeed>
+      <WholeProgramOptimization>false</WholeProgramOptimization>
+      <Optimization>Disabled</Optimization>
+      <ObjectFileName>IDTXFlowGodot\x64\Debug\</ObjectFileName>
+      <CallingConvention>Cdecl</CallingConvention>
+      <ProgramDataBaseFileName>IDTXFlowGodot\x64\Debug\vc143.pdb</ProgramDataBaseFileName>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <PrecompiledHeaderFile>stdafx.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>IDTXFlowGodot\x64\Debug\IDTXFlowGodot.pch</PrecompiledHeaderOutputFile>
+      <PreprocessToFile>false</PreprocessToFile>
+      <PreprocessKeepComments>false</PreprocessKeepComments>
+      <PreprocessSuppressLineNumbers>false</PreprocessSuppressLineNumbers>
+      <RemoveUnreferencedCodeData>true</RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+      <ShowIncludes>false</ShowIncludes>
+      <SourceDependenciesFile>IDTXFlowGodot\x64\Debug\</SourceDependenciesFile>
+      <SuppressStartupBanner>true</SuppressStartupBanner>
+      <BufferSecurityCheck>true</BufferSecurityCheck>
+      <SmallerTypeCheck>false</SmallerTypeCheck>
+      <SpectreMitigation>false</SpectreMitigation>
+      <StructMemberAlignment>Default</StructMemberAlignment>
+      <TrackerLogDirectory>IDTXFlowGodot\x64\Debug\IDTXFlowGodot.tlog\</TrackerLogDirectory>
+      <TranslateIncludes>false</TranslateIncludes>
+      <MinimalRebuildFromTracking>true</MinimalRebuildFromTracking>
+      <TreatWarningAsError>false</TreatWarningAsError>
+      <TreatWChar_tAsBuiltInType>true</TreatWChar_tAsBuiltInType>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level1</WarningLevel>
+      <XMLDocumentationFileName>IDTXFlowGodot\x64\Debug\</XMLDocumentationFileName>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <IntelJCCErratum>false</IntelJCCErratum>
+      <BuildStlModules>false</BuildStlModules>
+      <TreatAngleIncludeAsExternal>false</TreatAngleIncludeAsExternal>
+      <ExternalWarningLevel>InheritWarningLevel</ExternalWarningLevel>
+      <TreatExternalTemplatesAsInternal>true</TreatExternalTemplatesAsInternal>
+      <DisableAnalyzeExternal>false</DisableAnalyzeExternal>
+      <PreprocessorDefinitions>_WINDLL;_UNICODE;UNICODE;;</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;;C:\SAPDevelop\ApeiroRA\AetherraPrime\thirdparty\vcpkg\installed\x64-windows\include</AdditionalIncludeDirectories>
+      <LinkCompiled>true</LinkCompiled>
+    </ClCompile>
+    <ClCompile Include="usd\source\computation_scaledouble.cpp">
+      <AssemblerOutput>NoListing</AssemblerOutput>
+      <AssemblerListingLocation>IDTXFlowGodot\x64\Debug\</AssemblerListingLocation>
+      <UndefineAllPreprocessorDefinitions>false</UndefineAllPreprocessorDefinitions>
+      <BrowseInformation>false</BrowseInformation>
+      <BrowseInformationFile>IDTXFlowGodot\x64\Debug\</BrowseInformationFile>
+      <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <CompileAs>Default</CompileAs>
+      <UseDynamicDebugging>false</UseDynamicDebugging>
+      <ConformanceMode>Default</ConformanceMode>
+      <DiagnosticsFormat>Column</DiagnosticsFormat>
+      <DisableLanguageExtensions>false</DisableLanguageExtensions>
+      <ErrorReporting>Prompt</ErrorReporting>
+      <ExpandAttributedSource>false</ExpandAttributedSource>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <EnableASAN>false</EnableASAN>
+      <EnableFuzzer>false</EnableFuzzer>
+      <EnableFiberSafeOptimizations>false</EnableFiberSafeOptimizations>
+      <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
+      <EnableVectorLength>NotSet</EnableVectorLength>
+      <FloatingPointModel>Precise</FloatingPointModel>
+      <ForceConformanceInForLoopScope>true</ForceConformanceInForLoopScope>
+      <GenerateModuleDependencies>false</GenerateModuleDependencies>
+      <GenerateSourceDependencies>false</GenerateSourceDependencies>
+      <GenerateXMLDocumentationFiles>false</GenerateXMLDocumentationFiles>
+      <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
+      <IntrinsicFunctions>false</IntrinsicFunctions>
+      <IgnoreStandardIncludePath>false</IgnoreStandardIncludePath>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <LanguageStandard_C>Default</LanguageStandard_C>
+      <ModuleDependenciesFile>IDTXFlowGodot\x64\Debug\</ModuleDependenciesFile>
+      <ModuleOutputFile>IDTXFlowGodot\x64\Debug\</ModuleOutputFile>
+      <OmitDefaultLibName>false</OmitDefaultLibName>
+      <FavorSizeOrSpeed>Neither</FavorSizeOrSpeed>
+      <WholeProgramOptimization>false</WholeProgramOptimization>
+      <Optimization>Disabled</Optimization>
+      <ObjectFileName>IDTXFlowGodot\x64\Debug\</ObjectFileName>
+      <CallingConvention>Cdecl</CallingConvention>
+      <ProgramDataBaseFileName>IDTXFlowGodot\x64\Debug\vc143.pdb</ProgramDataBaseFileName>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <PrecompiledHeaderFile>stdafx.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>IDTXFlowGodot\x64\Debug\IDTXFlowGodot.pch</PrecompiledHeaderOutputFile>
+      <PreprocessToFile>false</PreprocessToFile>
+      <PreprocessKeepComments>false</PreprocessKeepComments>
+      <PreprocessSuppressLineNumbers>false</PreprocessSuppressLineNumbers>
+      <RemoveUnreferencedCodeData>true</RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+      <ShowIncludes>false</ShowIncludes>
+      <SourceDependenciesFile>IDTXFlowGodot\x64\Debug\</SourceDependenciesFile>
+      <SuppressStartupBanner>true</SuppressStartupBanner>
+      <BufferSecurityCheck>true</BufferSecurityCheck>
+      <SmallerTypeCheck>false</SmallerTypeCheck>
+      <SpectreMitigation>false</SpectreMitigation>
+      <StructMemberAlignment>Default</StructMemberAlignment>
+      <TrackerLogDirectory>IDTXFlowGodot\x64\Debug\IDTXFlowGodot.tlog\</TrackerLogDirectory>
+      <TranslateIncludes>false</TranslateIncludes>
+      <MinimalRebuildFromTracking>true</MinimalRebuildFromTracking>
+      <TreatWarningAsError>false</TreatWarningAsError>
+      <TreatWChar_tAsBuiltInType>true</TreatWChar_tAsBuiltInType>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level1</WarningLevel>
+      <XMLDocumentationFileName>IDTXFlowGodot\x64\Debug\</XMLDocumentationFileName>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <IntelJCCErratum>false</IntelJCCErratum>
+      <BuildStlModules>false</BuildStlModules>
+      <TreatAngleIncludeAsExternal>false</TreatAngleIncludeAsExternal>
+      <ExternalWarningLevel>InheritWarningLevel</ExternalWarningLevel>
+      <TreatExternalTemplatesAsInternal>true</TreatExternalTemplatesAsInternal>
+      <DisableAnalyzeExternal>false</DisableAnalyzeExternal>
+      <PreprocessorDefinitions>_WINDLL;_UNICODE;UNICODE;;</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;;C:\SAPDevelop\ApeiroRA\AetherraPrime\thirdparty\vcpkg\installed\x64-windows\include</AdditionalIncludeDirectories>
+      <LinkCompiled>true</LinkCompiled>
+    </ClCompile>
+    <ClCompile Include="usd\source\computation_valuefromjson.cpp">
+      <AssemblerOutput>NoListing</AssemblerOutput>
+      <AssemblerListingLocation>IDTXFlowGodot\x64\Debug\</AssemblerListingLocation>
+      <UndefineAllPreprocessorDefinitions>false</UndefineAllPreprocessorDefinitions>
+      <BrowseInformation>false</BrowseInformation>
+      <BrowseInformationFile>IDTXFlowGodot\x64\Debug\</BrowseInformationFile>
+      <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <CompileAs>Default</CompileAs>
+      <UseDynamicDebugging>false</UseDynamicDebugging>
+      <ConformanceMode>Default</ConformanceMode>
+      <DiagnosticsFormat>Column</DiagnosticsFormat>
+      <DisableLanguageExtensions>false</DisableLanguageExtensions>
+      <ErrorReporting>Prompt</ErrorReporting>
+      <ExpandAttributedSource>false</ExpandAttributedSource>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <EnableASAN>false</EnableASAN>
+      <EnableFuzzer>false</EnableFuzzer>
+      <EnableFiberSafeOptimizations>false</EnableFiberSafeOptimizations>
+      <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
+      <EnableVectorLength>NotSet</EnableVectorLength>
+      <FloatingPointModel>Precise</FloatingPointModel>
+      <ForceConformanceInForLoopScope>true</ForceConformanceInForLoopScope>
+      <GenerateModuleDependencies>false</GenerateModuleDependencies>
+      <GenerateSourceDependencies>false</GenerateSourceDependencies>
+      <GenerateXMLDocumentationFiles>false</GenerateXMLDocumentationFiles>
+      <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
+      <IntrinsicFunctions>false</IntrinsicFunctions>
+      <IgnoreStandardIncludePath>false</IgnoreStandardIncludePath>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <LanguageStandard_C>Default</LanguageStandard_C>
+      <ModuleDependenciesFile>IDTXFlowGodot\x64\Debug\</ModuleDependenciesFile>
+      <ModuleOutputFile>IDTXFlowGodot\x64\Debug\</ModuleOutputFile>
+      <OmitDefaultLibName>false</OmitDefaultLibName>
+      <FavorSizeOrSpeed>Neither</FavorSizeOrSpeed>
+      <WholeProgramOptimization>false</WholeProgramOptimization>
+      <Optimization>Disabled</Optimization>
+      <ObjectFileName>IDTXFlowGodot\x64\Debug\</ObjectFileName>
+      <CallingConvention>Cdecl</CallingConvention>
+      <ProgramDataBaseFileName>IDTXFlowGodot\x64\Debug\vc143.pdb</ProgramDataBaseFileName>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <PrecompiledHeaderFile>stdafx.h</PrecompiledHeaderFile>
+      <PrecompiledHeaderOutputFile>IDTXFlowGodot\x64\Debug\IDTXFlowGodot.pch</PrecompiledHeaderOutputFile>
+      <PreprocessToFile>false</PreprocessToFile>
+      <PreprocessKeepComments>false</PreprocessKeepComments>
+      <PreprocessSuppressLineNumbers>false</PreprocessSuppressLineNumbers>
+      <RemoveUnreferencedCodeData>true</RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+      <ShowIncludes>false</ShowIncludes>
+      <SourceDependenciesFile>IDTXFlowGodot\x64\Debug\</SourceDependenciesFile>
+      <SuppressStartupBanner>true</SuppressStartupBanner>
+      <BufferSecurityCheck>true</BufferSecurityCheck>
+      <SmallerTypeCheck>false</SmallerTypeCheck>
+      <SpectreMitigation>false</SpectreMitigation>
+      <StructMemberAlignment>Default</StructMemberAlignment>
+      <TrackerLogDirectory>IDTXFlowGodot\x64\Debug\IDTXFlowGodot.tlog\</TrackerLogDirectory>
+      <TranslateIncludes>false</TranslateIncludes>
+      <MinimalRebuildFromTracking>true</MinimalRebuildFromTracking>
+      <TreatWarningAsError>false</TreatWarningAsError>
+      <TreatWChar_tAsBuiltInType>true</TreatWChar_tAsBuiltInType>
+      <UseFullPaths>false</UseFullPaths>
+      <WarningLevel>Level1</WarningLevel>
+      <XMLDocumentationFileName>IDTXFlowGodot\x64\Debug\</XMLDocumentationFileName>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <IntelJCCErratum>false</IntelJCCErratum>
+      <BuildStlModules>false</BuildStlModules>
+      <TreatAngleIncludeAsExternal>false</TreatAngleIncludeAsExternal>
+      <ExternalWarningLevel>InheritWarningLevel</ExternalWarningLevel>
+      <TreatExternalTemplatesAsInternal>true</TreatExternalTemplatesAsInternal>
+      <DisableAnalyzeExternal>false</DisableAnalyzeExternal>
+      <PreprocessorDefinitions>_WINDLL;_UNICODE;UNICODE;;</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;;C:\SAPDevelop\ApeiroRA\AetherraPrime\thirdparty\vcpkg\installed\x64-windows\include</AdditionalIncludeDirectories>
+      <LinkCompiled>true</LinkCompiled>
+    </ClCompile>
+    <ClCompile Include="usd\source\computation_varreplacements.cpp" />
   </ItemGroup>
 
   <ItemGroup>
