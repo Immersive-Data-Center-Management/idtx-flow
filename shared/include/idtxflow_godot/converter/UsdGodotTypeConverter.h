@@ -390,7 +390,7 @@ namespace converter
     {
     public:
         using Types = idtxflow::types::TargetEngineTypes<idtxflow::types::TargetEngineGodot>;
-			
+        
         void AddVertex(Types::MeshData& meshData, 
                           const Types::Vector3& position,
                           const Types::Vector3& normal,
@@ -404,12 +404,17 @@ namespace converter
 
             if (!bones.empty())
             {
-                // we need to always push 4 entries into the bones & weight array for each vertex in Godot.
-                // and we need to normalize those entries in case openUSD might have stored more then those
-                // 4 influences. In this case the weights would not sum up to 1.0f which could lead to skinning
-                // artifacts.
+                // we need to always push 4 or 8 entries into the bones & weight array for each vertex in Godot.
+                // As Godot takes the bone weights as-is we normalize those entries, so the weights would not sum up
+								// to 1.0 to prevent skinning artifacts.
+                if (boneWeights.size() > 4)
+                {
+                    meshData.boneWeightCount = meshData.BONEWEIGHT_COUNT_8;
+                }
+                
                 float weightSum = 0.0;
-                for (size_t i = 0; i < 4; ++i)
+                uint32_t maxBoneWeightCount = static_cast<uint32_t>(meshData.boneWeightCount);
+                for (size_t i = 0; i < maxBoneWeightCount; ++i)
                 {
                     if (i < bones.size())
                     {
@@ -424,11 +429,11 @@ namespace converter
                 }
 
                 // normalize the boneWeights
-                int64_t boneIndex = meshData.Bones.size() - 4;
-                meshData.Weights[boneIndex + 0] /= weightSum;
-                meshData.Weights[boneIndex + 1] /= weightSum;
-                meshData.Weights[boneIndex + 2] /= weightSum;
-                meshData.Weights[boneIndex + 3] /= weightSum;
+                int64_t boneIndex = meshData.Bones.size() - maxBoneWeightCount;
+                for (size_t i = 0; i < maxBoneWeightCount; ++i)
+                {
+                    meshData.Weights[boneIndex + i] /= weightSum;
+                }
             }
         }
 

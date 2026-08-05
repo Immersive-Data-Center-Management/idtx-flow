@@ -42,7 +42,6 @@ from SCons.Script import ARGUMENTS
 from scons.core.apply import apply_profile_section
 from scons.core.profile import build_profile
 
-
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------

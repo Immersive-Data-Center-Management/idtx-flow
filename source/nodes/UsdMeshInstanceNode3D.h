@@ -5,11 +5,13 @@
 #include <godot_cpp/classes/mesh_instance3d.hpp>
 #include <godot_cpp/classes/animation.hpp>
 
+#include <idtxflow/exec/ExecBridgeHandler.h>
+
 #include <idtxflow_godot/nodes/IUsdNode3D.h>
 
 #include "UsdSkeletonNode3D.h"
 
-class UsdMeshInstanceNode3D : public godot::MeshInstance3D, public IUsdNode3D
+class UsdMeshInstanceNode3D : public godot::MeshInstance3D, public IUsdNode3D, public IExecBridgeHandler
 {
     GDCLASS(UsdMeshInstanceNode3D, MeshInstance3D)
     IUSDNODE(UsdMeshInstanceNode3D)
@@ -18,6 +20,9 @@ public:
     /******************* Godot lifecycle hooks ***************************/
     void _ready() override;
     void _process(double delta) override;
+    
+    /******************* ExecBridgeHandler ******************************/
+    void OnComputeComplete(const std::vector<ExecComputeResult>& results) override;
 
     /**
      * Set the skeleton this mesh is bound to
