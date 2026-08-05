@@ -69,22 +69,26 @@ def _do_compose_sdk(target, source, env):
         shutil.copy(f"{env['ext_bootstrap_lib_dir']}/{env['ext_bootstrap_lib']}.lib",f"{sdk_libs}")
         shutil.copy(f"{open_usd_path}/lib/usd_ms.lib", f"{sdk_libs}")
         shutil.copy(f"{open_usd_path}/lib/tbb12.lib", f"{sdk_libs}")
+        shutil.copy(f"./shared/libs/windows/libidtx_usd.lib", f"{sdk_libs}")
     elif platform_name == "macos":
         shutil.copy(f"{env['gdextension_lib_dir']}/{env['gdextension_lib']}.dylib", f"{sdk_libs}")
         shutil.copy(f"{env['ext_bootstrap_lib_dir']}/{env['ext_bootstrap_lib']}.a",f"{sdk_libs}")
         shutil.copy(f"{open_usd_path}/lib/libusd_ms.dylib", f"{sdk_libs}")
         shutil.copy(f"{open_usd_path}/lib/libtbb.12.dylib", f"{sdk_libs}")
+        shutil.copy(f"./shared/libs/macos/libidtx_usd.dylib", f"{sdk_libs}")
     else:
         shutil.copy(f"{env['gdextension_lib_dir']}/{env['gdextension_lib']}.se", f"{sdk_libs}")
         shutil.copy(f"{env['ext_bootstrap_lib_dir']}/{env['ext_bootstrap_lib']}.a",f"{sdk_libs}")
         shutil.copy(f"{open_usd_path}/lib/libusd_ms.so", f"{sdk_libs}")
         shutil.copy(f"{open_usd_path}/lib/libtbb.12.so", f"{sdk_libs}")
+        shutil.copy(f"./shared/libs/{platform_name}/libidtx_usd.so", f"{sdk_libs}")
 
     # Copy the header files into the SDK folder that will be required to compile the plugin
     shutil.copytree(f"{open_usd_path}/include/pxr", f"{sdk_includes}/pxr", dirs_exist_ok=True)
     shutil.copytree(f"{open_usd_path}/include/tbb", f"{sdk_includes}/tbb", dirs_exist_ok=True)
     shutil.copytree(f"{open_usd_path}/include/oneapi", f"{sdk_includes}/oneapi", dirs_exist_ok=True)
 
+    shutil.copytree(f"./shared/include/idtx", f"{sdk_includes}/idtx", dirs_exist_ok=True)
     shutil.copytree(f"./shared/include/idtxflow", f"{sdk_includes}/idtxflow", dirs_exist_ok=True)
     shutil.copytree(f"./shared/include/idtxflow_godot", f"{sdk_includes}/idtxflow_godot", dirs_exist_ok=True)
     

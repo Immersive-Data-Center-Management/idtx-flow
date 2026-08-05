@@ -120,7 +120,7 @@ namespace idtx
          * Singleton accessor. Exactly one instance exists inside the USD library.
          */
         IDTX_API static EnvironmentProviderRegistry& Instance();
-
+        
         /**
          * Register a provider for a given key prefix.
          *

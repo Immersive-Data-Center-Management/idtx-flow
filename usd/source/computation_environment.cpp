@@ -22,7 +22,9 @@
 
 #include <pxr/base/plug/registry.h>
 #include <pxr/exec/exec/registerSchema.h>
+#include <pxr/exec/exec/builtinComputations.h>
 #include <pxr/exec/vdf/context.h>
+#include <pxr/exec/ef/time.h>
 
 #include <tokens.h>
 #include <EnvironmentProvider.h>
