@@ -73,7 +73,15 @@ EXEC_REGISTER_COMPUTATIONS_FOR_SCHEMA(IDTXCompute_Environment)
             Attribute(IDTXTokens->inputsKey)
                 .Connections<std::string>(_IDTXTokens->resolvedValue)
                 .InputName(_IDTXTokens->connectedInputsKey),
-            AttributeValue<std::string>(IDTXTokens->inputsKey)
+            AttributeValue<std::string>(IDTXTokens->inputsKey),
+            // Declare a dependency on the stage's builtin time computation. This is what makes
+            // THIS computation time-dependent (opt-in, per computation): whenever the host
+            // advances the Exec time via ExecUsdSystem::ChangeTime(), Exec re-resolves this
+            // input, sees it changed, and invalidates + recomputes the callback above. That in
+            // turn re-runs the environment retreivel so volatile tokens like ${auth:TOKEN} pick up
+            // their fresh values. The EfTime value itself is not used by the callback; the input
+            // exists solely to hook this node into Exec's time-based invalidation.
+            Stage().Computation<EfTime>(ExecBuiltinComputations->computeTime)
         );
 
     // Prim-to-attribute glue: makes the prim's computed output reachable as a USD attribute

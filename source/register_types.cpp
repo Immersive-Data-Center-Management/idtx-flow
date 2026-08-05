@@ -36,7 +36,6 @@ static idtxflow::utils::IDTXFlowGodotLogger g_logger;
 //    prefixed "project:" (Godot ProjectSettings snapshot)
 static idtxflow::exec::GodotEnvVarProvider g_env_var_provider;
 static idtxflow::exec::GodotAuthProvider g_auth_provider;
-static idtxflow::exec::GodotVarProvider g_var_provider;
 static idtxflow::exec::GodotProjectSettingProvider* g_project_setting_provider = nullptr;
 
 #ifdef IDTXFLOW_MDL_ENABLED
@@ -120,7 +119,6 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     g_project_setting_provider = new idtxflow::exec::GodotProjectSettingProvider();
     idtx::EnvironmentProviderRegistry::Instance().RegisterProvider("env", &g_env_var_provider);
     idtx::EnvironmentProviderRegistry::Instance().RegisterProvider("auth", &g_auth_provider);
-    idtx::EnvironmentProviderRegistry::Instance().RegisterProvider("var", &g_var_provider);
     idtx::EnvironmentProviderRegistry::Instance().RegisterProvider("project", g_project_setting_provider);
 
     // Run the openExec computation bridge

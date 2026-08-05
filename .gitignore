@@ -29,3 +29,6 @@ IDTXFlowGodot.sln.DotSettings.user
 *.o
 *.a
 *.ilk
+
+# ignore local scons settings
+custom.py

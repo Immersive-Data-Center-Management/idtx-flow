@@ -52,14 +52,12 @@ def _do_compose_sdk(target, source, env):
     """Action callback executed during the build phase."""
     print("Composing IDTXFlow SDK Artifacts")
 
+    open_usd_path =  env["OPENUSD_PATH"]
     platform_name = env["platform_name"]
 
     sdk_root = "build/idtxflow-sdk"
     sdk_includes = f"{sdk_root}/include"
     sdk_libs = f"{sdk_root}/lib"
-
-    open_usd_version = env.get('openusd_version', '')
-    open_usd_path = f"thirdparty/openusd-{open_usd_version}"
 
     # Ensure target directories exist
     os.makedirs(sdk_libs, exist_ok=True)

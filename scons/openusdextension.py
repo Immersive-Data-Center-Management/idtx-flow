@@ -17,10 +17,10 @@ def exists(env):
 #-----------------------------------------------------------------------------------------------------------------------
 def _generate_usd_extensions_code(env):
     print("Generate openUSD Extension code from schema...")
+    open_usd_path =  env["OPENUSD_PATH"]
 
     extension_root = f"usd"
-    openusd_version = env.get('openusd_version', '')
-    openusd_root = os.path.abspath(f"./thirdparty/openusd-{openusd_version}-withPython")
+    openusd_root = os.path.abspath(f"{open_usd_path}-withPython")
     openusd_env = os.environ.copy()
     openusd_env["USD_ROOT"] = openusd_root
     openusd_env["PYTHONPATH"] = f"{openusd_root}/lib/python"
@@ -43,9 +43,7 @@ def _generate_usd_extensions_code(env):
 def _build_usd_extension(env):
     print("Building USD Extensions...")
 
-    openusd_version = env.get('openusd_version', '')
-    openusd_root = os.path.abspath(f"./thirdparty/openusd-{openusd_version}")
-
+    openusd_root =  env["OPENUSD_PATH"]
     extension_root = "./usd"
     idtxflow_sdk_path = "./shared"
 

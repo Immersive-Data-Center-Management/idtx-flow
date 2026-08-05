@@ -56,6 +56,9 @@ namespace exec
         {
             if (name != "TOKEN") return false;
 
+            // The environment computation is configured to be time dependnent and thus we revisit this code path every now and then
+            // and validate that a token is still valid or requires re-fresh during computation runs.
+
             std::lock_guard<std::mutex> lock(mutex_);
 
             // If a cached token exists and is not (about to be) expired, reuse it.
@@ -95,12 +98,9 @@ namespace exec
 
             // Decide the grant: use the refresh token if we have one, otherwise fall back
             // to the resource-owner password credentials grant.
-            ix::HttpResponsePtr response;
-            /* TODO: implement this more reliable to check, if the token is expired already.
-             * as the openExec graph caches the result on it's on, it might never revisit this computation triggered
-             * call anyway. So we need some means to invalidate the value right before the token invalidates to ensure
-             * seamless computation even when the whole application is executed longer that the original token validity.
-             if (!refresh_token_.empty())
+            ix::HttpResponsePtr response;            
+            // When the actual token was empty or expired we come here
+            if (!refresh_token_.empty())
             {
                 // OAuth2 token endpoints (RFC 6749) require the parameters to be sent as
                 // application/x-www-form-urlencoded. These must go in the httpParameters
@@ -114,7 +114,6 @@ namespace exec
                 }, {}, args);
             }
             else
-            */
             {
                 response = http_client_.post(args->url,
                 {
