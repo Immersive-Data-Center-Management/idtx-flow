@@ -124,7 +124,6 @@
     <ClInclude Include="source\nodes\UsdXFormNode3D.h" />
     <ClInclude Include="source\register_types.h" />
     <ClInclude Include="source\resolver\UsdGodotAssetResolver.h" />
-    <ClInclude Include="source\utils\IDTXFlowProjectSettings.h" />
     <ClInclude Include="templates\extension_template\source\converters\ExamplePrimConverter.h" />
     <ClInclude Include="templates\extension_template\source\register_types.h" />
     <ClInclude Include="source\utils\IDTXFlowGodotLogger.h" />

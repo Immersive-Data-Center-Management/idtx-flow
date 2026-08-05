@@ -19,7 +19,6 @@
 #include "nodes/UsdRestDatasourceNode3D.h"
 #include "nodes/UsdXFormNode3D.h"
 #include "utils/IDTXFlowGodotLogger.h"
-#include "utils/IDTXFlowProjectSettings.h"
 #include "exec/GodotEnvironmentProviders.h"
 
 using namespace godot;
@@ -35,7 +34,6 @@ static idtxflow::utils::IDTXFlowGodotLogger g_logger;
 //  - g_project_setting_provider (constructed lazily on the main thread at init) handles keys
 //    prefixed "project:" (Godot ProjectSettings snapshot)
 static idtxflow::exec::GodotEnvVarProvider g_env_var_provider;
-static idtxflow::exec::GodotAuthProvider g_auth_provider;
 static idtxflow::exec::GodotProjectSettingProvider* g_project_setting_provider = nullptr;
 
 #ifdef IDTXFLOW_MDL_ENABLED
@@ -98,12 +96,6 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     idtxflow::converter::StartupMdlMaterialConverter(extension_dir, additionalModulPaths);
 #endif
     
-    // Register the add-on specific project settings (OIDC / OAuth) into the editor's
-    // Project Settings dialog. This must run on the main thread (we are on it here) since
-    // it touches the ProjectSettings singleton. Secrets (password, client secret) are
-    // flagged internal so they are never serialized to project.godot.
-    idtxflow::utils::IDTXFlowProjectSettings::Register();
-
     // Configure the HTTP asset resolver with the default IXWebSocket-based fetcher
     pxr::UsdHttpAssetResolver::Configure(
         ProjectSettings::get_singleton()->globalize_path("user://usd_cache").utf8().get_data());
@@ -118,7 +110,6 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     // from that immutable snapshot.
     g_project_setting_provider = new idtxflow::exec::GodotProjectSettingProvider();
     idtx::EnvironmentProviderRegistry::Instance().RegisterProvider("env", &g_env_var_provider);
-    idtx::EnvironmentProviderRegistry::Instance().RegisterProvider("auth", &g_auth_provider);
     idtx::EnvironmentProviderRegistry::Instance().RegisterProvider("project", g_project_setting_provider);
 
     // Run the openExec computation bridge
