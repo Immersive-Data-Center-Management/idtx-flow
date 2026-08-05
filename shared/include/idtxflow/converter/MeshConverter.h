@@ -77,7 +77,7 @@ namespace converter
 			}
 
 			if (!usdMesh.GetOrientationAttr().Get(&orientation))
-				orientation = pxr::UsdGeomTokens->leftHanded; // default the face orientation to leftHanded
+				orientation = pxr::UsdGeomTokens->rightHanded; // USD's actual default when unauthored
 			
 			usdMesh.GetDisplayColorAttr().Get(&colors);
 			colorInterpolation = usdMesh.GetDisplayColorPrimvar().GetInterpolation();
@@ -379,13 +379,17 @@ namespace converter
 				}
 
 				// once we converted all vertices of this face we re-construct the index list. While doing so
-				// we ensure that we triangulate the face if it contains of more then 3 points
+				// we ensure that we triangulate the face if it contains of more then 3 points.
+				// Godot's front-facing winding is the reverse of USD's rightHanded convention, so we reverse
+				// the emitted order for rightHanded meshes (the common case) and keep it as authored for
+				// meshes explicitly marked leftHanded (already in Godot's winding, e.g. our own exporter's output).
+				const bool flipWinding = (orientation == pxr::UsdGeomTokens->rightHanded);
 				if (pointCount == 3)
 				{
 					typename Types::Index vertexCount = builder.GetVertexCount(meshData);
 					builder.AddIndex(meshData, vertexCount - 3);
-					builder.AddIndex(meshData, vertexCount - 1);
-					builder.AddIndex(meshData, vertexCount - 2);
+					builder.AddIndex(meshData, flipWinding ? vertexCount - 1 : vertexCount - 2);
+					builder.AddIndex(meshData, flipWinding ? vertexCount - 2 : vertexCount - 1);
 				} else
 				{
 					// use simple fan triangulation if the current face is spanned from more then 3 points
@@ -393,8 +397,8 @@ namespace converter
 					for (int i = 1; i < pointCount - 1; ++i)
 					{
 						builder.AddIndex(meshData, basePointIndex);
-						builder.AddIndex(meshData, basePointIndex + i + 1);
-						builder.AddIndex(meshData, basePointIndex + i);
+						builder.AddIndex(meshData, flipWinding ? basePointIndex + i + 1 : basePointIndex + i);
+						builder.AddIndex(meshData, flipWinding ? basePointIndex + i : basePointIndex + i + 1);
 					}
 				}
 			}

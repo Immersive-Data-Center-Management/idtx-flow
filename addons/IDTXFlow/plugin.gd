@@ -7,6 +7,10 @@ extends EditorPlugin
 
 const MENU_ITEM_EXPORT := "Export selected node to USD…"
 const _USD_EXTENSIONS := ["usda", "usdc", "usdz"]
+const _OPTION_EXPORT_MODE := "Export mode"
+## Index -> overlay_mode value passed to UsdExporter.export_node(). Must match the order the
+## values are added to the dropdown in _show_export_dialog().
+const _EXPORT_MODE_VALUES := ["", "new_only", "position_changed"]
 
 var _file_dialog: EditorFileDialog = null
 var _export_root: Node3D = null
@@ -56,6 +60,15 @@ func _show_export_dialog() -> void:
 		_file_dialog.add_filter("*.usda", "USD ASCII (text)")
 		_file_dialog.add_filter("*.usdc", "USD Binary (compressed)")
 		_file_dialog.add_filter("*.usdz", "USD Package")
+		# Dropdown: choose whether to write a brand-new, self-contained stage ("Flatten"), or a diff
+		# layer that sub-layers the original imported stage and only authors new and/or moved nodes.
+		# "Moved" only detects transform edits on already-imported nodes; mesh/material edits are not
+		# detected and won't be re-authored.
+		_file_dialog.add_option(_OPTION_EXPORT_MODE, [
+			"Flatten (new self-contained file)",
+			"Overlay: new nodes only",
+			"Overlay: new + moved nodes",
+		], 0)
 		_file_dialog.file_selected.connect(_on_file_selected)
 		get_editor_interface().get_base_control().add_child(_file_dialog)
 	# Suggest a default filename derived from the export root's node name.
@@ -69,9 +82,12 @@ func _on_file_selected(path: String) -> void:
 	# EditorFileDialog doesn't auto-append extensions; add one if missing.
 	if path.get_extension().to_lower() not in _USD_EXTENSIONS:
 		path += ".usda"
+	var selected_options: Dictionary = _file_dialog.get_selected_options()
+	var export_mode_index: int = int(selected_options.get(_OPTION_EXPORT_MODE, 0))
 	var options := {
 		"texture_dir": path.get_base_dir(),
 		"up_axis_y": true,
+		"overlay_mode": _EXPORT_MODE_VALUES[export_mode_index],
 	}
 	var ok: bool = UsdExporter.export_node(_export_root, path, options)
 	if ok:

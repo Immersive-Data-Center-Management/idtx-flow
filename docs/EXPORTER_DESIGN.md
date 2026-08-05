@@ -1,12 +1,15 @@
 # IDTX Flow — USD Exporter Design (Godot → USD)
 
-> **Status:** Design for implementation. **Audience:** an implementing AI/developer.
-> Follow this document literally. When a detail is unspecified, prefer the **simplest**
-> option and mirror the existing importer rather than inventing new patterns.
+> **What's in this file:** the concrete, phase-by-phase exporter architecture and implementation
+> patterns (neutral structs, extraction/authoring conventions, hard rules, lossy-inversion
+> cheat-sheet). **Audience:** whoever (human or AI) extends the exporter next — read this before
+> adding a new exported element (skeletons, animation, custom prims, …) and mirror its patterns.
+> For **current status and next steps** (what's done, what's next, open design questions), see
+> [EXPORTER_STATUS.md](EXPORTER_STATUS.md) instead — that's the file to update after each session.
 >
-> **Read first:** the [`usd-exporter` skill](../.github/skills/usd-exporter/SKILL.md) and
+> Phases 0-3 (transforms/meshes/materials) and Phase 6 (overlay export) described below are
+> **implemented** — treat those sections as the as-built reference, not a to-do list. Also read
 > [CLAUDE.md](../CLAUDE.md) sections "Engine-agnostic vs engine-specific" and "Adding an exporter".
-> This doc is the concrete, phase-by-phase plan; the skill is the conceptual map.
 
 ---
 

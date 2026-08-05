@@ -15,6 +15,7 @@
  */
 
 #include <cctype>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -23,8 +24,11 @@
 #include <pxr/usd/sdf/path.h>
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usd/stage.h>
+#include <pxr/usd/usd/timeCode.h>
+#include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/gf/vec2f.h>
 #include <pxr/base/gf/vec3f.h>
+#include <pxr/base/gf/vec4d.h>
 #include <pxr/base/vt/array.h>
 #include <pxr/usd/sdf/schema.h>
 #include <pxr/usd/usdGeom/mesh.h>
@@ -33,6 +37,7 @@
 #include <pxr/usd/usdGeom/subset.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdGeom/xform.h>
+#include <pxr/usd/usdGeom/xformable.h>
 #include <pxr/usd/usdShade/material.h>
 #include <pxr/usd/usdShade/materialBindingAPI.h>
 #include <pxr/usd/usdShade/shader.h>
@@ -82,6 +87,13 @@ namespace exporter
          */
         bool Export(const NodeDesc& root, const StageExportOptions& options)
         {
+            const bool isOverlay = options.mode == ExportMode::OverlayNewOnly || options.mode == ExportMode::OverlayPositionChanged;
+            if (isOverlay && options.originalStagePath.empty())
+            {
+                IDTX_LOGF(IDTX_ERROR, "Overlay export requires options.originalStagePath (root has no import ancestry).");
+                return false;
+            }
+
             // Author into an in-memory stage, then Export() to the target path. Export overwrites an
             // existing file and picks the format (ascii/binary/package) from the path's extension —
             // unlike CreateNew, which fails if the file already exists.
@@ -92,11 +104,34 @@ namespace exporter
                 return false;
             }
 
-            // Author as Y-up / metersPerUnit=1 by default so Godot transforms need no per-node fixup.
-            pxr::UsdGeomSetStageUpAxis(stage, options.upAxisY ? pxr::UsdGeomTokens->y : pxr::UsdGeomTokens->z);
-            pxr::UsdGeomSetStageMetersPerUnit(stage, 1.0);
+            if (isOverlay)
+            {
+                // Sub-layer the original stage so new prims compose on top of it, and its up-axis/
+                // metersPerUnit/existing prims are inherited rather than re-authored here.
+                stage->GetRootLayer()->InsertSubLayerPath(
+                    ComputeRelativeSubLayerPath(options.originalStagePath, options.outputStagePath));
+            }
+            else
+            {
+                // Author as Y-up / metersPerUnit=1 by default so Godot transforms need no per-node fixup.
+                pxr::UsdGeomSetStageUpAxis(stage, options.upAxisY ? pxr::UsdGeomTokens->y : pxr::UsdGeomTokens->z);
+                pxr::UsdGeomSetStageMetersPerUnit(stage, 1.0);
+            }
 
-            pxr::UsdPrim rootPrim = ExportNode(stage, pxr::SdfPath::AbsoluteRootPath(), root, options);
+            // OverlayPositionChanged needs a read-only handle on the *original* stage to compare
+            // transforms against. Kept as a local (not a member) since Export() is the only entry
+            // point and this avoids leaking stage-lifetime assumptions into ExportNode's signature.
+            pxr::UsdStageRefPtr originalStage;
+            if (options.mode == ExportMode::OverlayPositionChanged)
+            {
+                originalStage = pxr::UsdStage::Open(options.originalStagePath);
+                if (!originalStage)
+                {
+                    IDTX_LOGF(IDTX_WARN, "OverlayPositionChanged: could not re-open original stage '{}' for comparison — treating all reused nodes as changed.", options.originalStagePath);
+                }
+            }
+
+            pxr::UsdPrim rootPrim = ExportNode(stage, pxr::SdfPath::AbsoluteRootPath(), root, options, originalStage);
             if (rootPrim)
             {
                 stage->SetDefaultPrim(rootPrim);
@@ -120,32 +155,144 @@ namespace exporter
 
     protected:
         /**
+         * In OverlayNewOnly mode, express `originalStagePath` relative to the output stage's
+         * directory (falls back to the absolute path if the two can't be related, e.g. different
+         * drives on Windows) so the authored sub-layer reference stays valid if both files are
+         * later moved together.
+         */
+        static std::string ComputeRelativeSubLayerPath(
+            const std::string& originalStagePath, const std::string& outputStagePath)
+        {
+            namespace fs = std::filesystem;
+            try
+            {
+                const fs::path relative = fs::relative(
+                    fs::path(originalStagePath), fs::path(outputStagePath).parent_path());
+                if (!relative.empty()) return relative.generic_string();
+            }
+            catch (const std::exception&) { /* fall through to absolute path below */ }
+            return originalStagePath;
+        }
+
+        /**
          * Author the prim for a single node, then recurse into its children. Returns the created
          * prim so the caller can use it (e.g. as the stage's default prim).
+         *
+         * OverlayNewOnly mode: nodes with `originalPrimPath` already exist in the sub-layered
+         * original stage, so nothing is authored for them — their original path is simply reused
+         * as the parent path for recursion. Only nodes without `originalPrimPath` (i.e. new,
+         * user-added in Godot) get a prim defined here; UsdStage::DefinePrim auto-creates any
+         * missing ancestor `over` specs, so nesting a new prim under an existing sub-layer-only
+         * path needs no extra code.
+         *
+         * OverlayPositionChanged mode: same as OverlayNewOnly, except a node with `originalPrimPath`
+         * is only skipped if its transform still matches `originalStage` — otherwise it is
+         * re-authored like a new node (an `over` on top of the sub-layer, since UsdGeomXform/
+         * Mesh::Define just adds a spec in the current edit layer regardless of what a weaker
+         * sub-layer already has). NOTE: only transform changes are detected — mesh/material edits
+         * on an already-imported node are not, so they won't trigger re-authoring in this mode.
          */
         pxr::UsdPrim ExportNode(
             const pxr::UsdStageRefPtr& stage,
             const pxr::SdfPath& parentPath,
             const NodeDesc& desc,
-            const StageExportOptions& options)
+            const StageExportOptions& options,
+            const pxr::UsdStageRefPtr& originalStage)
         {
-            const pxr::SdfPath path = parentPath.AppendChild(pxr::TfToken(SanitizePrimName(desc.primName)));
+            const bool isOverlay = options.mode == ExportMode::OverlayNewOnly
+                || options.mode == ExportMode::OverlayPositionChanged;
+            if (isOverlay && desc.isStageContainer)
+            {
+                const pxr::UsdPrim defaultPrim = stage->GetDefaultPrim();
+                const pxr::SdfPath childParentPath = defaultPrim
+                    ? defaultPrim.GetPath()
+                    : parentPath;
+                for (const NodeDesc& child : desc.children)
+                    ExportNode(stage, childParentPath, child, options, originalStage);
+                return defaultPrim;
+            }
+
+            bool reuseOriginalPath = false;
+            if (desc.originalPrimPath.has_value())
+            {
+                if (options.mode == ExportMode::OverlayNewOnly)
+                {
+                    reuseOriginalPath = true;
+                }
+                else if (options.mode == ExportMode::OverlayPositionChanged)
+                {
+                    reuseOriginalPath = !HasTransformChanged(
+                        originalStage, pxr::SdfPath(*desc.originalPrimPath), desc.localTransform);
+                }
+            }
+
+            // If this node already existed in the original stage, always reuse its absolute path —
+            // whether we're skipping it (unchanged, reuseOriginalPath) or re-authoring an `over` on
+            // top of the sub-layer for it (changed). Only genuinely new nodes get a freshly
+            // synthesized child path under their (possibly also-new) parent.
+            const pxr::SdfPath path = desc.originalPrimPath.has_value()
+                ? pxr::SdfPath(*desc.originalPrimPath)
+                : parentPath.AppendChild(pxr::TfToken(SanitizePrimName(desc.primName)));
 
             pxr::UsdPrim prim;
-            switch (desc.kind)
+            if (reuseOriginalPath)
             {
-                case NodeDesc::Kind::Mesh:     prim = ExportMesh(stage, path, desc, options); break;
-                case NodeDesc::Kind::Skeleton: prim = ExportXform(stage, path, desc); break;  // TODO(phase 4): UsdSkel
-                case NodeDesc::Kind::Xform:
-                default:                       prim = ExportXform(stage, path, desc); break;
+                // Already exists via the sub-layer and is unchanged; nothing to author, just recurse.
+                prim = stage->GetPrimAtPath(path);
+            }
+            else
+            {
+                switch (desc.kind)
+                {
+                    case NodeDesc::Kind::Mesh:     prim = ExportMesh(stage, path, desc, options); break;
+                    case NodeDesc::Kind::Skeleton: prim = ExportXform(stage, path, desc); break;  // TODO(phase 4): UsdSkel
+                    case NodeDesc::Kind::Xform:
+                    default:                       prim = ExportXform(stage, path, desc); break;
+                }
             }
 
             for (const NodeDesc& child : desc.children)
             {
-                ExportNode(stage, path, child, options);
+                ExportNode(stage, path, child, options, originalStage);
             }
 
             return prim;
+        }
+
+        /**
+         * OverlayPositionChanged support: true if `originalStage` is unavailable, the prim can't be
+         * found/read, or its authored local transform differs from `newTransform` beyond a small
+         * epsilon. Only the transform is compared — this deliberately does not detect mesh/material
+         * edits (see docs/EXPORTER_STATUS.md "Next steps" for a fuller diff-based approach).
+         */
+        static bool HasTransformChanged(
+            const pxr::UsdStageRefPtr& originalStage, const pxr::SdfPath& primPath,
+            const pxr::GfMatrix4d& newTransform)
+        {
+            if (!originalStage) return true;
+
+            pxr::UsdPrim prim = originalStage->GetPrimAtPath(primPath);
+            if (!prim) return true;
+
+            pxr::UsdGeomXformable xformable(prim);
+            if (!xformable) return true;
+
+            pxr::GfMatrix4d existing(1.0);
+            bool resetsXformStack = false;
+            if (!xformable.GetLocalTransformation(&existing, &resetsXformStack, pxr::UsdTimeCode::Default()))
+                return true;
+
+            constexpr double kEpsilon = 1e-5;
+            for (int r = 0; r < 4; ++r)
+            {
+                const pxr::GfVec4d rowA = existing.GetRow(r);
+                const pxr::GfVec4d rowB = newTransform.GetRow(r);
+                for (int c = 0; c < 4; ++c)
+                {
+                    if (std::abs(rowA[c] - rowB[c]) > kEpsilon) return true;
+                }
+            }
+            return false;
         }
 
         /** Author a UsdGeomXform carrying the node's local transform as a single matrix xformOp. */

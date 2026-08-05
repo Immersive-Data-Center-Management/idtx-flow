@@ -89,6 +89,14 @@ protected:
     void _reconstruct_node();
 
     /**
+     * Called via call_deferred from set_stage_uri() to actually clean up the previous stage's nodes and kick off
+     * (re-)loading the new one. Deferred so this doesn't run synchronously inside the property setter's call stack
+     * (e.g. while the editor's Inspector/UndoRedo is still processing a "Set stage_uri" edit) — removing children
+     * mid-notification there confuses the Scene Tree dock (spurious "!is_ancestor_of(p_node)" errors).
+     */
+    void _apply_stage_uri_change();
+
+    /**
      * Called via call_deferred, once the stage has been loaded in an async worker thread to perform the actual
      * stage conversion into the Godot scene tree. This has to happen on the main thread
      */

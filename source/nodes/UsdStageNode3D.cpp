@@ -55,7 +55,6 @@ void UsdStageNode3D::set_stage_uri(const String& path)
     // as the stage uri has changed we reset any previous state of this node
     cached_scene_name_ = "";
     stage_handle_.reset();
-    _cleanup_nodes();
     
     // Cancel any in-flight async load
     if (pending_load_task_)
@@ -65,6 +64,17 @@ void UsdStageNode3D::set_stage_uri(const String& path)
     }
 
     is_loading_ = false;
+    
+    // Defer the actual node-tree cleanup/reconstruction: this setter can be invoked from the middle
+    // of the editor's own Inspector/UndoRedo notification handling (e.g. editing the "Stage Uri"
+    // property while this node is selected), and removing/re-adding children synchronously in that
+    // call stack confuses the Scene Tree dock's own refresh (see _apply_stage_uri_change()).
+    call_deferred("_apply_stage_uri_change");
+}
+
+void UsdStageNode3D::_apply_stage_uri_change()
+{
+    _cleanup_nodes();
     
     // if the new uri is empty, there nothing more todo
     if (stage_uri_.is_empty()) return;
@@ -186,6 +196,10 @@ void UsdStageNode3D::_convert_stage()
     
     // store the stage handle
     stage_handle_ = std::make_unique<idtxflow::converter::StageHandle>(std::move(conversion_result.Handle));
+
+    // so IUsdNode3D::get_stage_path() also works when this node itself (not just its imported
+    // children) is used as an export root, e.g. for overlay/round-trip export.
+    set_stage_path(stage_handle_->Stage()->GetRootLayer()->GetRealPath().c_str());
     
     // once all nodes are converted, we need to add them as child to the current node.
     // And we need to recursively maintain the owner of all nodes, which is
@@ -219,6 +233,9 @@ void UsdStageNode3D::_load_converted_stage()
     
     // store the stage handle
     stage_handle_ = std::make_unique<idtxflow::converter::StageHandle>(std::move(result.stage));
+
+    // see _convert_stage() for why this is needed even though we're loading a cached scene here.
+    set_stage_path(stage_handle_->Stage()->GetRootLayer()->GetRealPath().c_str());
     
     Ref<PackedScene> packed_scene = ResourceLoader::get_singleton()->load(cached_scene_name_);
     Node3D* cached_root = cast_to<Node3D>(packed_scene->instantiate());
@@ -399,6 +416,7 @@ void UsdStageNode3D::_bind_methods()
     // Internal deferred callbacks invoked after async stage loading (not exposed to user scripts)
     ClassDB::bind_method(D_METHOD("_convert_stage"), &UsdStageNode3D::_convert_stage);
     ClassDB::bind_method(D_METHOD("_load_converted_stage"), &UsdStageNode3D::_load_converted_stage);
+    ClassDB::bind_method(D_METHOD("_apply_stage_uri_change"), &UsdStageNode3D::_apply_stage_uri_change);
     
     // Signals for async loading lifecycle
     ADD_SIGNAL(MethodInfo("stage_loading_started"));

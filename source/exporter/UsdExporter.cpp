@@ -8,6 +8,7 @@
 
 #include "UsdExporter.h"
 
+#include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
@@ -47,6 +48,40 @@ bool UsdExporter::export_node(Node3D* root, const String& uri, const Dictionary&
     const String texture_dir = String(options.get("texture_dir", uri.get_base_dir()));
     export_options.textureOutputDir = texture_dir.utf8().get_data();
     export_options.upAxisY = bool(options.get("up_axis_y", true));
+
+    const String overlay_mode = String(options.get("overlay_mode", ""));
+    if (overlay_mode == "new_only" || overlay_mode == "position_changed")
+    {
+        // Walk up from `root` to find the nearest node carrying USD import metadata, so overlay
+        // mode works whether the caller passed the stage root or some node further down the tree.
+        String original_stage_path;
+        for (Node* n = root; n != nullptr; n = n->get_parent())
+        {
+            if (IUsdNode3D* usd_node = IUsdNode3D::from_node(n))
+            {
+                original_stage_path = usd_node->get_stage_path();
+                if (!original_stage_path.is_empty()) break;
+            }
+        }
+        if (original_stage_path.is_empty())
+        {
+            UtilityFunctions::push_error(
+                "UsdExporter.export_node: 'overlay_mode' requires root (or an ancestor) to be part of an imported USD stage.");
+            return false;
+        }
+        // IUsdNode3D::get_stage_path() returns res://user:// URIs verbatim (our ArResolver resolves
+        // those literally rather than to a disk path) — globalize so the sub-layer reference below
+        // is a real, portable filesystem path instead of a project-relative one baked into the export.
+        if (original_stage_path.begins_with("res://") || original_stage_path.begins_with("user://"))
+        {
+            if (ProjectSettings* project_settings = ProjectSettings::get_singleton())
+                original_stage_path = project_settings->globalize_path(original_stage_path);
+        }
+        export_options.mode = (overlay_mode == "position_changed")
+            ? idtxflow::exporter::ExportMode::OverlayPositionChanged
+            : idtxflow::exporter::ExportMode::OverlayNewOnly;
+        export_options.originalStagePath = original_stage_path.utf8().get_data();
+    }
 
     // Read the Godot scene sub-tree into neutral descriptions (Godot side).
     idtxflow_godot::SceneTreeExtractor::NodeDesc root_desc =

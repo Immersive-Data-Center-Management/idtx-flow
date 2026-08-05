@@ -71,6 +71,7 @@ namespace exporter
         std::string primName;                          // sanitized, valid USD identifier
         std::optional<std::string> originalPrimPath;   // present if the node came from a USD import
         std::optional<std::string> originalPrimType;   // present if the node came from a USD import
+        bool isStageContainer = false;                 // imported stage wrapper; transparent in overlay mode
 
         pxr::GfMatrix4d localTransform = pxr::GfMatrix4d(1.0);  // node-local transform (identity default)
 
@@ -84,6 +85,20 @@ namespace exporter
     };
 
     /**
+     * How much of the exported subtree gets authored into the output stage.
+     */
+    enum class ExportMode
+    {
+        Flatten,        // default: author everything into a brand-new, self-contained stage
+        OverlayNewOnly, // author only nodes with no originalPrimPath, as a diff layer sub-layering
+                        // `StageExportOptions::originalStagePath` (see UsdStageExporter::Export)
+        OverlayPositionChanged  // like OverlayNewOnly, but also re-authors nodes whose transform
+                                // differs from the original stage (detected by opening
+                                // originalStagePath read-only and comparing). Only the transform is
+                                // compared - mesh/material edits on existing nodes are not detected.
+    };
+
+    /**
      * Output options for a single export run. The stage file format (ascii/binary/package) is
      * chosen by USD from the extension of `outputStagePath` (.usda / .usdc / .usdz).
      */
@@ -92,6 +107,9 @@ namespace exporter
         std::string outputStagePath;   // absolute path; extension decides the format
         std::string textureOutputDir;  // absolute dir where texture files are written
         bool upAxisY = true;           // true => author Y-up, metersPerUnit=1 (no per-node fixups)
+        ExportMode mode = ExportMode::Flatten;
+        std::string originalStagePath; // required when mode == OverlayNewOnly; absolute path to the
+                                        // stage the exported nodes were originally imported from
     };
 }
 }

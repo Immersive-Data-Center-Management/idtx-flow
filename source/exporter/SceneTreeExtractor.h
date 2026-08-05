@@ -28,6 +28,7 @@
 #include <idtxflow/exporter/UsdStageExporter.h>
 #include <idtxflow_godot/exporter/GodotFromTypeConverter.h>
 #include <idtxflow_godot/nodes/IUsdNode3D.h>
+#include <idtxflow_godot/nodes/UsdStageNode3D.h>
 #include <idtxflow_godot/types/GodotTypes.h>
 
 namespace idtxflow_godot
@@ -53,6 +54,7 @@ namespace idtxflow_godot
 
             // Local transform (relative to parent) is exactly what USD's xformOp:transform expects.
             out.localTransform = FromConverter::fromTransform(node->get_transform());
+            out.isStageContainer = godot::Object::cast_to<UsdStageNode3D>(node) != nullptr;
 
             // If the node was imported from USD, reuse its original prim name/path/type for round-tripping.
             if (IUsdNode3D* usd_node = IUsdNode3D::from_node(node))
