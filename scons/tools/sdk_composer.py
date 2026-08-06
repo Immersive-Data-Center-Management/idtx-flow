@@ -50,34 +50,34 @@ def _do_compose(target, source, env):
     os.makedirs(paths.sdk_libs, exist_ok=True)
     os.makedirs(paths.sdk_includes, exist_ok=True)
 
-    gdext_lib   = env["gdextension_lib"]
-    boot_lib    = env["ext_bootstrap_lib"]
+    gdext_lib   = env["gdextension_lib_filename"]
+    boot_lib    = env["ext_bootstrap_lib_filename"]
     gdext_dir   = env["gdextension_lib_dir"]
     boot_dir    = env["ext_bootstrap_lib_dir"]
     openusd_dir = paths.openusd_install
 
     # ---- Copy libs ---------------------------------------------------------
     if platform.is_windows:
-        shutil.copy(f"{gdext_dir}/{gdext_lib}.lib",  paths.sdk_libs)
-        shutil.copy(f"{boot_dir}/{boot_lib}.lib",    paths.sdk_libs)
+        shutil.copy(f"{gdext_dir}/{gdext_lib}",      paths.sdk_libs)
+        shutil.copy(f"{boot_dir}/{boot_lib}",        paths.sdk_libs)
         shutil.copy(f"{openusd_dir}/lib/usd_ms.lib", paths.sdk_libs)
         shutil.copy(f"{openusd_dir}/lib/tbb12.lib",  paths.sdk_libs)
     elif platform.is_macos:
-        shutil.copy(f"{gdext_dir}/{gdext_lib}.dylib",     paths.sdk_libs)
-        shutil.copy(f"{boot_dir}/{boot_lib}.a",           paths.sdk_libs)
+        shutil.copy(f"{gdext_dir}/{gdext_lib}",           paths.sdk_libs)
+        shutil.copy(f"{boot_dir}/{boot_lib}",             paths.sdk_libs)
         shutil.copy(f"{openusd_dir}/lib/libusd_ms.dylib", paths.sdk_libs)
         shutil.copy(f"{openusd_dir}/lib/libtbb.12.dylib", paths.sdk_libs)
     elif platform.is_android:
-        shutil.copy(f"{gdext_dir}/{gdext_lib}.so",     paths.sdk_libs)
-        shutil.copy(f"{boot_dir}/{boot_lib}.a",        paths.sdk_libs)
+        shutil.copy(f"{gdext_dir}/{gdext_lib}",        paths.sdk_libs)
+        shutil.copy(f"{boot_dir}/{boot_lib}",          paths.sdk_libs)
         shutil.copy(f"{openusd_dir}/lib/libusd_ms.so", paths.sdk_libs)
         tbb_so = os.path.join(paths.onetbb_android, "lib", "libtbb.so")
         if os.path.exists(tbb_so):
             shutil.copy(tbb_so, paths.sdk_libs)
     else:
         # Linux
-        shutil.copy(f"{gdext_dir}/{gdext_lib}.so",     paths.sdk_libs)
-        shutil.copy(f"{boot_dir}/{boot_lib}.a",        paths.sdk_libs)
+        shutil.copy(f"{gdext_dir}/{gdext_lib}",        paths.sdk_libs)
+        shutil.copy(f"{boot_dir}/{boot_lib}",          paths.sdk_libs)
         shutil.copy(f"{openusd_dir}/lib/libusd_ms.so", paths.sdk_libs)
         shutil.copy(f"{openusd_dir}/lib/libtbb.12.so", paths.sdk_libs)
 

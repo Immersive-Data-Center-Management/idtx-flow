@@ -115,9 +115,9 @@ def _build_extension(env):
 
     # Source files (excluding python wrap_*.cpp)
     sources = list(extension_env.Glob(
-        f"{paths.usd_ext_generated}/*.cpp",
-        exclude=f"{paths.usd_ext_generated}/wrap*.cpp",
-    ))
+        f"{paths.usd_ext_generated}/*.cpp", exclude=f"{paths.usd_ext_generated}/wrap*.cpp")
+        + extension_env.Glob(f"{paths.usd_ext_source}/*.cpp")
+    )
 
     build_dir = paths.usd_ext_build
     os.makedirs(build_dir, exist_ok=True)

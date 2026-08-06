@@ -13,11 +13,11 @@ from typing import Optional
 
 # ``download_utils`` lives in scons/ (one dir up from scons/core/).
 # Make sure it is importable regardless of how scons launches us.
-_SCONS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _SCONS_DIR not in sys.path:
-    sys.path.insert(0, _SCONS_DIR)
+#_SCONS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+#if _SCONS_DIR not in sys.path:
+#    sys.path.insert(0, _SCONS_DIR)
 
-from download_utils import download_file, extract_archive  # noqa: E402
+from scons.core.download_utils import download_file, extract_archive  # noqa: E402
 
 
 @dataclass(frozen=True)

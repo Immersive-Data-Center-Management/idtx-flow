@@ -121,13 +121,14 @@ void UsdStageNode3D::open_stage_and_then(const godot::StringName& next_method_na
             
             if (!pending_result_.success())
             {
-                IDTX_LOGF(IDTX_ERROR, "Unable to open Stage. Error: '{}'", result.error_message.c_str());
+                IDTX_LOGF(IDTX_ERROR, "Unable to open Stage. Error: '{}'", pending_result_.error_message.c_str());
                 emit_signal("stage_loading_finished", false);
                 return;
             }
     
             if (!pending_result_.stage)
             {
+                IDTX_LOGF(IDTX_ERROR, "Unable to open Stage.");
                 emit_signal("stage_loading_finished", false);
                 return;
             }
@@ -174,22 +175,6 @@ void UsdStageNode3D::_convert_stage()
         result = std::move(pending_result_);
     }
     is_loading_ = false;
-    
-    if (!result.success())
-    {
-        print_error("Unable to open Stage. " + String(result.error_message.c_str()));
-        emit_signal("stage_loading_finished", false);
-        return;
-    }
-    
-    stage_ = result.stage;
-    
-    if (!stage_)
-    {
-        print_error("Unable to open Stage. " + String(result.error_message.c_str()));
-        emit_signal("stage_loading_finished", false);
-        return;
-    }
     
     // instantiate the stage converter and convert the contents of the stage into Godot Node3D entities
     auto stage_converter = std::make_unique<idtxflow::converter::UsdStageConverter<idtxflow::types::TargetEngineGodot>>(this, nullptr);

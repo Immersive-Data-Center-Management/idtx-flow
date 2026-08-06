@@ -84,7 +84,7 @@ def _build_extension(env):
     libs = [
         "usd_ms",
         profile.tbb_link_name,
-        "libidtx_usd",
+        f"{profile.platform.shared_lib_prefix}idtx_usd",
         f"libgodot-cpp.{platform.name}.{platform.target}.{platform.arch}",
         "ixwebsocket",
     ]
@@ -176,7 +176,7 @@ def _get_libs_to_install(platform, paths):
         return [
             f"{paths.openusd_install}/lib/libusd_ms.so",
             f"{paths.onetbb_android}/lib/libtbb.so",
-            f"{paths.usd_ext_build}/libidtx_usd.so",
+            f"{paths.usd_ext_build}/{platform.shared_lib_prefix}idtx_usd.so",
         ]
     if platform.is_windows:
         return [
@@ -187,7 +187,7 @@ def _get_libs_to_install(platform, paths):
             f"{paths.mdl_sdk}/bin/dds.dll",
             f"{paths.mdl_sdk}/bin/nv_openimageio.dll",
             f"{paths.mdl_sdk}/bin/mdl_distiller.dll",
-            f"{paths.usd_ext_build}/libidtx_usd.dll",
+            f"{paths.usd_ext_build}/{platform.shared_lib_prefix}idtx_usd.dll",
         ]
     if platform.is_macos:
         return [
@@ -198,7 +198,7 @@ def _get_libs_to_install(platform, paths):
             f"{paths.mdl_sdk}/lib/dds.so",
             f"{paths.mdl_sdk}/lib/nv_openimageio.so",
             f"{paths.mdl_sdk}/lib/mdl_distiller.so",
-            f"{paths.usd_ext_build}/libidtx_usd.dylib",
+            f"{paths.usd_ext_build}/{platform.shared_lib_prefix}idtx_usd.dylib",
         ]
     # Linux
     return [
@@ -209,7 +209,7 @@ def _get_libs_to_install(platform, paths):
         f"{paths.mdl_sdk}/lib/dds.so",
         f"{paths.mdl_sdk}/lib/nv_openimageio.so",
         f"{paths.mdl_sdk}/lib/mdl_distiller.so",
-        f"{paths.usd_ext_build}/libidtx_usd.so",
+        f"{paths.usd_ext_build}/{platform.shared_lib_prefix}idtx_usd.so",
     ]
 
 

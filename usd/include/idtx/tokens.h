@@ -77,6 +77,14 @@ struct IDTXTokensType {
     /// 
     /// Possible value for IDTXCollisionAPI::GetCollisionShapeAttr()
     const TfToken Cylinder;
+    /// \brief "double"
+    /// 
+    /// Possible value for IDTXCompute_ValueFromJson::GetJsonValueTypeAttr()
+    const TfToken double_;
+    /// \brief "float"
+    /// 
+    /// Possible value for IDTXCompute_ValueFromJson::GetJsonValueTypeAttr()
+    const TfToken float_;
     /// \brief "Grab"
     /// 
     /// Possible value for IDTXCollisionAPI::GetCollisionInteractionTypesAttr()
@@ -85,6 +93,14 @@ struct IDTXTokensType {
     /// 
     /// Fallback value for IDTXCollisionAPI schema attribute purpose
     const TfToken guide;
+    /// \brief "inputs:jsonData"
+    /// 
+    /// IDTXCompute_ValueFromJson
+    const TfToken inputsJsonData;
+    /// \brief "inputs:value"
+    /// 
+    /// IDTXCompute_ScaleDouble
+    const TfToken inputsValue;
     /// \brief "interaction:enabled"
     /// 
     /// IDTXInteractionAPI
@@ -101,14 +117,50 @@ struct IDTXTokensType {
     /// 
     /// IDTXInteractionAPI
     const TfToken interactionIdentifier;
+    /// \brief "interval"
+    /// 
+    /// IDTXMockDatasource_RandomFloat
+    const TfToken interval;
     /// \brief "invisible"
     /// 
     /// Fallback value for IDTXCollisionAPI schema attribute visibility
     const TfToken invisible;
+    /// \brief "jsonPath"
+    /// 
+    /// IDTXCompute_ValueFromJson
+    const TfToken jsonPath;
+    /// \brief "jsonValueType"
+    /// 
+    /// IDTXCompute_ValueFromJson
+    const TfToken jsonValueType;
     /// \brief "NO_VALUE"
     /// 
     /// Fallback value for IDTXInteractionAPI::GetInteractionIdentifierAttr()
     const TfToken NO_VALUE;
+    /// \brief "none"
+    /// 
+    /// Possible value for IDTXCompute_ValueFromJson::GetJsonValueTypeAttr()
+    const TfToken none;
+    /// \brief "outputs:data"
+    /// 
+    /// IDTXDatasource
+    const TfToken outputsData;
+    /// \brief "outputs:jsonValue:double"
+    /// 
+    /// IDTXCompute_ValueFromJson
+    const TfToken outputsJsonValueDouble;
+    /// \brief "outputs:jsonValue:float"
+    /// 
+    /// IDTXCompute_ValueFromJson
+    const TfToken outputsJsonValueFloat;
+    /// \brief "outputs:jsonValue:string"
+    /// 
+    /// IDTXCompute_ValueFromJson
+    const TfToken outputsJsonValueString;
+    /// \brief "outputs:result"
+    /// 
+    /// IDTXCompute_ScaleDouble
+    const TfToken outputsResult;
     /// \brief "physics:collider"
     /// 
     /// IDTXCollisionSetAPI
@@ -125,6 +177,10 @@ struct IDTXTokensType {
     /// 
     /// Possible value for IDTXCollisionAPI::GetCollisionTypeAttr()
     const TfToken Rigidbody;
+    /// \brief "scalarFactor"
+    /// 
+    /// IDTXCompute_ScaleDouble
+    const TfToken scalarFactor;
     /// \brief "Select"
     /// 
     /// Possible value for IDTXCollisionAPI::GetCollisionInteractionTypesAttr()
@@ -137,6 +193,10 @@ struct IDTXTokensType {
     /// 
     /// Fallback value for IDTXCollisionAPI::GetCollisionTypeAttr()
     const TfToken Static;
+    /// \brief "string"
+    /// 
+    /// Possible value for IDTXCompute_ValueFromJson::GetJsonValueTypeAttr()
+    const TfToken string;
     /// \brief "visibility"
     /// 
     /// IDTXCollisionAPI
@@ -149,10 +209,26 @@ struct IDTXTokensType {
     /// 
     /// Schema identifer and family for IDTXCollisionSetAPI
     const TfToken CollisionSetAPI;
+    /// \brief "Compute_ScaleDouble"
+    /// 
+    /// Schema identifer and family for IDTXCompute_ScaleDouble
+    const TfToken Compute_ScaleDouble;
+    /// \brief "Compute_ValueFromJson"
+    /// 
+    /// Schema identifer and family for IDTXCompute_ValueFromJson
+    const TfToken Compute_ValueFromJson;
+    /// \brief "Datasource"
+    /// 
+    /// Schema identifer and family for IDTXDatasource
+    const TfToken Datasource;
     /// \brief "InteractionAPI"
     /// 
     /// Schema identifer and family for IDTXInteractionAPI
     const TfToken InteractionAPI;
+    /// \brief "MockDatasource_RandomFloat"
+    /// 
+    /// Schema identifer and family for IDTXMockDatasource_RandomFloat
+    const TfToken MockDatasource_RandomFloat;
     /// A vector of all of the tokens listed above.
     const std::vector<TfToken> allTokens;
 };

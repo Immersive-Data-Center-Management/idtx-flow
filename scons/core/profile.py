@@ -104,8 +104,8 @@ def build_profile(args, openusd_version: str = OPENUSD_VERSION_DEFAULT) -> Build
         # ---- Windows / MSVC ------------------------------------------------
         cxx = {
             "CXXFLAGS": ["/EHsc", "/GR", "/FS", "/std:c++20"],
-            "CCFLAGS":  (["/O2", "/MT"] if platform.target == "template_release"
-                         else ["/Zi", "/Od", "/MT"]),
+            "CCFLAGS":  (["/O2", "/MT", '/wd4273'] if platform.target == "template_release"
+                         else ["/Zi", "/Od", "/MT", "/FS", "/wd4273", "/Fd${TARGET}.pdb"]),
             "LINKFLAGS": ([] if platform.target == "template_release"
                           else ["/DEBUG"]),
         }

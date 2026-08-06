@@ -102,6 +102,10 @@ class BuildPaths:
         return f"{self.usd_ext_root}/generated"
 
     @property
+    def usd_ext_source(self) -> str:
+        return f"{self.usd_ext_root}/source"
+
+    @property
     def shared_include(self) -> str:
         return "shared/include"
 
