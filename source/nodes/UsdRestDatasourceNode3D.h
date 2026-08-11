@@ -39,5 +39,6 @@ private:
     /// TLS options passed to IXWebSocket's HttpClient.
     /// Default uses the system certificate store ("SYSTEM").
     ix::SocketTLSOptions tls_options_;
-    ix::HttpClient http_client_;
+    ix::HttpClient http_client_ = ix::HttpClient(true); // use an async client
+    mutable std::mutex mutex_;
 };

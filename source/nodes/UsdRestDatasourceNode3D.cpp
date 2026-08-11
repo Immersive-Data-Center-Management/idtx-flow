@@ -19,42 +19,39 @@ void UsdRestDatasourceNode3D::_process(double delta)
         const std::string& url = endpoint_uri_ + "?" + query_;
         
         http_client_.setTLSOptions(tls_options_);
-        ix::HttpRequestArgsPtr args = http_client_.createRequest(url);
+        ix::HttpRequestArgsPtr args = http_client_.createRequest(url, method_);
         args->followRedirects = true;
         args->maxRedirects = 5;
         args->connectTimeout = 30;
         args->transferTimeout = 120;
         args->compress = false;
+        args->body = json_body_;
         args->extraHeaders.insert({"Authorization", authorization_header_});
         
-        ix::HttpResponsePtr response;
-        
-        if (method_ == "POST")
+        if (!http_client_.performRequest(args, [&](const ix::HttpResponsePtr& response)
         {
-            response = http_client_.post(url, json_body_, args);
-        } else if (method_ == "GET")
+            // ensure the responses of the async requests are not stepping on each others toes
+            std::scoped_lock<std::mutex> lock(mutex_);
+            
+            if (!response || response->statusCode < 200 || response->statusCode >= 300)
+            {
+                const std::string err = response ? response->errorMsg : "null response";
+                const std::string body = response ? response->body : "null";
+                const int code = response ? response->statusCode : 0;
+                IDTX_LOG(IDTX_ERROR, "Request failed for '{}': err: {} - body: {} (HTTP {})", url, err, body, code);
+                return;
+            }
+            std::string data = response->body;
+            IDTX_LOG(IDTX_DEBUG, "Set new data value to: {}", data);
+            if (pxr::UsdAttribute attribute = stage_node_->get_stage()->GetPrimAtPath(pxr::SdfPath(prim_path_.utf8().get_data()))
+                    .GetAttribute(pxr::IDTXTokens->outputsData))
+            {
+                if (!attribute.Set(data.c_str()))
+                    IDTX_LOG(IDTX_ERROR,"unable to set data input value for json at '{}'", prim_path_.utf8().get_data());
+            }
+        }))
         {
-            response = http_client_.get(url, args);
-        } else
-        {
-            return;
-        }
-        
-        if (!response || response->statusCode < 200 || response->statusCode >= 300)
-        {
-            const std::string err = response ? response->errorMsg : "null response";
-            const std::string body = response ? response->body : "null";
-            const int code = response ? response->statusCode : 0;
-            IDTX_LOG(IDTX_ERROR, "Request failed for '{}': err: {} - body: {} (HTTP {})", url, err, body, code);
-            return;
-        }
-        std::string data = response->body;
-        IDTX_LOG(IDTX_DEBUG, "Set new data value to: {}", data);
-        if (pxr::UsdAttribute attribute = stage_node_->get_stage()->GetPrimAtPath(pxr::SdfPath(prim_path_.utf8().get_data()))
-                .GetAttribute(pxr::IDTXTokens->outputsData))
-        {
-            if (!attribute.Set(data.c_str()))
-                IDTX_LOG(IDTX_ERROR,"unable to set data input value for json at '{}'", prim_path_.utf8().get_data());
+            IDTX_LOG(IDTX_ERROR, "Unable to perform the async request for '{}'", url);
         }
     }
 }
