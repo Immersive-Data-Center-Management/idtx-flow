@@ -6,6 +6,8 @@
 
 #include <idtxflow_godot/idtxflow_godot_api.h>
 
+#include <pxr/usd/usd/prim.h>
+
 class UsdStageNode3D;
 
 /**
@@ -100,43 +102,62 @@ public:
     virtual godot::Dictionary get_variantsets() const;
 
     /**
-     * Store the list of variant sets and all their variants
-     * @param variant_sets 
+     * Set all variant sets
+     * @param variant_sets Dictionary of variant set definitions
      */
     virtual void set_variantsets(const godot::Dictionary& variant_sets);
-    
-    /**
-     * Return all variants of a variant set
-     * @param name name of the variant set
-     * @return 
-     */
-    virtual godot::PackedStringArray get_variantset_variants(const godot::String& name) const;
 
     /**
-     * Set the possible variants for a specific variant set
-     * @param name Name of the variant set
-     * @param values  List of possible variants
-     */
-    virtual void set_variantset_variants(const godot::String& name, const godot::PackedStringArray& values);
-
-
-    /**
-     * return current variant selected of a given variant_set 
-     * @return 
-     */
-    virtual godot::String get_variantset_selected_variant(const godot::String& variant_set) const;
+    * Extract variant sets from a USD prim and store them internally.
+    * Populates both available variants and current selections.
+    * 
+    * @param prim The USD prim to extract variants from
+    */
+    void extract_variant_sets_from_prim(const pxr::UsdPrim& prim);
 
     /**
-     * Set the selected variant value of a specific variant set
-     * @param variant_set Name of the variant set
-     * @param value Variant to be selected
-     * @param is_converting 
-     */
-    virtual void set_variantset_selected_variant(const godot::String& variant_set, const godot::String& value, bool is_converting = false);
-    
-    
+    * Determine which variant set is "active" for the inspector dropdown.
+    * 
+    * @return Name of the active variant set, or empty if none exist
+    */
+    virtual godot::String get_active_variantset_name() const;
+
+    /**
+    * Get the currently selected variant for the active variant set.
+    * Used by the inspector to display the current value.
+    * 
+    * @return Selected variant name 
+    */
+    virtual godot::String get_active_variant() const;
+
+    /**
+    * Set the selected variant for the active variant set.
+    * Triggers a deferred reload of USD children with the new variant.
+    * 
+    * @param value The variant to select
+    */
+    virtual void set_active_variant(const godot::String& value);
+
+    /**
+    * Get the enum hint string for the inspector dropdown.
+    * 
+    * @return Comma-separated variant names 
+    */
+    virtual godot::String get_active_variant_hint() const;
+
+    /**
+    * Populate Godot Inspector with variant set properties 
+    * @param p_list List to append property info to
+    */
+    void populate_variant_properties(godot::List<godot::PropertyInfo>* p_list) const;
+
 protected:
     /**
+     * Apply a pending variant change (called via call_deferred).
+     */
+    virtual void _apply_variant_change();
+
+   /**
      * Return the list of all variant sets and their currently selected variant
      * @return 
      */
@@ -148,6 +169,13 @@ protected:
      */
     virtual void set_variantsets_selected_variants(const godot::Dictionary& sets_values) { variant_sets_variant_ = sets_values; }
 
+    /**
+    * Recursively set owner for this node and all descendants in the scene tree
+    * @param node Starting node
+    * @param owner Owner node to assign
+    */
+    virtual void _set_owner_recursive(godot::Node* node, godot::Node* owner);
+ 
     // store a reference to the stage node that created this node
     UsdStageNode3D* stage_node_ = nullptr;
     // store the path to the stage the usdPrim originated from
@@ -193,8 +221,9 @@ public:\
     void set_prim_type(const godot::String& prim_type) override { IUsdNode3D::set_prim_type(prim_type); } \
     godot::Dictionary get_variantsets() const override { return IUsdNode3D::get_variantsets(); } \
     void set_variantsets(const godot::Dictionary& variant_sets) override { IUsdNode3D::set_variantsets(variant_sets); } \
-    godot::PackedStringArray get_variantset_variants(const godot::String& name) const override { return IUsdNode3D::get_variantset_variants(name); } \
-    void set_variantset_variants(const godot::String& name, const godot::PackedStringArray& values) override { IUsdNode3D::set_variantset_variants(name, values); } \
+    godot::String get_active_variant() const override { return IUsdNode3D::get_active_variant(); } \
+    void set_active_variant(const godot::String& value) override { IUsdNode3D::set_active_variant(value); }\
+    void _apply_variant_change() override { IUsdNode3D::_apply_variant_change(); }\
 protected: \
     godot::Dictionary get_variantsets_selected_variants() const override { return IUsdNode3D::get_variantsets_selected_variants(); } \
     void set_variantsets_selected_variants(const godot::Dictionary& sets_values) override { IUsdNode3D::set_variantsets_selected_variants(sets_values); }
@@ -228,16 +257,23 @@ godot::ClassDB::bind_method(godot::D_METHOD("get_prim_path"), &m_class::get_prim
         godot::PROPERTY_USAGE_STORAGE | godot::PROPERTY_USAGE_EDITOR | godot::PROPERTY_USAGE_READ_ONLY ), \
         "set_prim_type", "get_prim_type"); \
 \
-    godot::ClassDB::bind_method(godot::D_METHOD("get_variant_sets"), &m_class::get_variantsets); \
-    godot::ClassDB::bind_method(godot::D_METHOD("set_variant_sets", "variant_sets"), &m_class::set_variantsets); \
+    godot::ClassDB::bind_method(godot::D_METHOD("get_variantsets"), &m_class::get_variantsets); \
+    godot::ClassDB::bind_method(godot::D_METHOD("set_variantsets", "variant_sets"), &m_class::set_variantsets); \
     ADD_PROPERTY(godot::PropertyInfo(godot::Variant::DICTIONARY, "variant_sets", \
         godot::PROPERTY_HINT_NONE, "" , \
         godot::PROPERTY_USAGE_STORAGE | godot::PROPERTY_USAGE_EDITOR | godot::PROPERTY_USAGE_READ_ONLY ), \
-        "set_variant_sets", "get_variant_sets"); \
-\
-    godot::ClassDB::bind_method(godot::D_METHOD("get_variant_sets_values"), &m_class::get_variantsets_selected_variants); \
-    godot::ClassDB::bind_method(godot::D_METHOD("set_variant_sets_values", "variant_sets_values"), &m_class::set_variantsets_selected_variants); \
+        "set_variantsets", "get_variantsets"); \
+    \
+    godot::ClassDB::bind_method(godot::D_METHOD("get_variantsets_selected_variants"), &m_class::get_variantsets_selected_variants); \
+    godot::ClassDB::bind_method(godot::D_METHOD("set_variantsets_selected_variants", "variant_sets_values"), &m_class::set_variantsets_selected_variants); \
     ADD_PROPERTY(godot::PropertyInfo(godot::Variant::DICTIONARY, "variant_sets_values", \
         godot::PROPERTY_HINT_NONE, "" , \
-        godot::PROPERTY_USAGE_STORAGE | godot::PROPERTY_USAGE_EDITOR | godot::PROPERTY_USAGE_READ_ONLY), \
-        "set_variant_sets_values", "get_variant_sets_values");
+        godot::PROPERTY_USAGE_STORAGE | godot::PROPERTY_USAGE_EDITOR ), \
+        "set_variantsets_selected_variants", "get_variantsets_selected_variants");\
+    \
+    godot::ClassDB::bind_method(godot::D_METHOD("get_active_variant"), &m_class::get_active_variant); \
+    godot::ClassDB::bind_method(godot::D_METHOD("set_active_variant", "value"), &m_class::set_active_variant); \
+    ADD_PROPERTY(godot::PropertyInfo(godot::Variant::STRING, "active_variant", \
+        godot::PROPERTY_HINT_NONE, ""), \
+        "set_active_variant", "get_active_variant");\
+    godot::ClassDB::bind_method(godot::D_METHOD("_apply_variant_change"), &m_class::_apply_variant_change);

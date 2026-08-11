@@ -160,8 +160,56 @@ namespace converter
                 ConvertStagePostProcess(convertedEntities)
             };
         }
-        
-    protected:
+
+        /**
+        * Convert a single USD prim at the specified path into a game engine specific entity.
+        * @param stage The USD stage containing the prim
+        * @param primPath Path to the prim within the stage to be converted
+        * @return The converted entity representing the prim and its descendants, or nullptr if conversion fails.
+        *         The returned entity must not be ignored as it manages converted resources. Use the result to
+        *         add the entity to the scene tree or properly dispose of it to avoid memory leaks.
+        */
+        [[nodiscard]]
+        typename Types::ConvertedEntity* ConvertPrimAtPath(
+            const pxr::UsdStageRefPtr& stage,
+            const pxr::SdfPath& primPath)
+        {
+            if (!stage)
+            {
+                IDTX_LOGF(IDTX_ERROR, "Cannot convert prim: stage parameter is null");
+                return nullptr;
+            }
+            
+            Stage = stage;
+            StageUpAxis = pxr::UsdGeomGetStageUpAxis(stage);
+            StageMetersPerUnit = pxr::UsdGeomGetStageMetersPerUnit(stage);
+            if (StageMetersPerUnit == 0.0) StageMetersPerUnit = 0.01;
+            StageTimecodesPerSec = stage->GetTimeCodesPerSecond();
+            if (StageTimecodesPerSec == 0) StageTimecodesPerSec = 24.0;
+            StageAnimationStart = stage->GetStartTimeCode() / StageTimecodesPerSec;
+            StageAnimationEnd = stage->GetEndTimeCode() / StageTimecodesPerSec;
+            StageAnimationLength = StageAnimationEnd - StageAnimationStart;
+            
+            pxr::UsdPrim prim = stage->GetPrimAtPath(primPath);
+            if (!prim)
+            {
+                IDTX_LOGF(IDTX_ERROR, "Prim not found at path: %s", primPath.GetText());
+                return nullptr;
+            }
+             
+            pxr::UsdPrimRange primRange = pxr::UsdPrimRange::PreAndPostVisit(prim);
+            std::vector<typename Types::ConvertedEntity*> convertedEntities = ConvertPrims(stage, primRange, nullptr);
+             
+            if (convertedEntities.empty())
+            {
+                IDTX_LOGF(IDTX_WARN, "ConvertPrims returned empty result for prim: %s", prim.GetPath().GetText());
+                return nullptr;
+            }
+            
+            typename Types::ConvertedEntity* rootEntity = convertedEntities[0];
+            return rootEntity;
+        }
+
         /**
          * Converts the PrimRange of a specific USD Stage.
          * @param stage The stage to be converted
@@ -255,7 +303,7 @@ namespace converter
             return convertedEntities;
         }
 
-        /**
+                /**
          * Convert a single Prim from USD into the game engine corresponding entity type
          * @param usdPrim The prim to be converted
          * @param outPruneChildren Set this to true to skip all childrens from processing after this one
@@ -541,7 +589,6 @@ namespace converter
             return convertedEntity;
         }
         
-    public:
         std::optional<typename Types::Material> ConvertMaterial(const pxr::UsdShadeMaterial& usdMaterial)
         {
             UsdMaterialConverter<TargetEngine> materialConverter;

@@ -138,7 +138,7 @@ void UsdStageNode3D::open_stage_and_then(const godot::StringName& next_method_na
 }
 
 void UsdStageNode3D::_reconstruct_node()
-{
+{ 
     if (is_inside_tree())
     {
         if (!stage_uri_.is_empty())
@@ -163,6 +163,72 @@ void UsdStageNode3D::_reconstruct_node()
             }
         }
     }
+}
+godot::Node3D* UsdStageNode3D::convert_prim_at_path(const godot::String& prim_path)
+{
+    if (!stage_handle_ || !stage_handle_->Stage())
+    {
+        IDTX_LOGF(IDTX_ERROR, "Cannot convert prim: stage not loaded");
+        return nullptr;
+    }
+    
+    pxr::SdfPath sdf_path(prim_path.utf8().get_data());
+    pxr::UsdStageRefPtr stage = stage_handle_->Stage();
+ 
+    pxr::UsdPrim prim = stage->GetPrimAtPath(sdf_path);
+    if (!prim)
+    {
+        IDTX_LOGF(IDTX_ERROR, "Prim not found: {}", prim_path.utf8().get_data());
+        return nullptr;
+    }
+    
+    // Check if prim has unloaded payload
+    if (prim.HasAuthoredPayloads() && !prim.IsLoaded())
+    {
+        auto converter = std::make_unique<idtxflow::converter::UsdStageConverter<idtxflow::types::TargetEngineGodot>>(this, nullptr);
+        
+        bool should_prune = false;
+        godot::Node3D* converted_node = static_cast<godot::Node3D*>(converter->ConvertPrim(prim, should_prune));
+        
+        if (converted_node)
+        {
+            IUsdNode3D* usd_node = IUsdNode3D::from_node(converted_node);
+            if (usd_node)
+            {
+                usd_node->set_prim_name(prim.GetName().GetText());
+                usd_node->set_prim_path(prim.GetPath().GetText());
+                usd_node->set_prim_type(prim.GetTypeName().GetText());
+                usd_node->set_stage_path(stage->GetRootLayer()->GetRealPath().c_str());
+                
+                // Extract variant sets
+                if (prim.HasVariantSets())
+                {
+                    usd_node->extract_variant_sets_from_prim(prim);
+                }
+            }
+            _configure_nodes_recursive(converted_node, this, true);
+        }
+        return converted_node;
+    }
+       
+    auto converter = std::make_unique<idtxflow::converter::UsdStageConverter<idtxflow::types::TargetEngineGodot>>(this, nullptr);
+    
+    pxr::UsdPrimRange primRange = pxr::UsdPrimRange::PreAndPostVisit(prim);
+    std::vector<typename idtxflow::types::TargetEngineTypes<idtxflow::types::TargetEngineGodot>::ConvertedEntity*> convertedEntities = converter->ConvertPrims(stage, primRange, nullptr);
+    
+    if (convertedEntities.empty())
+    {
+        IDTX_LOGF(IDTX_ERROR, "    ConvertPrims returned empty result");
+        return nullptr;
+    }
+    
+    godot::Node3D* rootEntity = convertedEntities[0];
+    return rootEntity;
+}
+
+void UsdStageNode3D::_get_property_list(godot::List<godot::PropertyInfo>* p_list) const
+{
+    populate_variant_properties(p_list);
 }
 
 void UsdStageNode3D::_convert_stage()

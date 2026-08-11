@@ -37,7 +37,15 @@ public:
     void _enter_tree() override;
     void _ready() override;
     void _exit_tree() override;
+    godot::Node3D* convert_prim_at_path(const godot::String& prim_path);
 
+    /**
+     * Finalize the conversion of the usdPrims->godotNodes while recursively setting the owner of each node
+     * as well as the reference to their outermost StageNode3D reference
+     * @param node Node to configure (and all the children)
+     * @param owner Owner to be set for this node
+     */
+    void _configure_nodes_recursive(godot::Node3D* node, godot::Node* owner, bool register_compute = false);
 
     /**
      * Set the URI of the stage that shall be opened and converted
@@ -80,6 +88,8 @@ public:
      * Check if the stage is currently being loaded asynchronously.
      */
     bool is_loading() const { return is_loading_; }
+
+    void _get_property_list(godot::List<godot::PropertyInfo>* p_list) const;
     
 protected:
     /**
@@ -100,13 +110,6 @@ protected:
      */
     void _load_converted_stage();
     
-    /**
-     * Finalize the conversion of the usdPrims->godotNodes while recursively setting the owner of each node
-     * as well as the reference to their outermost StageNode3D reference
-     * @param node Node to configure (and all the children)
-     * @param owner Owner to be set for this node
-     */
-    void _configure_nodes_recursive(godot::Node3D* node, godot::Node* owner, bool register_compute = false);
 
     /**
      * remove all child nodes that has been converted as part of the referenced usd stage

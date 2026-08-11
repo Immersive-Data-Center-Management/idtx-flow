@@ -36,6 +36,7 @@ public:
      * @return 
      */
     bool get_loop_animation() const { return loop_animation_; }
+    void _get_property_list(godot::List<godot::PropertyInfo>* p_list) const;
     
 protected:
     static void _bind_methods();

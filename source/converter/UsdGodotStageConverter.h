@@ -687,14 +687,21 @@ namespace converter
         
         // store data in the shared IUsdNode3D class
         IUsdNode3D* usd_node = IUsdNode3D::from_node(converted_prim);
-        // it is an implementation error if the node we convert into does not implement IUsdNode3D
+         // it is an implementation error if the node we convert into does not implement IUsdNode3D
         if (!usd_node) IDTX_LOG(IDTX_ERROR, "Unable to get the IUsdNode3D interface for this node: %s", usd_prim.GetName().GetText());
         assert(usd_node != nullptr);
         usd_node->set_prim_name(usd_prim.GetName().GetText());
         usd_node->set_prim_path(usd_prim.GetPath().GetText());
         usd_node->set_prim_type(usd_prim.GetTypeName().GetText());
         usd_node->set_stage_path(Stage->GetRootLayer()->GetRealPath().c_str());
-        
+      // Extract variant sets from prim
+        if (usd_prim.HasVariantSets()) usd_node->extract_variant_sets_from_prim(usd_prim);
+    
+        // Inherit from parent if prim has no variant sets
+        else if (usd_prim.GetParent() && usd_prim.GetParent().HasVariantSets())
+        {
+            if (usd_node->get_variantsets().is_empty()) usd_node->extract_variant_sets_from_prim(usd_prim.GetParent());
+        }
         return converted_prim;
     }
     

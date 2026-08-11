@@ -2,6 +2,11 @@
 
 using namespace godot;
 
+void UsdXformNode3D::_get_property_list(godot::List<godot::PropertyInfo>* p_list) const
+{
+    populate_variant_properties(p_list);
+}
+
 void UsdXformNode3D::_bind_methods()
 {
     // bind methods from the inherited interface here
