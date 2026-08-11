@@ -125,9 +125,6 @@ void uninitialize_idtxflow_module(ModuleInitializationLevel p_level) {
     
     // Stop the openExec computation bridge
     idtxflow::exec::ExecBridgeManager::Instance().Cancel();
-    // clean up the data providers
-    idtx::EnvironmentProviderRegistry::Instance().UnregisterAll();
-
     // Unregister the host-side environment providers only AFTER the exec worker thread has
     // been cancelled above. This guarantees no in-flight computation can dereference a
     // provider pointer while / after it is being removed. The provider objects are host-owned;
