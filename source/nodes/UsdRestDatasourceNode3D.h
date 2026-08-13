@@ -23,6 +23,18 @@ public:
     /******************* ExecBridgeHandler ******************************/
     void OnComputeComplete(const std::vector<ExecComputeResult>& results) override;
     
+    /******** Getter & Setter for Property De-/Serialization ***********/
+    godot::String get_endpoint_uri() const;
+    void set_endpoint_uri(const godot::String& endpoint_uri);
+    godot::String get_query() const;
+    void set_query(const godot::String& query);
+    godot::String get_method() const;
+    void set_method(const godot::String& method);
+    godot::String get_json_body() const;
+    void set_json_body(const godot::String& json_body);
+    float get_refresh_interval() const;
+    void set_refresh_interval(float refresh_interval);
+    
 protected:
     static void _bind_methods();
     
