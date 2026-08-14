@@ -15,6 +15,7 @@
 
 #include <idtx/datasource.h>
 #include <idtx/mockDatasource_RandomFloat.h>
+#include <idtx/restDatasource.h>
 
 #include <idtxflow/converter/TypeConverter.h>
 #include <idtxflow/converter/StageConverter.h>
@@ -27,6 +28,7 @@
 #include "nodes/UsdMockDatasourceFloatNode3D.h"
 #include "nodes/UsdXFormNode3D.h"
 #include "nodes/UsdMultiMeshInstanceNode3D.h"
+#include "nodes/UsdRestDatasourceNode3D.h"
 
 /**
  * Implement Godot engine specialization of the UsdStageConverter
@@ -752,6 +754,23 @@ namespace converter
             // use it's _process() method to request fresh data and author it into the prim's "outputs:data" property
             UsdMockDatasourceFloatNode3D* data_source = memnew(UsdMockDatasourceFloatNode3D);
             usd_mock_source.GetIntervalAttr().Get<float>(&data_source->refresh_interval_);
+            
+            return data_source;
+        }
+        
+        if (usdDatasource.GetPrim().IsA<pxr::IDTXRestDatasource>())
+        {
+            pxr::IDTXRestDatasource usd_rest_source(usdDatasource.GetPrim());
+            
+            UsdRestDatasourceNode3D* data_source = memnew(UsdRestDatasourceNode3D);
+            usd_rest_source.GetIntervalAttr().Get<float>(&data_source->refresh_interval_);
+            usd_rest_source.GetEndpointAttr().Get<std::string>(&data_source->endpoint_uri_);
+            usd_rest_source.GetQueryAttr().Get<std::string>(&data_source->query_);
+            pxr::TfToken method;
+            usd_rest_source.GetMethodAttr().Get<pxr::TfToken>(&method);
+            data_source->method_ = method.GetString();
+            usd_rest_source.GetJsonBodyAttr().Get<std::string>(&data_source->json_body_);
+            usd_rest_source.GetAuthorizationAttr().Get<std::string>(&data_source->authorization_header_);
             
             return data_source;
         }

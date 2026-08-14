@@ -1,16 +1,16 @@
 """
 SCons tool: openusd
 Builds the OpenUSD library from source using the provided build scripts.
-The built OpenUSD library is a dependency for the IDTXFlow GDExtension. The OpenUSD version
-can be configured via the 'openusd_version' variable in the SCons environment. Usually the OpenUSD library is
-build without Python support, as the IDTXFlow GDExtension does not require it. However, you can enable Python support
-by passing 'with_python_support=True' to the BuildOpenUSD method.
+The OpenUSD version can be configured via the 'openusd_version' variable in the SCons environment.
+Usually the OpenUSD library is build without Python support, as the python bdinings are not required.
+However, it can be enabled by passing 'with_python_support=True' to the BuildOpenUSD method.
 
 Usage in SConstruct:
     env.BuildOpenUSD(with_python_support=False)  # Set to True to include Python bindings
 """
 import os
 import subprocess
+import shutil
 
 from SCons.Script import Exit
 
@@ -22,27 +22,33 @@ def exists(env):
     return True
 
 def _build_open_usd(env, with_python_support=False):
-    open_usd_version = env.get('openusd_version', '')
-    open_usd_path = f"thirdparty/openusd-{open_usd_version}-src"
-    print("USD ROOT" + os.environ.get("USD_ROOT", "thirdparty/openusd"))
-    
+    print("USD ROOT: " + env.get("OPENUSD_PATH", "<UNKNONW>"))
+    open_usd_version = env["OPENUSD_VERSION"]
+    open_usd_path =  env["OPENUSD_PATH"]
+    open_usd_src_path = env["OPENUSD_SRC_PATH"]
+    open_usd_build_script = f"{open_usd_src_path}/build_scripts/build_usd.py"
+        
     # check if we have cloned openUSD already
-    if not os.path.exists(open_usd_path):
+    if not os.path.exists(open_usd_build_script):  # Check for a known file
+        # Remove empty or incomplete directory before cloning
+        if os.path.exists(open_usd_src_path):
+            print("Cleaning up incomplete openUSD src folder")
+            shutil.rmtree(open_usd_src_path)
+    
         print("Cloning openUSD...")
         result = subprocess.run([
             "git", "clone", "-b", "v" + open_usd_version, "--recursive", "--depth", "2",
             "https://github.com/PixarAnimationStudios/OpenUSD.git",
-            open_usd_path
+            open_usd_src_path
         ])
         if result.returncode != 0:
             print(f"Failed to clone openUSD repo.")
             Exit(f"Build aborted due to subprocess failure (exit code: {result.returncode})")              
 
     platform_name = env["platform_name"]
-    build_target = env["target"]
 
     # check if we have build the openUSD lib already
-    open_usd_build_path = f"thirdparty/openusd-{open_usd_version}" if not with_python_support else f"thirdparty/openusd-{open_usd_version}-withPython"
+    open_usd_build_path = open_usd_path if not with_python_support else f"{open_usd_path}-withPython"
     if platform_name == "windows":
         open_usd_lib = f"{open_usd_build_path}/lib/usd_ms.dll"
     elif platform_name == "macos":
@@ -52,6 +58,10 @@ def _build_open_usd(env, with_python_support=False):
     
     if not os.path.exists(open_usd_lib):
         print("Building openUSD...")
+        if os.path.exists(open_usd_build_path):
+            print("Cleaning up incomplete openUSD build folder")
+            shutil.rmtree(open_usd_build_path)
+            
         openusd_env = {}
         # when building openUSD we need to ensure that proper env-vars are set
         # on Windows
@@ -71,10 +81,10 @@ def _build_open_usd(env, with_python_support=False):
         print(f"Building openUSD without python support = {with_python_support}...")
         result = subprocess.run([
             python_cmd,
-            f"{open_usd_path}/build_scripts/build_usd.py",
-            f"{open_usd_build_path}",
+            open_usd_build_script,
+            open_usd_build_path,
             "--verbose",
-            "--build-variant", "release" if build_target == "template_release" else "relwithdebuginfo", #debug,release,relwithdebuginfo
+            "--build-variant", "release", #debug,release,relwithdebuginfo
             "--build-monolithic",
             "--no-python" if not with_python_support else "--python",
             "--no-examples",

@@ -21,6 +21,7 @@
 
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/attribute.h>
+#include <pxr/usd/usd/timeCode.h>
 #include <pxr/exec/execUsd/system.h>
 #include <pxr/exec/execUsd/valueKey.h>
 #include <pxr/exec/execUsd/request.h>
@@ -142,7 +143,21 @@ namespace exec
             // if the request is not set-up properly, there is nothing to do 
             if (!exec_request_ || !exec_request_->IsValid())
                 return;
-    
+
+            // Advance the Exec evaluation time before computing. This is the trigger that makes
+            // time-dependent computations (e.g. Compute_VarReplacements, which declares a dependency
+            // on the stage's builtin computeTime) get invalidated and re-run — so that volatile tokens
+            // like ${var:CURRENT_TIME} are re-resolved on every cycle. Computations that do NOT declare
+            // a time dependency are unaffected: ChangeTime only re-resolves and invalidates inputs that
+            // actually depend on time, so their cached results are still served without recomputation.
+            //
+            // We use a simple monotonically increasing frame counter as the time code. The absolute value
+            // is irrelevant to our providers (they read wall-clock/host state directly); all that matters
+            // is that the time changes each cycle so Exec performs its time-based invalidation. Advancing
+            // by a whole frame each tick keeps the values distinct and avoids any floating point stalling.
+            exec_time_frame_ += 1.0;
+            exec_system_->ChangeTime(pxr::UsdTimeCode(exec_time_frame_));
+
             // Run the Exec computation.
             // This will always publish an entry in the CacheView for all value keys passed to BuildRequest. However, the ones
             // that did not require recomputation, where provided from the cache. We could use the invalidation callback
@@ -223,7 +238,14 @@ namespace exec
         std::vector<ValueKeyMetadata> value_key_metas_;
         // The list of handlers that will be invoked to handle the updated computation results
         std::unordered_map<pxr::SdfPath, std::vector<std::shared_ptr<IExecBridgeHandler>>, pxr::SdfPath::Hash> result_handlers_;
-        
+
+        // Monotonically increasing time code fed to ExecUsdSystem::ChangeTime() on every
+        // ComputeAndDispatch() cycle. This drives Exec's time-based invalidation so that
+        // time-dependent computations (those that declare a dependency on the builtin computeTime,
+        // e.g. Compute_VarReplacements) are re-run each cycle. Its absolute value carries no meaning
+        // for our providers; it only needs to change monotonically so Exec sees a new time each tick.
+        double exec_time_frame_ = 0.0;
+
     private:
         // disallow copy construct on the ExecBridge 
         ExecBridge(const ExecBridge&) = delete;

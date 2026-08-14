@@ -40,10 +40,10 @@ def _build_extension(env):
     print("Building Godot Extension...")
 
     # Get OpenUSD version from environment
-    openusd_version = env.get('openusd_version', '')
+    open_usd_path =  env["OPENUSD_PATH"]
     
     godot_cpp_path = "thirdparty/godot-cpp"
-    usd_root = f"thirdparty/openusd-{openusd_version}"
+    usd_root = open_usd_path
     mdl_sdk_path = "./thirdparty/mdl_sdk"
     ixws_path = "thirdparty/ixwebsocket"
     shared_include_path = "./shared/include"
@@ -233,7 +233,7 @@ def _build_extension(env):
         install_targets.append(extension_env.File(pdb_file))
 
     install_ext = extension_env.Install(install_dir, install_targets)
-    install_libs = extension_env.Install(install_dir, _get_libs_to_install(platform_name, openusd_version))
+    install_libs = extension_env.Install(install_dir, _get_libs_to_install(platform_name, open_usd_path))
     extension_env.AddPostAction(library, _copy_usd_plugins)
     extension_env.AddPostAction(library, _copy_third_party_licenses)
 
@@ -245,9 +245,9 @@ def _build_extension(env):
     env['gdextension_library_node'] = library
 
 
-def _get_libs_to_install(platform_name, openusd_version=""):
+def _get_libs_to_install(platform_name, open_usd_path=""):
     print("Getting libs to install...")
-    usd_root = f"./thirdparty/openusd-{openusd_version}"
+    usd_root = open_usd_path
     mdl_sdk_root = "./thirdparty/mdl_sdk"
     if platform_name == "windows":
         libs_to_install = [
@@ -287,8 +287,9 @@ def _get_libs_to_install(platform_name, openusd_version=""):
 
 def _copy_usd_plugins(target, source, env):
     print("Copy USD Plugin Config..")
-    shutil.copytree(f"./thirdparty/openusd-{env.get('openusd_version', '')}/lib/usd", f"addons/IDTXFlow/bin/{env['platform_name']}/usd", dirs_exist_ok=True)
-    shutil.copytree(f"./thirdparty/openusd-{env.get('openusd_version', '')}/plugin/usd", "addons/IDTXFlow/bin/plugin/usd", dirs_exist_ok=True)
+    open_usd_path =  env["OPENUSD_PATH"]
+    shutil.copytree(f"{open_usd_path}/lib/usd", f"addons/IDTXFlow/bin/{env['platform_name']}/usd", dirs_exist_ok=True)
+    shutil.copytree(f"{open_usd_path}/plugin/usd", "addons/IDTXFlow/bin/plugin/usd", dirs_exist_ok=True)
     shutil.copytree("usd/plugin/godot", "addons/IDTXFlow/bin/plugin/usd/godot", dirs_exist_ok=True)
     shutil.copytree("usd/plugin/idtx", "addons/IDTXFlow/bin/plugin/usd/idtx", dirs_exist_ok=True)
 
@@ -296,6 +297,7 @@ def _copy_third_party_licenses(target, source, env):
     """Copy third-party LICENSE files to addon for distribution compliance."""
     print("Copying third-party LICENSE files...")
 
+    open_usd_src_path =  env["OPENUSD_SRC_PATH"]
     license_dest_dir = "addons/IDTXFlow/LICENSES-THIRD-PARTY"
     os.makedirs(license_dest_dir, exist_ok=True)
 
@@ -305,8 +307,8 @@ def _copy_third_party_licenses(target, source, env):
         ("thirdparty/ixwebsocket/LICENSE.txt", "ixwebsocket-LICENSE.txt"),
         ("thirdparty/mdl_sdk/LICENSE.md", "mdl-sdk-LICENSE.md"),
         ("thirdparty/mdl_sdk/LICENSE_THIRDPARTY.md", "mdl-sdk-LICENSE_THIRDPARTY.md"),
-        (f"thirdparty/openusd-{openusd_version}-src/LICENSE.txt", "openusd-LICENSE.txt"),
-        (f"thirdparty/openusd-{openusd_version}-src/NOTICE.txt", "openusd-NOTICE.txt"),
+        (f"{open_usd_src_path}/LICENSE.txt", "openusd-LICENSE.txt"),
+        (f"{open_usd_src_path}/NOTICE.txt", "openusd-NOTICE.txt"),
     ]
 
     missing = []

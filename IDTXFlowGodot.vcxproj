@@ -55,10 +55,10 @@
   <!-- Windows-specific include paths -->
   <ItemDefinitionGroup Condition="'$(OS)'=='Windows_NT'">
     <ClCompile>
-      <AdditionalIncludeDirectories>thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;usd/generated;usd/source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Midl>
-      <AdditionalIncludeDirectories>thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;usd/generated;usd/source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -70,10 +70,10 @@
   <!-- macOS-specific include paths -->
   <ItemDefinitionGroup Condition="'$(OS)'!='Windows_NT'">
     <ClCompile>
-      <AdditionalIncludeDirectories>/Applications/Xcode_15.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include;/Applications/Xcode_15.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/15.0.0/include;thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>/Applications/Xcode_15.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include;/Applications/Xcode_15.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/15.0.0/include;thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;usd/generated;usd/source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Midl>
-      <AdditionalIncludeDirectories>/Applications/Xcode_15.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include;/Applications/Xcode_15.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/15.0.0/include;thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>/Applications/Xcode_15.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1;/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include;/Applications/Xcode_15.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/15.0.0/include;thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;usd/generated;usd/source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -107,15 +107,19 @@
     <ClInclude Include="shared\include\idtxflow_godot\types\GodotTypes.h" />
     <ClInclude Include="shared\include\idtxflow_godot\version.h" />
     <ClInclude Include="shared\include\idtx\api.h" />
+    <ClInclude Include="shared\include\idtx\compute_Environment.h" />
     <ClInclude Include="shared\include\idtx\compute_ValueFromJson.h" />
     <ClInclude Include="shared\include\idtx\datasource.h" />
     <ClInclude Include="shared\include\idtx\generatedSchema.module.h" />
     <ClInclude Include="shared\include\idtx\mockDatasource_RandomFloat.h" />
+    <ClInclude Include="shared\include\idtx\restDatasource.h" />
     <ClInclude Include="shared\include\idtx\tokens.h" />
     <ClInclude Include="source\converter\UsdGodotStageConverter.h" />
+    <ClInclude Include="source\exec\GodotEnvironmentProviders.h" />
     <ClInclude Include="source\nodes\UsdMeshInstanceNode3D.h" />
     <ClInclude Include="source\nodes\UsdMockDatasourceFloatNode3D.h" />
     <ClInclude Include="source\nodes\UsdMultiMeshInstanceNode3D.h" />
+    <ClInclude Include="source\nodes\UsdRestDatasourceNode3D.h" />
     <ClInclude Include="source\nodes\UsdSkeletonNode3D.h" />
     <ClInclude Include="source\nodes\UsdXFormNode3D.h" />
     <ClInclude Include="source\register_types.h" />
@@ -123,11 +127,14 @@
     <ClInclude Include="templates\extension_template\source\converters\ExamplePrimConverter.h" />
     <ClInclude Include="templates\extension_template\source\register_types.h" />
     <ClInclude Include="source\utils\IDTXFlowGodotLogger.h" />
+    <ClInclude Include="usd\generated\compute_Environment.h" />
     <ClInclude Include="usd\generated\compute_ScaleDouble.h" />
     <ClInclude Include="usd\generated\compute_ValueFromJson.h" />
+    <ClInclude Include="usd\generated\compute_VarReplacements.h" />
     <ClInclude Include="usd\generated\datasource.h" />
     <ClInclude Include="usd\generated\mockDatasource_RandomFloat.h" />
     <ClInclude Include="usd\generated\tokens.h" />
+    <ClInclude Include="usd\source\EnvironmentProvider.h" />
   </ItemGroup>
 
   <ItemGroup>
@@ -136,6 +143,7 @@
     <ClCompile Include="source\nodes\UsdMeshInstanceNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdMockDatasourceFloatNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdMultiMeshInstanceNode3D.cpp" />
+    <ClCompile Include="source\nodes\UsdRestDatasourceNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdSkeletonNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdStageNode3D.cpp" />
     <ClCompile Include="source\nodes\UsdXFormNode3D.cpp" />
@@ -143,12 +151,17 @@
     <ClCompile Include="source\resolver\UsdGodotAssetResolver.cpp" />
     <ClCompile Include="source\resolver\UsdHttpAssetResolver.cpp" />
     <ClCompile Include="templates\extension_template\source\register_types.cpp" />
-    <ClCompile Include="usd\generated\computation_scaledouble.cpp" />
+    <ClCompile Include="usd\generated\compute_Environment.cpp" />
     <ClCompile Include="usd\generated\compute_ScaleDouble.cpp" />
     <ClCompile Include="usd\generated\compute_ValueFromJson.cpp" />
+    <ClCompile Include="usd\generated\compute_VarReplacements.cpp" />
     <ClCompile Include="usd\generated\datasource.cpp" />
     <ClCompile Include="usd\generated\mockDatasource_RandomFloat.cpp" />
-    <ClCompile Include="usd\generated\computation_valuefromjson.cpp" />
+    <ClCompile Include="usd\source\computation_environment.cpp" />
+    <ClCompile Include="usd\source\computation_scaledouble.cpp" />
+    <ClCompile Include="usd\source\computation_valuefromjson.cpp" />
+    <ClCompile Include="usd\source\computation_varreplacements.cpp" />
+    <ClCompile Include="usd\source\EnvironmentProviderRegistry.cpp" />
   </ItemGroup>
 
   <ItemGroup>

@@ -10,17 +10,31 @@
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
 #include <idtxflow/exec/ExecBridgeManager.h>
 
+#include <idtx/EnvironmentProvider.h>
+
 #include "nodes/UsdStaticBodyNode3D.h"
 #include "nodes/UsdMeshInstanceNode3D.h"
 #include "nodes/UsdMockDatasourceFloatNode3D.h"
 #include "nodes/UsdMultiMeshInstanceNode3D.h"
+#include "nodes/UsdRestDatasourceNode3D.h"
 #include "nodes/UsdXFormNode3D.h"
 #include "utils/IDTXFlowGodotLogger.h"
+#include "exec/GodotEnvironmentProviders.h"
 
 using namespace godot;
 
 // Static logger instance — lives for the lifetime of this dll
 static idtxflow::utils::IDTXFlowGodotLogger g_logger;
+
+// Static environment provider instances — live for the lifetime of this dll. They implement
+// the host-agnostic idtx::IEnvironmentProvider contract and are registered with the USD
+// library's EnvironmentProviderRegistry so the Compute_Environment node can resolve its
+// string input via these host-side implementations.
+//  - g_env_var_provider   handles keys prefixed "env:"     (process environment variables)
+//  - g_project_setting_provider (constructed lazily on the main thread at init) handles keys
+//    prefixed "project:" (Godot ProjectSettings snapshot)
+static idtxflow::exec::GodotEnvVarProvider g_env_var_provider;
+static idtxflow::exec::GodotProjectSettingProvider* g_project_setting_provider = nullptr;
 
 #ifdef IDTXFLOW_MDL_ENABLED
 #include <idtxflow/converter/MdlMaterialConverter.h>
@@ -66,6 +80,7 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     GDREGISTER_CLASS(UsdMultiMeshInstanceNode3D)
     GDREGISTER_CLASS(UsdSkeletonNode3D)
     GDREGISTER_CLASS(UsdMockDatasourceFloatNode3D)
+    GDREGISTER_CLASS(UsdRestDatasourceNode3D)
     GDREGISTER_CLASS(UsdStaticBodyNode3D)
     
 #ifdef IDTXFLOW_MDL_ENABLED
@@ -84,7 +99,19 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     // Configure the HTTP asset resolver with the default IXWebSocket-based fetcher
     pxr::UsdHttpAssetResolver::Configure(
         ProjectSettings::get_singleton()->globalize_path("user://usd_cache").utf8().get_data());
-    
+
+    // Register the host-side environment providers with the USD library's registry BEFORE the
+    // exec worker thread starts, so the Compute_Environment node can resolve values from the
+    // very first computation cycle. The provider objects are host-owned and live for the DLL
+    // lifetime; the USD library only stores the pointers.
+    //
+    // The project-settings provider snapshots ProjectSettings here on the MAIN thread (its
+    // constructor reads the ProjectSettings singleton) so the worker thread later reads only
+    // from that immutable snapshot.
+    g_project_setting_provider = new idtxflow::exec::GodotProjectSettingProvider();
+    idtx::EnvironmentProviderRegistry::Instance().RegisterProvider("env", &g_env_var_provider);
+    idtx::EnvironmentProviderRegistry::Instance().RegisterProvider("project", g_project_setting_provider);
+
     // Run the openExec computation bridge
     idtxflow::exec::ExecBridgeManager::Instance().Start();
     
@@ -98,7 +125,15 @@ void uninitialize_idtxflow_module(ModuleInitializationLevel p_level) {
     
     // Stop the openExec computation bridge
     idtxflow::exec::ExecBridgeManager::Instance().Cancel();
-    
+    // Unregister the host-side environment providers only AFTER the exec worker thread has
+    // been cancelled above. This guarantees no in-flight computation can dereference a
+    // provider pointer while / after it is being removed. The provider objects are host-owned;
+    // the env-var provider is a static and needs no deletion, the project-settings provider
+    // was heap-allocated at init and is freed here.
+    idtx::EnvironmentProviderRegistry::Instance().UnregisterAll();
+    delete g_project_setting_provider;
+    g_project_setting_provider = nullptr;
+
 #ifdef IDTXFLOW_MDL_ENABLED
     // shutdown the mdl material conversion
     idtxflow::converter::ShutdownMdlMaterialConverter();
