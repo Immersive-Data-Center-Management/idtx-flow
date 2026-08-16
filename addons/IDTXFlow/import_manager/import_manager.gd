@@ -11,15 +11,16 @@ extends PanelContainer
 ##   Local (res://)
 ##     1. step_select_source  - choose source
 ##     2. step_browse_files   - browse res:// for USD files (usd/usda/usdc/usdz)
-##     3. step_configure      - define import settings (placeholder)
-##     4. step_confirm        - review selection and trigger the import
+##     3. step_configure      - import options: destination + settings + selected-asset
+##                              preview; the "Import" button triggers the import
 ##
 ##   Asset Server
 ##     1. step_select_source   - enter server URL and log in (demo/demo for the mock backend)
-##     2. step_browse_server   - browse the asset server file tree
-##                               (ServerMockData for now; swap for HTTP later)
-##     3. step_configure       - same placeholder settings step
-##     4. step_confirm         - review server metadata and trigger the import
+##     2. step_browse_server   - browse the asset server file list (thin wrapper around
+##                               the shared WizardFileBrowser + a ServerFileProvider that
+##                               talks to the real IDTX backend via IdtxClient)
+##     3. step_configure       - same merged import-options step; "Import" triggers the
+##                               server import (create session + import from download URL)
 
 const WizardTheme := preload("res://addons/IDTXFlow/import_manager/wizard_theme.gd")
 
@@ -29,7 +30,6 @@ const STEP_SELECT_SOURCE_PATH := "res://addons/IDTXFlow/import_manager/step_sele
 const STEP_BROWSE_FILES_PATH  := "res://addons/IDTXFlow/import_manager/step_browse_files.gd"
 const STEP_BROWSE_SERVER_PATH := "res://addons/IDTXFlow/import_manager/step_browse_server.gd"
 const STEP_CONFIGURE_PATH     := "res://addons/IDTXFlow/import_manager/step_configure.gd"
-const STEP_CONFIRM_PATH       := "res://addons/IDTXFlow/import_manager/step_confirm.gd"
 const SERVER_SESSION_PATH     := "res://addons/IDTXFlow/import_manager/server_session.gd"
 
 # DEBUG_COLLAB_MODE - when true, server imports open a "collaborative_edit"
@@ -52,7 +52,7 @@ var _import_state: Dictionary = {
 }
 
 # Set to true while we've hooked into EditorSelection.selection_changed so the
-# step-4 "Target:" info line updates live. Reset when leaving step 4.
+# step-3 "Target:" info line updates live. Reset when leaving step 3.
 var _selection_listener_connected: bool = false
 
 var _server_session: RefCounted
@@ -63,8 +63,7 @@ var _step_container: Control
 var _step_select: Node
 var _step_browse: Node          # local file browser
 var _step_browse_server: Node   # server file browser
-var _step_configure: Node
-var _step_confirm: Node
+var _step_configure: Node       # merged import-options step (destination + settings + preview)
 
 # Which step-2 variant is currently in use (based on chosen source).
 var _active_browse_step: Node = null
@@ -131,20 +130,15 @@ func _build_ui() -> void:
 	_step_browse_server.cancel_requested.connect(_on_cancel)
 	_step_browse_server.next_requested.connect(_on_step2_next)
 
+	# Step 3 is the merged import-options step (destination + settings + preview).
+	# Its "Import" button emits `confirm_requested`, which triggers the import.
 	_step_configure = (load(STEP_CONFIGURE_PATH) as GDScript).new()
 	_step_container.add_child(_step_configure)
 	_step_configure.visible = false
-	_step_configure.next_requested.connect(_on_step3_next)
+	_step_configure.confirm_requested.connect(_on_step3_confirmed)
 	_step_configure.back_requested.connect(_on_step3_back)
 	_step_configure.cancel_requested.connect(_on_cancel)
-
-	_step_confirm = (load(STEP_CONFIRM_PATH) as GDScript).new()
-	_step_container.add_child(_step_confirm)
-	_step_confirm.visible = false
-	_step_confirm.confirm_requested.connect(_on_step4_confirmed)
-	_step_confirm.back_requested.connect(_on_step4_back)
-	_step_confirm.cancel_requested.connect(_on_cancel)
-	_step_confirm.destination_changed.connect(_on_destination_changed)
+	_step_configure.destination_changed.connect(_on_destination_changed)
 
 
 func _build_title_bar() -> Control:
@@ -182,15 +176,17 @@ func _show_step(index: int) -> void:
 	_step_browse_server.visible = index == 2 and use_server
 	_active_browse_step = _step_browse_server if use_server else _step_browse
 
+	# Step 3 is the merged import-options step (destination + settings + preview).
 	_step_configure.visible = index == 3
-	_step_confirm.visible   = index == 4
 
-	if index == 4:
+	if index == 3:
+		# Populate the selected-asset preview from the current selection.
 		var meta: Dictionary = _import_state.get("selected_meta", {})
-		if not meta.is_empty() and _step_confirm.has_method("set_selected_meta"):
-			_step_confirm.set_selected_meta(meta)
-		elif _step_confirm.has_method("set_selected_path"):
-			_step_confirm.set_selected_path(_import_state.get("selected_path", ""))
+		if not meta.is_empty() and _step_configure.has_method("set_selected_meta"):
+			_step_configure.set_selected_meta(meta)
+		elif _step_configure.has_method("set_selected_path"):
+			_step_configure.set_selected_path(_import_state.get("selected_path", ""))
+		# Keep the "Target:" line live while on step 3.
 		_hook_selection_listener()
 		_update_target_info()
 	else:
@@ -198,7 +194,7 @@ func _show_step(index: int) -> void:
 
 
 # --------------------------------------------------------------------------
-# Step 4 target-info + destination handling
+# Step 3 target-info + destination handling
 # --------------------------------------------------------------------------
 
 func _hook_selection_listener() -> void:
@@ -220,24 +216,24 @@ func _unhook_selection_listener() -> void:
 
 
 ## Pushes the current "target scene node" info (or an "open a scene" hint) to
-## the confirm step so it can update the label under the "Import into current
-## scene" radio.
+## the merged import-options step so it can update the label under the
+## "Import into current scene" radio.
 func _update_target_info() -> void:
-	if _step_confirm == null or not _step_confirm.has_method("set_current_target_info"):
+	if _step_configure == null or not _step_configure.has_method("set_current_target_info"):
 		return
 
 	if _editor_interface == null:
-		_step_confirm.set_current_target_info("", "", false)
+		_step_configure.set_current_target_info("", "", false)
 		return
 
 	var scene_root := _editor_interface.get_edited_scene_root()
 	if scene_root == null:
-		_step_confirm.set_current_target_info("", "", false)
+		_step_configure.set_current_target_info("", "", false)
 		return
 
 	var target := _get_target_scene_node()
 	if target == null:
-		_step_confirm.set_current_target_info(scene_root.name, "root", true)
+		_step_configure.set_current_target_info(scene_root.name, "root", true)
 		return
 
 	var sub: String
@@ -245,7 +241,7 @@ func _update_target_info() -> void:
 		sub = "root"
 	else:
 		sub = String(scene_root.get_path_to(target))
-	_step_confirm.set_current_target_info(target.name, sub, true)
+	_step_configure.set_current_target_info(target.name, sub, true)
 
 
 func _on_destination_changed(destination: String) -> void:
@@ -310,20 +306,14 @@ func _on_step2_back() -> void:
 	_show_step(1)
 
 
-func _on_step3_next() -> void:
-	_show_step(4)
+## Step 3 "Import" pressed → run the import (destination is already tracked via
+## `_on_destination_changed`).
+func _on_step3_confirmed() -> void:
+	_perform_import()
 
 
 func _on_step3_back() -> void:
 	_show_step(2)
-
-
-func _on_step4_confirmed() -> void:
-	_perform_import()
-
-
-func _on_step4_back() -> void:
-	_show_step(3)
 
 
 func _on_cancel() -> void:

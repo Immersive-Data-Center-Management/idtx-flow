@@ -201,24 +201,32 @@ func _build_thumbnail(parent: VBoxContainer) -> void:
 func _add_meta_group(parent: Container, caption: String) -> Label:
 	var group := VBoxContainer.new()
 	group.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	group.add_theme_constant_override("separation", WizardTheme.px(2))
+	#group.add_theme_constant_override("separation", WizardTheme.px(2))
+	group.add_theme_constant_override("separation", 0)
 	parent.add_child(group)
-
+	# Caption band: same faint, transparency-based tint used by the collapsible
+	# section headers (WizardTheme.get_subsection_color at low alpha) so the
+	# meta captions read as consistent header bands across the wizard. The
+	# value label below stays plain — only the caption gets the tint.
+	var caption_panel := PanelContainer.new()
+	caption_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_apply_caption_tint(caption_panel)
+	# Re-apply on theme changes so the tint tracks the editor theme (same
+	# pattern as `_apply_section_header_style` in step_configure.gd).
+	caption_panel.theme_changed.connect(_apply_caption_tint.bind(caption_panel))
+	group.add_child(caption_panel)
 	var header_label := Label.new()
 	header_label.text = caption
 	header_label.theme_type_variation = "HeaderSmall"
-	group.add_child(header_label)
-
+	caption_panel.add_child(header_label)
 	var value_margin := MarginContainer.new()
 	value_margin.add_theme_constant_override("margin_left", WizardTheme.px(8))
 	value_margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	group.add_child(value_margin)
-
 	var value := Label.new()
 	value.text = "-"
 	value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	value_margin.add_child(value)
-
 	return value
 
 
@@ -253,3 +261,29 @@ func _format_size(bytes: int) -> String:
 	if bytes < 1024 * 1024 * 1024:
 		return "%.1f MB" % (bytes / (1024.0 * 1024.0))
 	return "%.2f GB" % (bytes / (1024.0 * 1024.0 * 1024.0))
+	
+# Re-entrancy guard: `add_theme_stylebox_override` emits `theme_changed`, which
+# we connect back to this function. Without the guard we'd recurse infinitely.
+var _applying_caption_tint := false
+## Reproduce the wizard's section-header tint on an arbitrary PanelContainer:
+## the theme's `prop_subsection` color at low alpha (a *= 0.4), same recipe as
+## `step_configure.gd::_apply_section_header_style`. Padding is kept minimal so
+## the caption reads as a slim tinted band, not a full section header.
+func _apply_caption_tint(panel: PanelContainer) -> void:
+	if _applying_caption_tint:
+		return
+	_applying_caption_tint = true
+	if panel.has_theme_stylebox_override("panel"):
+		panel.remove_theme_stylebox_override("panel")
+	var tint := WizardTheme.get_subsection_color(panel)
+	tint.a *= 0.4
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = tint
+	# Slim caption band — small horizontal padding, tight vertical rhythm so
+	# the value label sits directly below without a big visual gap.
+	sb.content_margin_left = float(WizardTheme.px(6))
+	#sb.content_margin_right = float(WizardTheme.px(6))
+	#sb.content_margin_top = float(WizardTheme.px(2))
+	#sb.content_margin_bottom = float(WizardTheme.px(2))
+	panel.add_theme_stylebox_override("panel", sb)
+	_applying_caption_tint = false

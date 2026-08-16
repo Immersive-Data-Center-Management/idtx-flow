@@ -40,7 +40,7 @@ func _ready() -> void:
 func _build() -> void:
 	var header := WizardHeader.new()
 	add_child(header)
-	header.setup(1, 4, "Select importer:", "Connect to the USD asset server or import from local files")
+	header.setup(1, 3, "Select importer:", "Connect to the USD asset server or import from local files")
 
 	# Body: a centered narrow column
 	var body_center := CenterContainer.new()
