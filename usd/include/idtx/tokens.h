@@ -41,10 +41,14 @@ PXR_NAMESPACE_OPEN_SCOPE
 /// Use IDTXTokens like so:
 ///
 /// \code
-///     gprim.GetMyTokenValuedAttr().Set(IDTXTokens->Box);
+///     gprim.GetMyTokenValuedAttr().Set(IDTXTokens->authorization);
 /// \endcode
 struct IDTXTokensType {
     IDTX_API IDTXTokensType();
+    /// \brief "authorization"
+    /// 
+    /// IDTXRestDatasource
+    const TfToken authorization;
     /// \brief "Box"
     /// 
     /// Fallback value for IDTXCollisionAPI::GetCollisionShapeAttr()
@@ -81,10 +85,18 @@ struct IDTXTokensType {
     /// 
     /// Possible value for IDTXCompute_ValueFromJson::GetJsonValueTypeAttr()
     const TfToken double_;
+    /// \brief "endpoint"
+    /// 
+    /// IDTXRestDatasource
+    const TfToken endpoint;
     /// \brief "float"
     /// 
     /// Possible value for IDTXCompute_ValueFromJson::GetJsonValueTypeAttr()
     const TfToken float_;
+    /// \brief "GET"
+    /// 
+    /// Fallback value for IDTXRestDatasource::GetMethodAttr()
+    const TfToken GET;
     /// \brief "Grab"
     /// 
     /// Possible value for IDTXCollisionAPI::GetCollisionInteractionTypesAttr()
@@ -97,6 +109,14 @@ struct IDTXTokensType {
     /// 
     /// IDTXCompute_ValueFromJson
     const TfToken inputsJsonData;
+    /// \brief "inputs:key"
+    /// 
+    /// IDTXCompute_Environment
+    const TfToken inputsKey;
+    /// \brief "inputs:template"
+    /// 
+    /// IDTXCompute_VarReplacements
+    const TfToken inputsTemplate;
     /// \brief "inputs:value"
     /// 
     /// IDTXCompute_ScaleDouble
@@ -119,12 +139,16 @@ struct IDTXTokensType {
     const TfToken interactionIdentifier;
     /// \brief "interval"
     /// 
-    /// IDTXMockDatasource_RandomFloat
+    /// IDTXMockDatasource_RandomFloat, IDTXRestDatasource
     const TfToken interval;
     /// \brief "invisible"
     /// 
     /// Fallback value for IDTXCollisionAPI schema attribute visibility
     const TfToken invisible;
+    /// \brief "jsonBody"
+    /// 
+    /// IDTXRestDatasource
+    const TfToken jsonBody;
     /// \brief "jsonPath"
     /// 
     /// IDTXCompute_ValueFromJson
@@ -133,6 +157,10 @@ struct IDTXTokensType {
     /// 
     /// IDTXCompute_ValueFromJson
     const TfToken jsonValueType;
+    /// \brief "method"
+    /// 
+    /// IDTXRestDatasource
+    const TfToken method;
     /// \brief "NO_VALUE"
     /// 
     /// Fallback value for IDTXInteractionAPI::GetInteractionIdentifierAttr()
@@ -159,8 +187,12 @@ struct IDTXTokensType {
     const TfToken outputsJsonValueString;
     /// \brief "outputs:result"
     /// 
-    /// IDTXCompute_ScaleDouble
+    /// IDTXCompute_VarReplacements, IDTXCompute_ScaleDouble
     const TfToken outputsResult;
+    /// \brief "outputs:value"
+    /// 
+    /// IDTXCompute_Environment
+    const TfToken outputsValue;
     /// \brief "physics:collider"
     /// 
     /// IDTXCollisionSetAPI
@@ -169,10 +201,18 @@ struct IDTXTokensType {
     /// 
     /// IDTXCollisionSetAPI
     const TfToken physicsColliderQuerry;
+    /// \brief "POST"
+    /// 
+    /// Possible value for IDTXRestDatasource::GetMethodAttr()
+    const TfToken POST;
     /// \brief "purpose"
     /// 
     /// IDTXCollisionAPI
     const TfToken purpose;
+    /// \brief "query"
+    /// 
+    /// IDTXRestDatasource
+    const TfToken query;
     /// \brief "Rigidbody"
     /// 
     /// Possible value for IDTXCollisionAPI::GetCollisionTypeAttr()
@@ -209,6 +249,10 @@ struct IDTXTokensType {
     /// 
     /// Schema identifer and family for IDTXCollisionSetAPI
     const TfToken CollisionSetAPI;
+    /// \brief "Compute_Environment"
+    /// 
+    /// Schema identifer and family for IDTXCompute_Environment
+    const TfToken Compute_Environment;
     /// \brief "Compute_ScaleDouble"
     /// 
     /// Schema identifer and family for IDTXCompute_ScaleDouble
@@ -217,6 +261,10 @@ struct IDTXTokensType {
     /// 
     /// Schema identifer and family for IDTXCompute_ValueFromJson
     const TfToken Compute_ValueFromJson;
+    /// \brief "Compute_VarReplacements"
+    /// 
+    /// Schema identifer and family for IDTXCompute_VarReplacements
+    const TfToken Compute_VarReplacements;
     /// \brief "Datasource"
     /// 
     /// Schema identifer and family for IDTXDatasource
@@ -229,6 +277,10 @@ struct IDTXTokensType {
     /// 
     /// Schema identifer and family for IDTXMockDatasource_RandomFloat
     const TfToken MockDatasource_RandomFloat;
+    /// \brief "RestDatasource"
+    /// 
+    /// Schema identifer and family for IDTXRestDatasource
+    const TfToken RestDatasource;
     /// A vector of all of the tokens listed above.
     const std::vector<TfToken> allTokens;
 };

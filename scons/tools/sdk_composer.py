@@ -55,6 +55,7 @@ def _do_compose(target, source, env):
     gdext_dir   = env["gdextension_lib_dir"]
     boot_dir    = env["ext_bootstrap_lib_dir"]
     openusd_dir = paths.openusd_install
+    shared_lib_dir = paths.shared_libs
 
     # ---- Copy libs ---------------------------------------------------------
     if platform.is_windows:
@@ -62,15 +63,18 @@ def _do_compose(target, source, env):
         shutil.copy(f"{boot_dir}/{boot_lib}",        paths.sdk_libs)
         shutil.copy(f"{openusd_dir}/lib/usd_ms.lib", paths.sdk_libs)
         shutil.copy(f"{openusd_dir}/lib/tbb12.lib",  paths.sdk_libs)
+        shutil.copy(f"{shared_lib_dir}/windows/libidtx_usd.lib", paths.sdk_libs)
     elif platform.is_macos:
         shutil.copy(f"{gdext_dir}/{gdext_lib}",           paths.sdk_libs)
         shutil.copy(f"{boot_dir}/{boot_lib}",             paths.sdk_libs)
         shutil.copy(f"{openusd_dir}/lib/libusd_ms.dylib", paths.sdk_libs)
         shutil.copy(f"{openusd_dir}/lib/libtbb.12.dylib", paths.sdk_libs)
+        shutil.copy(f"{shared_lib_dir}/macos/libidtx_usd.dylib", paths.sdk_libs)
     elif platform.is_android:
         shutil.copy(f"{gdext_dir}/{gdext_lib}",        paths.sdk_libs)
         shutil.copy(f"{boot_dir}/{boot_lib}",          paths.sdk_libs)
         shutil.copy(f"{openusd_dir}/lib/libusd_ms.so", paths.sdk_libs)
+        shutil.copy(f"{shared_lib_dir}/android/libidtx_usd.so", paths.sdk_libs)
         tbb_so = os.path.join(paths.onetbb_android, "lib", "libtbb.so")
         if os.path.exists(tbb_so):
             shutil.copy(tbb_so, paths.sdk_libs)
@@ -80,6 +84,7 @@ def _do_compose(target, source, env):
         shutil.copy(f"{boot_dir}/{boot_lib}",          paths.sdk_libs)
         shutil.copy(f"{openusd_dir}/lib/libusd_ms.so", paths.sdk_libs)
         shutil.copy(f"{openusd_dir}/lib/libtbb.12.so", paths.sdk_libs)
+        shutil.copy(f"{shared_lib_dir}/{platform.name}/libidtx_usd.lib", paths.sdk_libs)
 
     # ---- Copy headers ------------------------------------------------------
     shutil.copytree(f"{openusd_dir}/include/pxr",
@@ -98,6 +103,9 @@ def _do_compose(target, source, env):
                         f"{paths.sdk_includes}/oneapi",
                         dirs_exist_ok=True)
 
+    shutil.copytree(f"{paths.shared_include}/idtx",
+                    f"{paths.sdk_includes}/idtx",
+                    dirs_exist_ok=True)
     shutil.copytree(f"{paths.shared_include}/idtxflow",
                     f"{paths.sdk_includes}/idtxflow",
                     dirs_exist_ok=True)

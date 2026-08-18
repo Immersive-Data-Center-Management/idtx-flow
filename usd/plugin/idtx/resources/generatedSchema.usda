@@ -42,6 +42,42 @@ class Compute_ValueFromJson "Compute_ValueFromJson" (
     )
 }
 
+class Compute_Environment "Compute_Environment" (
+    customData = {
+        string userDocBrief = "This Schema (PrimType) registers a computation that resolves an input key string into a value string using a host-registered provider (e.g. environment variables or engine project settings). The USD library itself does not know how the value is produced; the host application registers a provider implementation."
+    }
+)
+{
+    string inputs:key = "" (
+        customData = {
+            string userDocBrief = "The key to resolve. A prefix selects the provider domain, e.g. 'env:PATH' resolves the environment variable PATH, 'project:physics/gravity' resolves an engine project setting. Keys without a known prefix are routed to the default provider if one is registered."
+        }
+    )
+    string outputs:value = "" (
+        customData = {
+            string userDocBrief = "The resolved value string. Empty if the key could not be resolved or no matching provider was registered."
+        }
+    )
+}
+
+class Compute_VarReplacements "Compute_VarReplacements" (
+    customData = {
+        string userDocBrief = "This Schema (PrimType) registers a computation that replaces every token of the form ${<type>:<name>} inside the input string with a value resolved via a host-registered provider (e.g. env, auth, var). The USD library itself does not know how the values are produced; the host application registers provider implementations. The 'type' selects the provider domain and the 'name' is the key passed to that provider."
+    }
+)
+{
+    string inputs:template = "" (
+        customData = {
+            string userDocBrief = "The input string that may contain tokens of the form ${<type>:<name>}, e.g. 'ts=${var:CURRENT_TIME}&home=${env:HOME}'. Each token is replaced with the value resolved by the provider registered for <type>. Tokens that cannot be resolved are replaced with an empty string."
+        }
+    )
+    string outputs:result = "" (
+        customData = {
+            string userDocBrief = "The input string with every ${<type>:<name>} token replaced by its resolved value."
+        }
+    )
+}
+
 class Compute_ScaleDouble "Compute_ScaleDouble" (
     customData = {
         string userDocBrief = "This Schema (PrimType) registers a computation that will multiply the input value with the scalarFactor"
@@ -92,6 +128,50 @@ class MockDatasource_RandomFloat "MockDatasource_RandomFloat" (
     string outputs:data = "{}" (
         customData = {
             string userDocBrief = "The data output of the data source as JSON string."
+        }
+    )
+}
+
+class RestDatasource "RestDatasource" (
+    customData = {
+        string userDocBrief = "This is a REST data source that calls the provided REST endoint and returns the JSON response."
+    }
+)
+{
+    string authorization (
+        customData = {
+            string userDocBrief = "The authorization header value passed to the request."
+        }
+    )
+    string endpoint = "" (
+        customData = {
+            string userDocBrief = "The base URL of the REST API endpoint."
+        }
+    )
+    float interval = 1 (
+        customData = {
+            string userDocBrief = "The update interval in seconds the REST datasource shall call it's endpoint and author the response into \\sa outputs:data attribute in the current usd stage this prim is authored."
+        }
+    )
+    string jsonBody = "{}" (
+        customData = {
+            string userDocBrief = "The JSON body to be send to the endpoint, when the method is set to POST."
+        }
+    )
+    token method = "GET" (
+        allowedTokens = ["GET", "POST"]
+        customData = {
+            string userDocBrief = "HTTP Method to be used for the call to the endpoint."
+        }
+    )
+    string outputs:data = "{}" (
+        customData = {
+            string userDocBrief = "The data output of the data source as JSON string."
+        }
+    )
+    string query = "" (
+        customData = {
+            string userDocBrief = "The query to append to the endpoint URL after the path."
         }
     )
 }

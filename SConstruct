@@ -45,14 +45,27 @@ from scons.core.profile import build_profile
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
+# USD Version and path configuration
+openusd_version = "26.08"
+shared_thirdparty_root = "./thirdparty"
 
-# Latest compatible and tested OpenUSD version
-OPENUSD_VERSION = "26.05"
+# allow developer to overwrite those paths
+try:
+    import custom
+except ImportError:
+    custom = None
+
+if custom:
+    openusd_version = getattr(custom, "OPENUSD_VERSION", openusd_version)
+    shared_thirdparty_root = getattr(custom, "SHARED_THIRDPARTY_ROOT", shared_thirdparty_root)
+
+usd_root = f"{shared_thirdparty_root}/openusd-{openusd_version}"
+usd_src = f"{shared_thirdparty_root}/openusd-{openusd_version}-src"
 
 # Construct the profile once. This validates ANDROID_NDK_ROOT when
 # targeting Android (calls Exit on failure) and freezes every flag and
 # path decision the build will make.
-profile  = build_profile(ARGUMENTS, openusd_version=OPENUSD_VERSION)
+profile  = build_profile(ARGUMENTS, openusd_version=openusd_version)
 platform = profile.platform
 paths    = profile.paths
 
@@ -83,6 +96,9 @@ if platform.is_android:
         tools=["gcc", "g++", "gnulink", "ar", "gas"] + SCONS_TOOLS,
         toolpath=["scons/tools"],
         PATH=os.environ.get("PATH", ""),
+        OPENUSD_VERSION=openusd_version,
+        OPENUSD_PATH=usd_root,
+        OPENUSD_SRC_PATH=usd_src,
         **profile.scons_env_overrides,   # NDK CC/CXX/AR/RANLIB/STRIP/AS/LINK
     )
     # Stash the NDK info so tools that shell out to CMake (ixwebsocket,
@@ -96,6 +112,9 @@ else:
         tools=["default"] + SCONS_TOOLS,
         toolpath=["scons/tools"],
         MSVC_VERSION="14.3",
+        OPENUSD_VERSION=openusd_version,
+        OPENUSD_PATH=usd_root,
+        OPENUSD_SRC_PATH=usd_src,
         PATH=os.environ.get("PATH", ""),
     )
 

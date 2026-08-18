@@ -25,6 +25,9 @@ the IDTXFlow GDExtension. They are available in any USD stage loaded by IDTXFlow
 | `Datasource`                 | Abstract Base       | —                              | Abstract base type for all datasource prims. Declares the `outputs:data` string attribute.           |
 | `MockDatasource_RandomFloat` | Datasource (Demo)   | `UsdMockDatasourceFloatNode3D` | **Demo-only.** Simulates a data source generating a random float on a configurable interval as JSON. |
 | `Compute_ValueFromJson`      | Compute Node        | —                              | Extracts a typed scalar from a JSON string at a given JSON Pointer path. **Production-ready.**       |
+| `Compute_Environment`        | Compute Node        | — (host provider)              | Resolves a string key to a string value via a host-registered provider (env vars / project settings). **Production-ready.** |
+| `Compute_VarReplacements`    | Compute Node        | — (host provider)              | Replaces a variable placeholder like `${TYPE:NAME}` with an actual value via a host-registered provider.
+`TYPE` could be any identifyer a host-provider is registered for. Eg. `env`, `var`, `project` **Production-ready** |
 | `Compute_ColorFromFloat`     | Compute Node (Demo) | —                              | **Demo-only.** Maps a float onto a `color3f` via a configurable boundary/color lookup table.         |
 
 ---
@@ -168,6 +171,155 @@ def Sphere "TemperatureIndicator" {
     double radius.connect = </World/ScaleTemperature.outputs:result>
 }
 ```
+
+### Built-In Compute Node: `Compute_Environment`
+
+`Compute_Environment` is a __built-in, production-ready compute-node type__ that resolves a **string key** into a
+**string value** using a provider that is supplied by the host application at runtime. This lets a USD stage reference
+external, host-owned values (environment variables, engine project settings, and so on) *without* the USD library
+knowing anything about the host engine.
+
+```usda
+class Compute_Environment "Compute_Environment" (
+    inherits = </Typed>
+)
+{
+    string inputs:key = ""     # e.g. "env:PATH" or "project:physics/gravity"
+    string outputs:value = ""  # the resolved value, or "" if unresolved / no provider
+}
+```
+
+The `inputs:key` string uses an optional **`<prefix>:<name>` routing convention**. The prefix selects which registered
+provider handles the lookup:
+
+| Key example                  | Routed to prefix | Resolves to                                             |
+|------------------------------|------------------|---------------------------------------------------------|
+| `env:PATH`                   | `env`            | the `PATH` process environment variable                 |
+| `project:physics/gravity`    | `project`        | the Godot ProjectSettings entry `physics/gravity`       |
+| `auth:TOKEN`                 | `auth`           | the `TOKEN` is requested from the auth provider performing
+an oAuth Login-Flow to provide the token. |
+| `SOME_KEY` (no prefix)       | default provider | passed unchanged to a provider registered with `""`     |
+
+If no matching provider is registered, or the key cannot be resolved, `outputs:value` is the empty string. The stage
+therefore loads and computes safely even in a host that registers no providers at all.
+
+Example — feed a project setting into a downstream string attribute:
+
+```usda
+def Compute_Environment "GetGravity" {
+    string inputs:key = "project:physics/3d/default_gravity"
+    string outputs:value = ""
+}
+
+def MyStringConsumerPrim "Consumer" {
+    string label = ""
+    string label.connect = </World/GetGravity.outputs:value>
+}
+```
+
+### Built-In Compute Node: `Compute_VarReplacement`
+
+`Compute_VarReplacements` is a __built-in, production-ready compute-node type__ that replaces a **${VARNAME}** placeholder into a
+**string value** using a provider that is supplied by the host application at runtime. This lets a USD stage reference
+external, host-owned values (environment variables, engine project settings, and so on) *without* the USD library
+knowing anything about the host engine.
+
+```usda
+class Compute_VarReplacements "Compute_VarReplacements" (
+    inherits = </Typed>
+)
+{
+    string inputs:template = "" # string containing variable placeholder like ${var:SOME_VAR} or ${env:SOME_ENV_VAR}
+    string outputs:result = "" # the result with placeholder replaced with actual value
+}
+```
+
+The variable names contained in the `inputs:template` string uses an optional **`<prefix>:<name>` routing convention**. The prefix selects which registered
+provider handles the lookup, see the __`Compute_Environment`__ section.
+
+Example — feed a custom env variable into a downstream string attribute:
+
+```usda
+def Compute_VarReplacements "ReplaceNameVariables" {
+    string inputs:template = "My Name is ${env:FIRSTNAME} ${env:LASTNAME}"
+    string outputs:result = ""
+}
+
+def MyStringConsumerPrim "Consumer" {
+    string label = ""
+    string label.connect = </World/ReplaceNameVariables.outputs:result>
+}
+```
+
+#### The Provider Extension Point (`IEnvironmentProvider`)
+
+Unlike the other compute nodes, `Compute_Environment` and `Compute_VarReplacements` needs a value that only the host can supply. To keep the USD
+library (`libidtx_usd`) completely host-agnostic, the resolution is delegated across the DLL boundary through a small,
+stable contract:
+
+- **`idtx::IEnvironmentProvider`** — a pure abstract interface (`bool Resolve(const std::string& key, std::string& out)`)
+  implemented by the host.
+- **`idtx::EnvironmentProviderRegistry`** — a process-wide singleton **owned by and exported from `libidtx_usd`**
+  (`IDTX_API`). The host registers its provider(s) here, keyed by prefix. The computation queries the registry at
+  compute time.
+
+Both live in `EnvironmentProvider.h`, which is authored under `usd/source/` and **copied by the SCons build into
+`shared/include/idtx/`** alongside the other public IDTX headers, so any consumer that links `libidtx_usd` can include
+`<idtx/EnvironmentProvider.h>`.
+
+**Registering a provider (host side).** The Godot GDExtension does this in `register_types.cpp`:
+
+```cpp
+#include <idtx/EnvironmentProvider.h>
+
+// host-owned provider objects, alive for the DLL lifetime
+static idtxflow::exec::GodotEnvVarProvider          g_env_var_provider;
+static idtxflow::exec::GodotProjectSettingProvider* g_project_setting_provider = nullptr;
+
+// during initialize (BEFORE the exec worker thread starts):
+g_project_setting_provider = new idtxflow::exec::GodotProjectSettingProvider(); // snapshots on main thread
+idtx::EnvironmentProviderRegistry::Instance().RegisterProvider("env",     &g_env_var_provider);
+idtx::EnvironmentProviderRegistry::Instance().RegisterProvider("project", g_project_setting_provider);
+
+// during uninitialize (AFTER ExecBridgeManager::Cancel()):
+idtx::EnvironmentProviderRegistry::Instance().UnregisterAll();
+delete g_project_setting_provider;
+```
+
+**Writing your own provider (any consumer of `libidtx_usd`).**
+
+```cpp
+#include <idtx/EnvironmentProvider.h>
+
+class MyProvider : public idtx::IEnvironmentProvider {
+public:
+    bool Resolve(const std::string& key, std::string& out) const override {
+        // ... your lookup; return true and set `out` on success ...
+        return false;
+    }
+};
+
+static MyProvider g_myProvider;
+// register under a prefix of your choosing (or "" for the default provider):
+idtx::EnvironmentProviderRegistry::Instance().RegisterProvider("mydomain", &g_myProvider);
+```
+
+**Important implementation notes:**
+
+- **Threading.** The exec worker thread (see below) calls the computation — and therefore `Resolve()` — off the main
+  thread every ~100 ms. Providers **must be thread-safe** and must **not** call main-thread-only host APIs directly.
+  The bundled `GodotProjectSettingProvider` sidesteps this by capturing an **immutable snapshot** of ProjectSettings on
+  the main thread at construction and serving all subsequent lookups from that snapshot.
+- **Lifetime & shutdown ordering.** The registry stores *raw pointers* and does **not** own the providers. Register
+  before the exec thread starts; call `UnregisterAll()` **after** `ExecBridgeManager::Instance().Cancel()` so no
+  in-flight computation can dereference a provider that is being removed.
+- **No exceptions across the boundary.** `Resolve()` returns `false` on failure rather than throwing.
+- **CRT/ABI.** `std::string` crosses the DLL boundary; this is safe because the host and `libidtx_usd` are built with
+  the same toolchain/CRT (MSVC `/MD` on Windows) — the same invariant already relied on by the ExecBridge
+  (`pxr::VtValue`/`std::string` in `ExecComputeResult`). On Windows the USD DLL is pre-loaded by Godot via the
+  `.gdextension` dependencies and the existing delay-load hook, so the host resolves the exported registry symbols the
+  same way it already resolves `ExecBridgeManager`.
+
 ## The ExecBridge and ExecBridgeManager
 
 ### Motivation: Pull vs. Push

@@ -7,6 +7,11 @@ from dataclasses import dataclass
 
 from .platform_info import PlatformInfo
 
+# allow developer to overwrite paths
+try:
+    import custom
+except ImportError:
+    custom = None
 
 @dataclass(frozen=True)
 class BuildPaths:
@@ -16,6 +21,8 @@ class BuildPaths:
     # ---- Third-party roots --------------------------------------------------
     @property
     def thirdparty(self) -> str:
+        if custom:
+            return getattr(custom, "SHARED_THIRDPARTY_ROOT", "thirdparty")
         return "thirdparty"
 
     @property

@@ -7,6 +7,7 @@
 /addons/IDTXFlow/LICENSES-THIRD-PARTY
 /addons/IDTXFlow/THIRDPARTY.txt
 __pycache__
+/__pycache__
 */**/__pycache__
 /source/gen
 /templates/extension_template/thirdparty
@@ -30,3 +31,6 @@ IDTXFlowGodot.sln.DotSettings.user
 *.o
 *.a
 *.ilk
+
+# ignore local scons settings
+custom.py

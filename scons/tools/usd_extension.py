@@ -37,11 +37,12 @@ def _generate_code(env):
     print("Generate openUSD Extension code from schema...")
 
     paths = env["profile"].paths
-    openusd_root = os.path.abspath(paths.openusd_python)
+    openusd_root = os.path.abspath(paths.openusd_python)    
 
     gen_env = os.environ.copy()
     gen_env["USD_ROOT"]   = openusd_root
-    gen_env["PYTHONPATH"] = f"{openusd_root}/lib/python"
+    # note that openUSD 26.08 uses 'site-packages' while older versions use 'python'  as path here
+    gen_env["PYTHONPATH"] = f"{openusd_root}/lib/site-packages"
     gen_env["PATH"] = f"{openusd_root}/bin{os.pathsep}{openusd_root}/lib{os.pathsep}{os.environ.get('PATH', '')}"
 
     bin_dir = f"{openusd_root}/bin"
@@ -86,7 +87,8 @@ def _build_extension(env):
 
     include_paths = [
         paths.usd_ext_generated,
-        f"{openusd_root}/include",
+        paths.usd_ext_source,
+        f"{paths.openusd_install}/include",
         python_include,
     ]
     lib_paths = [f"{openusd_root}/lib"]
