@@ -39,6 +39,9 @@ my-extension/
 
 2. **godot-cpp** must be built (this is what the `godotcpp` scons tool does).
 
+3. Use the same immutable godot-cpp release as IDTXFlow. The template pins
+   godot-4.5-stable; do not replace it with the moving 4.5 branch.
+
 ## Building
 
 ```bash
@@ -61,11 +64,23 @@ The built shared library will be placed in `addons/MyIdtxflowExtension/bin/<plat
 4. In `register_types.cpp`, call `Registry::Instance().Register(std::make_shared<MyConverter>())`
 5. In `register_types.cpp` terminator, call `Registry::Instance().Unregister("MyConverter")`
 
+### Cross-GDExtension object rule
+
+IPrimConverter transports ConvertedEntityHandle values, not raw godot-cpp
+wrapper pointers. In Convert(), return
+Types::GetConvertedEntityHandle(node). In PostProcess(), resolve the received
+handles with Types::ResolveConvertedEntity() before using the nodes.
+
+Each GDExtension owns a distinct godot-cpp instance-binding token. Passing a
+godot::Node3D pointer to another DLL lets that DLL dereference a foreign C++
+wrapper and can crash even though the underlying Godot object is valid.
+
 ## Creating a Custom Node
 
 If your converted prim needs a custom Godot node class:
 
 1. Create a class inheriting from a Godot node type (e.g., `Node3D`, `Camera3D`)
 2. Also inherit from `IUsdNode3D` for USD metadata integration
-3. Use the `IUSDNODE()` and `IUSDNODE_IMPLEMENT_BINDINGS` macros
-4. Register with `GDREGISTER_CLASS()` in your `initialize_*_module()` function
+3. Use `IUSDNODE(MyNode, false)` for a regular USD node, or pass `true` when the node also implements `IExecBridgeHandler`
+4. Use the `IUSDNODE_IMPLEMENT_BINDINGS` macro in `_bind_methods()`
+5. Register with `GDREGISTER_CLASS()` in your `initialize_*_module()` function

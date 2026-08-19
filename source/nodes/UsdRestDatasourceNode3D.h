@@ -11,7 +11,7 @@ class UsdRestDatasourceNode3D : public godot::Node3D, public IExecBridgeHandler
                                 , public IUsdNode3D
 {
     GDCLASS(UsdRestDatasourceNode3D, Node3D)
-    IUSDNODE(UsdRestDatasourceNode3D)
+    IUSDNODE(UsdRestDatasourceNode3D, true)
     
     IDTX_LOG_CATEGORY("UsdRestDatasourceNode3D")
     

@@ -16,6 +16,7 @@
  * 
  */
 
+#include <algorithm>
 #include <assert.h>
 #include <map>
 
@@ -129,10 +130,19 @@ namespace exec
             exec_system_->PrepareRequest(*exec_request_);
         }
         
-        void RegisterComputeResultHandler(const pxr::SdfPath& primPath, std::shared_ptr<IExecBridgeHandler> handler)
+        /**
+         * Register a borrowed compute-result handler.
+         *
+         * ExecBridge never owns or deletes the handler. The StageHandle must
+         * deactivate and destroy this bridge before converted entities are
+         * destroyed, so no callback can observe a dangling handler pointer.
+         */
+        void RegisterComputeResultHandler(const pxr::SdfPath& primPath, IExecBridgeHandler* handler)
         {
             if (!handler) return;
-            result_handlers_[primPath].push_back(handler);
+            auto& handlers = result_handlers_[primPath];
+            if (std::find(handlers.begin(), handlers.end(), handler) == handlers.end())
+                handlers.push_back(handler);
         }
 
         /**
@@ -237,7 +247,7 @@ namespace exec
         // The parallel list, having the same indices for their matching exec_value_keys_ entry
         std::vector<ValueKeyMetadata> value_key_metas_;
         // The list of handlers that will be invoked to handle the updated computation results
-        std::unordered_map<pxr::SdfPath, std::vector<std::shared_ptr<IExecBridgeHandler>>, pxr::SdfPath::Hash> result_handlers_;
+        std::unordered_map<pxr::SdfPath, std::vector<IExecBridgeHandler*>, pxr::SdfPath::Hash> result_handlers_;
 
         // Monotonically increasing time code fed to ExecUsdSystem::ChangeTime() on every
         // ComputeAndDispatch() cycle. This drives Exec's time-based invalidation so that

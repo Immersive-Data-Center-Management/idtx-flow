@@ -123,6 +123,14 @@ namespace helper
 namespace converter
 {
     constexpr float MIN_SPHERE_RADIUS = 1e-6f;
+
+    template<>
+    inline IExecBridgeHandler* UsdStageConverter<types::TargetEngineGodot>::GetExecBridgeHandler(
+        godot::Node3D* node)
+    {
+        IUsdNode3D* usd_node = IUsdNode3D::from_node(node);
+        return usd_node ? usd_node->get_exec_bridge_handler() : nullptr;
+    }
     
     template<>
     inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertXform(
@@ -785,17 +793,21 @@ namespace converter
         godot::Node3D* converted_parent_prim
     )
     {
+        IDTX_LOG(IDTX_DEBUG, "ConvertPrimPostProcess. Prim '{}' converted ? {}", usd_prim.GetName().GetText(), converted_prim ? "yes" : "no");
         if (converted_prim == nullptr) return nullptr;
         
         // maintain parent-child-relationship
+        IDTX_LOG(IDTX_DEBUG, "ConvertPrimPostProcess : try setting parent if set ({})", converted_parent_prim ? "yes" : "no");
         if (converted_parent_prim != nullptr) converted_parent_prim->add_child(converted_prim);
         
         // set name and add META-Tags:
+        IDTX_LOG(IDTX_DEBUG, "ConvertPrimPostProcess : try setting meta info");
         converted_prim->set_name(usd_prim.GetName().GetText());
         // TODO: check if required, as all nodes converted from an usdPrim implement IUsdNode3D
         converted_prim->set_meta("USD_NODE", true);
         
         // store data in the shared IUsdNode3D class
+        IDTX_LOG(IDTX_DEBUG, "Check if Node is IUsdNode3D");
         IUsdNode3D* usd_node = IUsdNode3D::from_node(converted_prim);
         // it is an implementation error if the node we convert into does not implement IUsdNode3D
         if (!usd_node) IDTX_LOG(IDTX_ERROR, "Unable to get the IUsdNode3D interface for this node: %s", usd_prim.GetName().GetText());
@@ -805,6 +817,7 @@ namespace converter
         usd_node->set_prim_type(usd_prim.GetTypeName().GetText());
         usd_node->set_stage_path(Stage->GetRootLayer()->GetRealPath().c_str());
         
+        IDTX_LOG(IDTX_DEBUG, "ConvertPrimPostProcess done");
         return converted_prim;
     }
     
@@ -812,6 +825,7 @@ namespace converter
     inline std::vector<godot::Node3D*> UsdStageConverter<types::TargetEngineGodot>::ConvertStagePostProcess(
         const std::vector<godot::Node3D*>& converted_entities)
     {
+        IDTX_LOG(IDTX_DEBUG, "ConvertStagePostProcess");
         // once the whole stage has been converted into respective godot nodes we will apply  any required rotation and
         // scaling based on the authored up-axis and meters-per-units in the stage
         // This seems to be a much more performant way of aligning the whole stage to Godot's coordinate system and
