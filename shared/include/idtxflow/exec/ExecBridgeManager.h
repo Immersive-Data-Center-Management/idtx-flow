@@ -18,6 +18,14 @@
 
 #include <algorithm>
 #include <assert.h>
+#include <atomic>
+#include <chrono>
+#include <mutex>
+#include <thread>
+#include <typeinfo>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 #include <map>
 
 #include <pxr/usd/usd/stage.h>
@@ -37,6 +45,16 @@ namespace idtxflow
 {
 namespace exec
 {
+    struct StageAttributeUpdate
+    {
+        pxr::SdfPath prim_path;
+        pxr::TfToken attribute_name;
+        pxr::VtValue value;
+        uint64_t sequence = 0;
+        std::string source;
+    };
+
+    enum class ExecBridgeLifecycle { Created, Active, Stopping, Stopped };
     /**
      * @class ExecBridge
      * @brief This class provides the functional glue between the openExec computation system and the game engine
@@ -46,8 +64,28 @@ namespace exec
     {
     public:
         explicit ExecBridge(const pxr::UsdStageRefPtr& stage)
-            : exec_system_(std::make_unique<pxr::ExecUsdSystem>(stage)) {}
+            : stage_(stage), exec_system_(std::make_unique<pxr::ExecUsdSystem>(stage)) {}
         ~ExecBridge() = default;
+
+        ExecBridgeLifecycle GetLifecycle() const { return lifecycle_.load(std::memory_order_acquire); }
+        bool Activate() { ExecBridgeLifecycle expected = ExecBridgeLifecycle::Created; return lifecycle_.compare_exchange_strong(expected, ExecBridgeLifecycle::Active, std::memory_order_acq_rel); }
+        void BeginStopping() { ExecBridgeLifecycle state = GetLifecycle(); while (state == ExecBridgeLifecycle::Created || state == ExecBridgeLifecycle::Active) { if (lifecycle_.compare_exchange_weak(state, ExecBridgeLifecycle::Stopping, std::memory_order_acq_rel)) return; } }
+        void FinishStopping() { { std::lock_guard<std::mutex> lock(queue_mutex_); pending_updates_.clear(); pending_update_order_.clear(); } { std::lock_guard<std::mutex> lock(handler_mutex_); result_handlers_.clear(); } lifecycle_.store(ExecBridgeLifecycle::Stopped, std::memory_order_release); }
+
+        bool EnqueueAttributeUpdate(StageAttributeUpdate update)
+        {
+            if (GetLifecycle() != ExecBridgeLifecycle::Active || update.prim_path.IsEmpty() || update.attribute_name.IsEmpty() || update.value.IsEmpty()) { rejected_updates_.fetch_add(1); return false; }
+            const std::string key = update.prim_path.GetString() + "." + update.attribute_name.GetString();
+            std::lock_guard<std::mutex> lock(queue_mutex_);
+            if (GetLifecycle() != ExecBridgeLifecycle::Active) { rejected_updates_.fetch_add(1); return false; }
+            auto it = pending_updates_.find(key);
+            if (it != pending_updates_.end()) { it->second = std::move(update); coalesced_updates_.fetch_add(1); return true; }
+            if (pending_updates_.size() >= kMaxPendingUpdates) { rejected_updates_.fetch_add(1); return false; }
+            pending_update_order_.push_back(key);
+            pending_updates_.emplace(key, std::move(update));
+            accepted_updates_.fetch_add(1);
+            return true;
+        }
 
         /**
          * Register a prims attribute with an authored connection to be considered during Exec Computations.
@@ -116,7 +154,7 @@ namespace exec
             auto invalidation_callback = 
                     [&](const pxr::ExecRequestIndexSet& indices, const pxr::EfTimeInterval& /* timeInterval*/ )
                     {
-                        IDTX_LOG(IDTX_DEBUG, "Invalidation Callback with {} indices called", indices.size());
+                        //IDTX_LOG(IDTX_DEBUG, "Invalidation Callback with {} indices called", indices.size());
                     };
             exec_request_ = std::make_unique<pxr::ExecUsdRequest>(
                 exec_system_->BuildRequest(
@@ -139,17 +177,30 @@ namespace exec
          */
         void RegisterComputeResultHandler(const pxr::SdfPath& primPath, IExecBridgeHandler* handler)
         {
-            if (!handler) return;
+            if (!handler || GetLifecycle() != ExecBridgeLifecycle::Created) return;
+            std::lock_guard<std::mutex> lock(handler_mutex_);
             auto& handlers = result_handlers_[primPath];
             if (std::find(handlers.begin(), handlers.end(), handler) == handlers.end())
                 handlers.push_back(handler);
         }
 
+        void UnregisterComputeResultHandler(const pxr::SdfPath& primPath, IExecBridgeHandler* handler)
+        {
+            if (!handler) return;
+            std::lock_guard<std::mutex> lock(handler_mutex_);
+            auto it = result_handlers_.find(primPath);
+            if (it == result_handlers_.end()) return;
+            auto& handlers = it->second;
+            handlers.erase(std::remove(handlers.begin(), handlers.end(), handler), handlers.end());
+            if (handlers.empty()) result_handlers_.erase(it);
+        }
         /**
          * Executes the computation for this stage and dispatches the results to the registered handlers
          */
         void ComputeAndDispatch()
         {
+            if (GetLifecycle() != ExecBridgeLifecycle::Active) return;
+            ApplyPendingUpdates();
             // if the request is not set-up properly, there is nothing to do 
             if (!exec_request_ || !exec_request_->IsValid())
                 return;
@@ -206,6 +257,7 @@ namespace exec
             }
             
             // once all updated attributes have been collected, invoke the registered handler for them
+            std::lock_guard<std::mutex> handler_lock(handler_mutex_);
             for (const auto& result: computationResults)
             {
                 auto it = result_handlers_.find(result.first);
@@ -217,6 +269,21 @@ namespace exec
                 {
                     IDTX_LOG(IDTX_DEBUG, "No handler found for {}", result.first.GetText());
                 }
+            }
+        }
+
+    private:
+        void ApplyPendingUpdates()
+        {
+            std::vector<StageAttributeUpdate> updates;
+            { std::lock_guard<std::mutex> lock(queue_mutex_); for (const auto& key : pending_update_order_) { auto it = pending_updates_.find(key); if (it != pending_updates_.end()) updates.push_back(std::move(it->second)); } pending_updates_.clear(); pending_update_order_.clear(); }
+            for (const auto& update : updates) {
+                pxr::UsdPrim prim = stage_->GetPrimAtPath(update.prim_path);
+                pxr::UsdAttribute attribute = prim ? prim.GetAttribute(update.attribute_name) : pxr::UsdAttribute();
+                const pxr::TfToken type = attribute ? attribute.GetTypeName().GetAsToken() : pxr::TfToken();
+                const bool compatible = attribute && ((type == pxr::TfToken("string") && update.value.IsHolding<std::string>()) || (type == pxr::TfToken("float") && update.value.IsHolding<float>()) || (type == pxr::TfToken("double") && update.value.IsHolding<double>()));
+                if (!compatible || !attribute.Set(update.value)) { failed_updates_.fetch_add(1); continue; }
+                applied_updates_.fetch_add(1);
             }
         }
 
@@ -238,6 +305,7 @@ namespace exec
             pxr::SdfPath handlerPath; 
         };
         
+        pxr::UsdStageRefPtr stage_;
         // The Execution system used to build the execution request and pull the execution results
         std::unique_ptr<pxr::ExecUsdSystem> exec_system_;
         // The Execution request, this "owns" the ValueKey's that will be registerd for computation
@@ -248,6 +316,13 @@ namespace exec
         std::vector<ValueKeyMetadata> value_key_metas_;
         // The list of handlers that will be invoked to handle the updated computation results
         std::unordered_map<pxr::SdfPath, std::vector<IExecBridgeHandler*>, pxr::SdfPath::Hash> result_handlers_;
+        mutable std::mutex handler_mutex_;
+        static constexpr std::size_t kMaxPendingUpdates = 1024;
+        std::unordered_map<std::string, StageAttributeUpdate> pending_updates_;
+        std::vector<std::string> pending_update_order_;
+        mutable std::mutex queue_mutex_;
+        std::atomic<ExecBridgeLifecycle> lifecycle_{ExecBridgeLifecycle::Created};
+        std::atomic<uint64_t> accepted_updates_{0}, coalesced_updates_{0}, rejected_updates_{0}, applied_updates_{0}, failed_updates_{0};
 
         // Monotonically increasing time code fed to ExecUsdSystem::ChangeTime() on every
         // ComputeAndDispatch() cycle. This drives Exec's time-based invalidation so that
@@ -291,12 +366,18 @@ namespace exec
          * @return The ExecBridge
          */
         std::shared_ptr<ExecBridge> GetExecBridgeForStage(const pxr::UsdStageRefPtr& stage) {
-            auto [it, bridge] = stage_exec_bridges_.try_emplace(stage);
-            if (bridge) it->second = std::make_shared<ExecBridge>(stage);
-        
+            std::lock_guard<std::mutex> lock(registry_mutex_);
+            auto [it, created] = stage_exec_bridges_.try_emplace(stage);
+            if (created) it->second = std::make_shared<ExecBridge>(stage);
             return it->second;
         }
 
+        std::shared_ptr<ExecBridge> FindExecBridgeForStage(const pxr::UsdStageRefPtr& stage)
+        {
+            std::lock_guard<std::mutex> lock(registry_mutex_);
+            auto it = stage_exec_bridges_.find(stage);
+            return it == stage_exec_bridges_.end() ? nullptr : it->second;
+        }
         /**
          * Destroy and remove an existing execBridge for the given stage. This will unregister it from being considered
          * in the computation thread. This has to be called before the the stage and it's converted prims are destroyed.
@@ -305,10 +386,11 @@ namespace exec
          */
         void DestroyExecBridgeForStage(const pxr::UsdStageRefPtr& stage)
         {
-            auto it = stage_exec_bridges_.find(stage);
-            if (it == stage_exec_bridges_.end()) return;
-            DeactivateBridge(it->second);
-            stage_exec_bridges_.erase(it);
+            std::shared_ptr<ExecBridge> bridge;
+            { std::lock_guard<std::mutex> registry_lock(registry_mutex_); auto it = stage_exec_bridges_.find(stage); if (it == stage_exec_bridges_.end()) return; bridge = it->second; }
+            DeactivateBridge(bridge);
+            std::lock_guard<std::mutex> registry_lock(registry_mutex_);
+            stage_exec_bridges_.erase(stage);
         }
 
         /**
@@ -317,13 +399,11 @@ namespace exec
          */
         void ActivateBridge(std::shared_ptr<ExecBridge> bridge)
         {
-            if (!bridge) return;
+            if (!bridge || bridge->GetLifecycle() != ExecBridgeLifecycle::Created) return;
             bridge->BuildRequest();
-            // when activating an ExecBridge run the first computation cycle immediately
-            bridge->ComputeAndDispatch();
-            
+            if (!bridge->Activate()) return;
             std::lock_guard<std::mutex> lock(activation_mutex_);
-            active_bridges_.push_back(bridge);
+            if (std::find(active_bridges_.begin(), active_bridges_.end(), bridge) == active_bridges_.end()) active_bridges_.push_back(std::move(bridge));
         }
 
         /**
@@ -334,12 +414,10 @@ namespace exec
         void DeactivateBridge(std::shared_ptr<ExecBridge> bridge)
         {
             if (!bridge) return;
+            bridge->BeginStopping();
             std::lock_guard<std::mutex> lock(activation_mutex_);
-            auto iter = std::find_if(active_bridges_.begin(), active_bridges_.end(),
-                    [raw = bridge.get()](auto &active_bridge){ return active_bridge.get() == raw; }
-                );
-            if (iter != active_bridges_.end())
-                active_bridges_.erase(iter);
+            active_bridges_.erase(std::remove(active_bridges_.begin(), active_bridges_.end(), bridge), active_bridges_.end());
+            bridge->FinishStopping();
         }
 
         /**
@@ -382,6 +460,7 @@ namespace exec
         
         // the ExecBridgeManager manages the ExecBridges for individual stages
         std::map<pxr::UsdStageRefPtr, std::shared_ptr<ExecBridge>> stage_exec_bridges_;
+        mutable std::mutex registry_mutex_;
         
         // The ExecBridgeManager will spawn a worker thread that runs the Compute&Dispatch for
         // all stages that has been "activated"
