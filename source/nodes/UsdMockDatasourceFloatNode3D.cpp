@@ -21,7 +21,6 @@ void UsdMockDatasourceFloatNode3D::_process(double delta)
             // Update input attribute values on the stage (simulated data).
             double v = 10.0 + ((90.0 * rand()) / RAND_MAX);
             std::string data = std::format("{{ \"data\": {{ \"value\": {:.2f} }} }}", v);
-            godot::print_verbose(godot::String("Set new data value to: ") + data.c_str());
             if (pxr::UsdAttribute attribute = stage_node_->get_stage()->GetPrimAtPath(pxr::SdfPath(prim_path_.utf8().get_data()))
                 .GetAttribute(pxr::IDTXTokens->outputsData))
             {

@@ -24,7 +24,7 @@
  *
  * ```
  * {cache_dir}/
- *   {sha256_of_url}/          # hash-based subdirectory (unique per URL)
+ *   {sha256_of_request}/      # URL plus authorization-context hash
  *     original_filename.usd   # original filename and extension preserved
  * ```
  *
@@ -56,7 +56,9 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 
+#include "HttpAuthorization.h"
 #include "detail/Sha256.h"
 #include <idtxflow/utils/Logger.h>
 #include <ixwebsocket/IXHttpClient.h>
@@ -67,20 +69,45 @@ namespace resolver
 {
 
     // -----------------------------------------------------------------------
-    // HttpFetcherLike concept
+    // HTTP request and HttpFetcherLike concept
     // -----------------------------------------------------------------------
+
+    /**
+     * Immutable request data passed to authorization-aware HTTP fetchers.
+     * Header values are snapshotted before the background fetch starts.
+     */
+    struct HttpFetchRequest
+    {
+        std::string url;
+        HttpHeaders headers;
+    };
+
+    inline HttpFetchRequest CreateHttpFetchRequest(const std::string& url)
+    {
+        return {url, HttpAuthorizationRegistry::Instance().GetHeadersForUrl(url)};
+    }
 
     /**
      * A callable that downloads a URL to a local file path.
      * Must return true on success, false on failure.
      *
-     * Signature: bool(const std::string& url, const std::filesystem::path& destination)
+     * Preferred signature:
+     * bool(const HttpFetchRequest& request, const std::filesystem::path& destination)
+     *
+     * The legacy URL-only signature remains supported for existing custom fetchers. Such
+     * fetchers do not receive configured authorization headers and should migrate to the
+     * request-based signature when authenticated resources are needed.
      */
     template<typename F>
-    concept HttpFetcherLike = requires(F f, const std::string& url, const std::filesystem::path& dest)
-    {
-        { f(url, dest) } -> std::convertible_to<bool>;
-    };
+    concept HttpFetcherLike =
+        requires(F& fetcher, const HttpFetchRequest& request, const std::filesystem::path& dest)
+        {
+            { fetcher(request, dest) } -> std::convertible_to<bool>;
+        }
+        || requires(F& fetcher, const std::string& url, const std::filesystem::path& dest)
+        {
+            { fetcher(url, dest) } -> std::convertible_to<bool>;
+        };
 
     // -----------------------------------------------------------------------
     // Default fetcher: DefaultHttpFetcher (IXWebSocket)
@@ -126,34 +153,72 @@ namespace resolver
 
         inline bool operator()(const std::string& url, const std::filesystem::path& dest) const
         {
+            return (*this)(CreateHttpFetchRequest(url), dest);
+        }
+
+        inline bool operator()(const HttpFetchRequest& request, const std::filesystem::path& dest) const
+        {
             // Ensure the destination directory exists
             std::filesystem::create_directories(dest.parent_path());
 
             IDTX_LOG(IDTX_DEBUG,
                 "Fetching '{}' TLS: caFile='{}', certFile='{}', keyFile='{}', peerVerifyDisabled={}",
-                url,
+                request.url,
                 tls_options.caFile.empty() ? "(empty/system)" : tls_options.caFile,
                 tls_options.certFile.empty() ? "(none)" : tls_options.certFile,
                 tls_options.keyFile.empty() ? "(none)" : tls_options.keyFile,
                 tls_options.isPeerVerifyDisabled() ? "true" : "false");
 
-            ix::HttpClient client;
-            client.setTLSOptions(tls_options);
+            ix::HttpResponsePtr response;
+            std::string current_url = request.url;
+            constexpr int max_redirects = 5;
 
-            ix::HttpRequestArgsPtr args = client.createRequest(url);
-            args->followRedirects = true;
-            args->maxRedirects = 5;
-            args->connectTimeout = 30;
-            args->transferTimeout = 120;
-            args->compress = false;
+            // IXWebSocket carries extra headers across redirects. Follow redirects here instead
+            // so an Authorization header is never leaked to a different, unconfigured origin.
+            for (int redirect_count = 0; ; ++redirect_count)
+            {
+                ix::HttpClient client;
+                client.setTLSOptions(tls_options);
 
-            auto response = client.get(url, args);
+                ix::HttpRequestArgsPtr args = client.createRequest(current_url);
+                args->followRedirects = false;
+                args->connectTimeout = 30;
+                args->transferTimeout = 120;
+                args->compress = false;
+
+                const HttpHeaders headers = redirect_count == 0
+                    ? request.headers
+                    : HttpAuthorizationRegistry::Instance().GetHeadersForUrl(current_url);
+                for (const auto& [name, value] : headers)
+                {
+                    args->extraHeaders[name] = value;
+                }
+
+                response = client.get(current_url, args);
+                if (!response || !IsRedirectStatus(response->statusCode))
+                {
+                    break;
+                }
+
+                auto location = response->headers.find("Location");
+                if (location == response->headers.end() || redirect_count >= max_redirects)
+                {
+                    break;
+                }
+
+                auto redirect_url = ResolveRedirectUrl(current_url, location->second);
+                if (!redirect_url)
+                {
+                    break;
+                }
+                current_url = std::move(*redirect_url);
+            }
 
             if (!response || response->statusCode < 200 || response->statusCode >= 300)
             {
                 const std::string err = response ? response->errorMsg : "null response";
                 const int code = response ? response->statusCode : 0;
-                IDTX_LOG(IDTX_ERROR, "Download failed for '{}': {} (HTTP {})", url, err, code);
+                IDTX_LOG(IDTX_ERROR, "Download failed for '{}': {} (HTTP {})", request.url, err, code);
                 IDTX_LOG(IDTX_ERROR,
                     "  TLS context: caFile='{}', certFile='{}', keyFile='{}', peerVerifyDisabled={}",
                     tls_options.caFile.empty() ? "(empty/system)" : tls_options.caFile,
@@ -183,8 +248,72 @@ namespace resolver
             }
 
             IDTX_LOG(IDTX_INFO, "Downloaded: {} -> {} (HTTP {}, {} bytes)",
-                url, dest.string(), response->statusCode, response->body.size());
+                request.url, dest.string(), response->statusCode, response->body.size());
             return true;
+        }
+
+    private:
+        static bool IsRedirectStatus(int status_code)
+        {
+            return status_code == 301 || status_code == 302 || status_code == 303
+                || status_code == 307 || status_code == 308;
+        }
+
+        static std::optional<std::string> ResolveRedirectUrl(
+            const std::string& base_url,
+            const std::string& location)
+        {
+            if (location.empty())
+            {
+                return std::nullopt;
+            }
+
+            if (location.starts_with("http://") || location.starts_with("https://"))
+            {
+                return location;
+            }
+
+            const std::size_t scheme_end = base_url.find("://");
+            if (scheme_end == std::string::npos)
+            {
+                return std::nullopt;
+            }
+
+            if (location.starts_with("//"))
+            {
+                return base_url.substr(0, scheme_end) + ':' + location;
+            }
+
+            const std::size_t authority_start = scheme_end + 3;
+            const std::size_t authority_end = base_url.find_first_of("/?#", authority_start);
+            const std::string origin = authority_end == std::string::npos
+                ? base_url
+                : base_url.substr(0, authority_end);
+
+            if (location.starts_with('/'))
+            {
+                return origin + location;
+            }
+
+            if (location.starts_with('?'))
+            {
+                return base_url.substr(0, base_url.find_first_of("?#", authority_start)) + location;
+            }
+            if (location.starts_with('#'))
+            {
+                return base_url.substr(0, base_url.find('#', authority_start)) + location;
+            }
+
+            const bool has_path = authority_end != std::string::npos && base_url[authority_end] == '/';
+            std::string base_path = has_path
+                ? base_url.substr(0, base_url.find_first_of("?#", authority_end))
+                : origin + '/';
+            const std::size_t last_slash = base_path.rfind('/');
+            if (last_slash == std::string::npos)
+            {
+                return std::nullopt;
+            }
+            return base_path.substr(0, last_slash + 1) + location;
         }
     };
 
@@ -280,7 +409,8 @@ namespace resolver
          */
         inline std::optional<std::filesystem::path> Resolve(const std::string& url)
         {
-            auto entry = GetOrCreateEntry(url);
+            HttpFetchRequest request = CreateHttpFetchRequest(url);
+            auto entry = GetOrCreateEntry(request);
 
             std::unique_lock lock(entry->mutex);
 
@@ -290,18 +420,29 @@ namespace resolver
                 return entry->local_path;
             }
 
+            // Permit a later call to retry after, for example, a login screen has supplied
+            // credentials following an initial 401 response.
+            if (entry->state == FetchState::Failed)
+            {
+                if (entry->fetch_thread.joinable())
+                {
+                    entry->fetch_thread.join();
+                }
+                entry->state = FetchState::Idle;
+            }
+
             // If idle, kick off the fetch
             if (entry->state == FetchState::Idle)
             {
                 entry->state = FetchState::Fetching;
-                entry->local_path = UrlToCachePath(url);
+                entry->local_path = RequestToCachePath(request);
 
-                // Launch fetch on a detached worker — entry lifetime is managed by shared_ptr
-                std::string url_copy = url;
+                // Launch an entry-owned worker; the shared_ptr keeps its state alive.
+                HttpFetchRequest request_copy = std::move(request);
                 auto entry_ref = entry;
-                entry->fetch_thread = std::thread([this, url_copy, entry_ref]()
+                entry->fetch_thread = std::thread([this, request_copy = std::move(request_copy), entry_ref]()
                 {
-                    bool success = fetcher_(url_copy, entry_ref->local_path);
+                    bool success = InvokeFetcher(fetcher_, request_copy, entry_ref->local_path);
                     {
                         std::lock_guard lk(entry_ref->mutex);
                         entry_ref->state = success ? FetchState::Cached : FetchState::Failed;
@@ -332,23 +473,33 @@ namespace resolver
          */
         inline void Prefetch(const std::string& url)
         {
-            auto entry = GetOrCreateEntry(url);
+            HttpFetchRequest request = CreateHttpFetchRequest(url);
+            auto entry = GetOrCreateEntry(request);
 
             std::lock_guard lock(entry->mutex);
 
+            if (entry->state == FetchState::Failed)
+            {
+                if (entry->fetch_thread.joinable())
+                {
+                    entry->fetch_thread.join();
+                }
+                entry->state = FetchState::Idle;
+            }
+
             if (entry->state != FetchState::Idle)
             {
-                return; // Already fetching, cached, or failed
+                return; // Already fetching or cached
             }
 
             entry->state = FetchState::Fetching;
-            entry->local_path = UrlToCachePath(url);
+            entry->local_path = RequestToCachePath(request);
 
-            std::string url_copy = url;
+            HttpFetchRequest request_copy = std::move(request);
             auto entry_ref = entry;
-            entry->fetch_thread = std::thread([this, url_copy, entry_ref]()
+            entry->fetch_thread = std::thread([this, request_copy = std::move(request_copy), entry_ref]()
             {
-                bool success = fetcher_(url_copy, entry_ref->local_path);
+                bool success = InvokeFetcher(fetcher_, request_copy, entry_ref->local_path);
                 {
                     std::lock_guard lk(entry_ref->mutex);
                     entry_ref->state = success ? FetchState::Cached : FetchState::Failed;
@@ -362,12 +513,14 @@ namespace resolver
          */
         inline bool IsCached(const std::string& url) const
         {
+            HttpFetchRequest request = CreateHttpFetchRequest(url);
+            const std::string request_key = RequestCacheKey(request);
             std::lock_guard lock(mutex_);
-            auto it = entries_.find(url);
+            auto it = entries_.find(request_key);
             if (it == entries_.end())
             {
                 // Check if it exists on disk from a previous session
-                auto path = UrlToCachePath(url);
+                auto path = RequestToCachePath(request);
                 return std::filesystem::exists(path);
             }
             std::lock_guard entry_lock(it->second->mutex);
@@ -379,15 +532,21 @@ namespace resolver
          */
         inline void Evict(const std::string& url)
         {
+            HttpFetchRequest request = CreateHttpFetchRequest(url);
+            const std::string request_key = RequestCacheKey(request);
             std::lock_guard lock(mutex_);
-            auto it = entries_.find(url);
+            auto it = entries_.find(request_key);
             if (it != entries_.end())
             {
                 std::lock_guard entry_lock(it->second->mutex);
-                if (it->second->fetch_thread.joinable())
+                if (it->second->state == FetchState::Fetching)
                 {
                     IDTX_LOG(IDTX_WARN, "Cannot evict URL while fetch is in progress: {}", url);
                     return;
+                }
+                if (it->second->fetch_thread.joinable())
+                {
+                    it->second->fetch_thread.join();
                 }
                 std::error_code ec;
                 std::filesystem::remove_all(it->second->local_path.parent_path(), ec);
@@ -396,7 +555,7 @@ namespace resolver
             else
             {
                 // Remove from disk if it exists from a previous session
-                auto path = UrlToCachePath(url);
+                auto path = RequestToCachePath(request);
                 std::error_code ec;
                 std::filesystem::remove_all(path.parent_path(), ec);
             }
@@ -463,16 +622,17 @@ namespace resolver
          * Get or create a FetchEntry for the given URL.
          * Thread-safe — acquires the map-level mutex.
          */
-        inline std::shared_ptr<FetchEntry> GetOrCreateEntry(const std::string& url)
+        inline std::shared_ptr<FetchEntry> GetOrCreateEntry(const HttpFetchRequest& request)
         {
+            const std::string request_key = RequestCacheKey(request);
             std::lock_guard lock(mutex_);
-            auto& entry = entries_[url];
+            auto& entry = entries_[request_key];
             if (!entry)
             {
                 entry = std::make_shared<FetchEntry>();
 
                 // Check if this URL was cached in a previous session (file exists on disk)
-                auto path = UrlToCachePath(url);
+                auto path = RequestToCachePath(request);
                 if (std::filesystem::exists(path))
                 {
                     entry->state = FetchState::Cached;
@@ -485,23 +645,23 @@ namespace resolver
         /**
          * Convert a URL to a local cache path.
          *
-         * Layout: {cache_dir}/{sha256_of_url}/{original_filename.ext}
+         * Layout: {cache_dir}/{sha256_of_url_and_headers}/{original_filename.ext}
          *
-         * The hash ensures uniqueness per URL. The original filename is preserved
-         * for human readability and so that OpenUSD can identify the file format
-         * from the extension.
+         * The hash ensures uniqueness per URL and authorization context. The original filename
+         * is preserved so OpenUSD can identify the file format from the extension.
          */
-        inline std::filesystem::path UrlToCachePath(const std::string& url) const
+        inline std::filesystem::path RequestToCachePath(const HttpFetchRequest& request) const
         {
             // Extract the original filename from the URL
-            std::string filename = ExtractFilename(url);
+            std::string filename = ExtractFilename(request.url);
             if (filename.empty())
             {
                 filename = "cached_asset";
             }
 
-            // Hash the full URL for the directory name
-            std::string hash = detail::Sha256::HashString(url);
+            // Authorization participates in the hash, preventing one signed-in user's response
+            // from being reused after logout or token replacement. Values are not written to disk.
+            const std::string hash = RequestCacheKey(request);
             std::filesystem::path cache_file_location = (cache_dir_ / hash / filename).lexically_normal();
 
             // Verify the resolved path does not escape the expected cache directory.
@@ -516,6 +676,34 @@ namespace resolver
             }
 
             return cache_file_location;
+        }
+
+        static inline std::string RequestCacheKey(const HttpFetchRequest& request)
+        {
+            std::string cache_key_material = request.url;
+            for (const auto& [name, value] : request.headers)
+            {
+                cache_key_material += '\n';
+                cache_key_material += name;
+                cache_key_material += ':';
+                cache_key_material += value;
+            }
+            return detail::Sha256::HashString(cache_key_material);
+        }
+
+        static inline bool InvokeFetcher(
+            Fetcher& fetcher,
+            const HttpFetchRequest& request,
+            const std::filesystem::path& destination)
+        {
+            if constexpr (requires { fetcher(request, destination); })
+            {
+                return fetcher(request, destination);
+            }
+            else
+            {
+                return fetcher(request.url, destination);
+            }
         }
 
         /**

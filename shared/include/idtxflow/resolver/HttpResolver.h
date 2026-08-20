@@ -78,6 +78,7 @@
 #include <pxr/usd/ar/filesystemWritableAsset.h>
 
 #include "HttpAssetCache.h"
+#include "HttpAuthorization.h"
 #include <idtxflow/utils/Logger.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -117,6 +118,49 @@ public:
         idtxflow::resolver::DefaultHttpFetcher fetcher{std::move(tls_options)};
         Cache() = std::make_shared<idtxflow::resolver::HttpAssetCache<>>(cache_dir, std::move(fetcher));
         IDTX_LOG(IDTX_INFO, "Configured with cache dir: {} (DefaultHttpFetcher)", cache_dir.string());
+    }
+
+    /**
+     * Set an OAuth Bearer token for a target HTTP origin.
+     *
+     * A complete URL may be supplied; only its scheme, host, and non-default port are used.
+     * A bare host is treated as HTTPS. The token is snapshotted for every request to that
+     * origin and is never applied to another origin during redirects.
+     */
+    static inline bool SetBearerTokenForHost(
+        const std::string& target_host,
+        const std::string& token)
+    {
+        return idtxflow::resolver::HttpAuthorizationRegistry::Instance()
+            .SetBearerTokenForTarget(target_host, token);
+    }
+
+    /**
+     * Set a complete Authorization header value for authentication schemes other than Bearer.
+     */
+    static inline bool SetAuthorizationHeaderForHost(
+        const std::string& target_host,
+        const std::string& authorization)
+    {
+        return idtxflow::resolver::HttpAuthorizationRegistry::Instance()
+            .SetAuthorizationHeaderForTarget(target_host, authorization);
+    }
+
+    static inline bool ClearAuthorizationForHost(const std::string& target_host)
+    {
+        return idtxflow::resolver::HttpAuthorizationRegistry::Instance()
+            .ClearAuthorizationForTarget(target_host);
+    }
+
+    static inline bool HasAuthorizationForHost(const std::string& target_host)
+    {
+        return idtxflow::resolver::HttpAuthorizationRegistry::Instance()
+            .HasAuthorizationForTarget(target_host);
+    }
+
+    static inline void ClearAllAuthorizations()
+    {
+        idtxflow::resolver::HttpAuthorizationRegistry::Instance().ClearAllAuthorizations();
     }
 
     /**

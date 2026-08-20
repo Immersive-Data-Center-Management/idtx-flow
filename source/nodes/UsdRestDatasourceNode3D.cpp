@@ -94,7 +94,6 @@ void UsdRestDatasourceNode3D::_process(double delta)
                 return;
             }
             std::string data = response->body;
-            IDTX_LOG(IDTX_DEBUG, "Set new data value to: {}", data);
             if (pxr::UsdAttribute attribute = stage_node_->get_stage()->GetPrimAtPath(pxr::SdfPath(prim_path_.utf8().get_data()))
                     .GetAttribute(pxr::IDTXTokens->outputsData))
             {

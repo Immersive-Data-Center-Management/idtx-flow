@@ -20,6 +20,7 @@
 #include "nodes/UsdXFormNode3D.h"
 #include "utils/IDTXFlowGodotLogger.h"
 #include "exec/GodotEnvironmentProviders.h"
+#include "resolver/HttpAuthorizationGodot.h"
 
 using namespace godot;
 
@@ -74,6 +75,7 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     // Initialize logger
     idtxflow::utils::Log::set_logger(&g_logger);
     
+    GDREGISTER_CLASS(IDTXFlowHttpAuthorization)
     GDREGISTER_CLASS(UsdStageNode3D)
     GDREGISTER_CLASS(UsdXformNode3D)
     GDREGISTER_CLASS(UsdMeshInstanceNode3D)

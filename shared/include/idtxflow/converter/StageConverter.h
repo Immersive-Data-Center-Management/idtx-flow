@@ -985,7 +985,6 @@ namespace converter
             }
             if (registeredComputeAttribute)
             {
-                IDTX_LOG(IDTX_DEBUG, "Getting ExecBridgeHandler from convertedPrim");
                 if (IExecBridgeHandler* handler = GetExecBridgeHandler(convertedPrim))
                 {
                     bridge->RegisterComputeResultHandler(usdPrim.GetPath(), handler);
