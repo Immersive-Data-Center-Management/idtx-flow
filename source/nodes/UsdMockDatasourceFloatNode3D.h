@@ -8,7 +8,7 @@ class UsdMockDatasourceFloatNode3D : public godot::Node3D
     , public IUsdNode3D
 {
     GDCLASS(UsdMockDatasourceFloatNode3D, Node3D)
-    IUSDNODE(UsdMockDatasourceFloatNode3D)
+    IUSDNODE(UsdMockDatasourceFloatNode3D, false)
     
 public:
     void _process(double delta) override;

@@ -20,7 +20,7 @@ class UsdStaticBodyNode3D: public godot::StaticBody3D, public IUsdNode3D
 {
     IDTX_LOG_CATEGORY("UsdStaticBodyNode3D")
     GDCLASS(UsdStaticBodyNode3D, StaticBody3D)
-    IUSDNODE(UsdStaticBodyNode3D)
+    IUSDNODE(UsdStaticBodyNode3D, false)
     
 public:
     

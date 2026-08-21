@@ -25,8 +25,8 @@
 // Your custom converters
 #include "converters/ExamplePrimConverter.h"
 
-// Your custom nodes (uncomment when you have one)
-// #include "nodes/MyCustomNode3D.h"
+// Your custom nodes
+#include "nodes/ExampleUsdNode3D.h"
 
 using Registry = idtxflow::converter::PrimConverterRegistry<idtxflow::types::TargetEngineGodot>;
 
@@ -36,11 +36,11 @@ using namespace godot;
 void initialize_my_extension_module(ModuleInitializationLevel p_level) {
     if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) return;
     // -- Version check (optional but recommended) --
-    #if IDTXFLOW_GODOT_VERSION < IDTXFLOW_GODOT_MAKE_VERSION(0, 1, 0)
-    #error "This extension requires IDTXFlow Godot API >= 0.1.0"
+    #if IDTXFLOW_GODOT_VERSION < IDTXFLOW_GODOT_MAKE_VERSION(0, 4, 0)
+    #error "This extension requires IDTXFlow Godot API >= 0.4.0"
     #endif
     
-    //GDREGISTER_CLASS(MyCustomNode3D)
+    GDREGISTER_CLASS(ExampleUsdNode3D)
         
     // Register prim converters into IDTXFlow's shared registry
     Registry::Instance().Register(std::make_shared<ExamplePrimConverter>());

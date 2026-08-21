@@ -123,6 +123,14 @@ namespace helper
 namespace converter
 {
     constexpr float MIN_SPHERE_RADIUS = 1e-6f;
+
+    template<>
+    inline IExecBridgeHandler* UsdStageConverter<types::TargetEngineGodot>::GetExecBridgeHandler(
+        godot::Node3D* node)
+    {
+        IUsdNode3D* usd_node = IUsdNode3D::from_node(node);
+        return usd_node ? usd_node->get_exec_bridge_handler() : nullptr;
+    }
     
     template<>
     inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertXform(

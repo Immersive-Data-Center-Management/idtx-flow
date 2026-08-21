@@ -433,7 +433,10 @@ namespace converter
             // find the highest priority converter
             if (IPrimConverter<TargetEngine>* converter = registry.Get(primTypeName))
             {
-                return converter->Convert(usdPrim);
+                // The converter may live in another shared library. Resolve its
+                // stable handle through this module's target-engine bindings so
+                // no foreign C++ wrapper is ever dereferenced here.
+                return Types::ResolveConvertedEntity(converter->Convert(usdPrim));
             }
             
             // continue with built-in conversion for the known prim typs
@@ -971,24 +974,26 @@ namespace converter
             // is a computed attribute
             std::shared_ptr<exec::ExecBridge> bridge = exec::ExecBridgeManager::Instance()
                 .GetExecBridgeForStage(Stage);
+            bool registeredComputeAttribute = false;
             for (const pxr::UsdAttribute& attribute : usdPrim.GetAttributes())
             {
-                if (attribute.HasAuthoredConnections())
-                    bridge->RegisterAttributeWithConnection(attribute);
+                if (attribute.HasAuthoredConnections() &&
+                    bridge->RegisterAttributeWithConnection(attribute) >= 0)
+                {
+                    registeredComputeAttribute = true;
+                }
             }
-            if (bridge->GetValueKeyCount() > 0)
+            if (registeredComputeAttribute)
             {
-                bridge->RegisterComputeResultHandler(usdPrim.GetPath(),
-                    std::shared_ptr<IExecBridgeHandler>(
-                        dynamic_cast<IExecBridgeHandler*>(convertedPrim),
-                        [](IExecBridgeHandler*)
-                        {
-                            /* the empty shared_ptr destructor ensures that the owner of the converted
-                             * node instance is responsible for its lifecycle and releasing the
-                             * last instance of the shared_ptr will not delete/free the contained object
-                             */
-                        }
-                    ));
+                if (IExecBridgeHandler* handler = GetExecBridgeHandler(convertedPrim))
+                {
+                    bridge->RegisterComputeResultHandler(usdPrim.GetPath(), handler);
+                } else
+                {
+                    IDTX_LOG(IDTX_WARN,
+                        "Prim '{}' has connected compute attributes, but its converted entity does not expose IExecBridgeHandler",
+                        usdPrim.GetPath().GetText());
+                }
             }
             
             convertedPrim = ConvertPrimPostProcess(usdPrim, convertedPrim, convertedParentPrim);
@@ -999,7 +1004,12 @@ namespace converter
             auto& registry = PrimConverterRegistry<TargetEngine>::Instance();
             if (IPrimConverter<TargetEngine>* converter = registry.Get(primTypeName))
             {
-                convertedPrim = converter->PostProcess(usdPrim, convertedPrim, convertedParentPrim);
+                const typename Types::ConvertedEntityHandle convertedHandle =
+                    Types::GetConvertedEntityHandle(convertedPrim);
+                const typename Types::ConvertedEntityHandle parentHandle =
+                    Types::GetConvertedEntityHandle(convertedParentPrim);
+                convertedPrim = Types::ResolveConvertedEntity(
+                    converter->PostProcess(usdPrim, convertedHandle, parentHandle));
             }
             
             return convertedPrim;
@@ -1016,6 +1026,13 @@ namespace converter
             const pxr::UsdPrim& usdPrim,
             typename Types::ConvertedEntity* convertedPrim,
             typename Types::ConvertedEntity* convertedParentPrim);
+
+        /**
+         * Resolve the optional execution-bridge handler from a converted entity.
+         * Target-engine specializations must perform any cross-module pointer
+         * adjustment inside the module that defines the concrete entity.
+         */
+        IExecBridgeHandler* GetExecBridgeHandler(typename Types::ConvertedEntity* convertedPrim);
 
         /**
          * Postprocessing after the whole stage has been converted into game engine specific types. As the converted
