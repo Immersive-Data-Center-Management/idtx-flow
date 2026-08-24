@@ -10,7 +10,11 @@
 
 #include <idtxflow/async/StageLoadTask.h>
 #include <idtxflow_godot/nodes/IUsdNode3D.h>
+
+#include "idtxflow/cache/ResourceCache.h"
 #include "idtxflow/converter/StageHandle.h"
+
+#include "idtxflow_godot/types/GodotTypes.h"
 
 /**
  * This node represents an USD Stage or an USD Layer defined by an *.usd[a|c|z] file.
@@ -134,6 +138,7 @@ protected:
     godot::String stage_uri_;
     godot::String cached_scene_name_;
     std::unique_ptr<idtxflow::converter::StageHandle> stage_handle_;
+    std::shared_ptr<idtxflow::cache::UsdResourceCache<idtxflow::types::TargetEngineGodot>> resource_cache_;
 
     // --- Async loading state ---
     

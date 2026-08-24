@@ -67,7 +67,11 @@ namespace converter
 			return resolver.OpenAsset(resolvedPath);
 		}
 
-		static std::optional<typename Types::Texture> LoadTextureWithResolver(const pxr::SdfAssetPath& assetPath, const pxr::UsdStageWeakPtr& stage, const TexturePurpose purpose, idtxflow::cache::UsdResourceCache<TargetEngine>* resourceCache = nullptr)
+		static std::optional<typename Types::Texture> LoadTextureWithResolver(
+		    const pxr::SdfAssetPath& assetPath,
+		    const pxr::UsdStageWeakPtr& stage,
+		    const TexturePurpose purpose,
+		    cache::UsdResourceCache<TargetEngine>* resourceCache = nullptr)
 		{
 		    // first check if we have already cached the texture for this asset file
 		    if (resourceCache)

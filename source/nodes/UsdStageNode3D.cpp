@@ -14,6 +14,8 @@
 
 #include "converter/UsdGodotStageConverter.h"
 
+#include "idtxflow/cache/ResourceCacheManager.h"
+
 using namespace godot;
 using namespace pxr;
 
@@ -141,6 +143,9 @@ void UsdStageNode3D::_reconstruct_node()
 {
     if (is_inside_tree())
     {
+        const std::string key = idtxflow::cache::UsdResourceCacheManager<idtxflow::types::TargetEngineGodot>::MakeStageCacheKey(stage_uri_.utf8().get_data());
+        resource_cache_ = idtxflow::cache::UsdResourceCacheManager<idtxflow::types::TargetEngineGodot>::Instance().Acquire(key);
+        
         if (!stage_uri_.is_empty())
         {
             // coming here is most likely the case, when the scene has been loaded or after an _exit_tree -> _enter_tree
@@ -176,7 +181,7 @@ void UsdStageNode3D::_convert_stage()
     is_loading_ = false;
         
     // instantiate the stage converter and convert the contents of the stage into Godot Node3D entities
-    auto stage_converter = std::make_unique<idtxflow::converter::UsdStageConverter<idtxflow::types::TargetEngineGodot>>(this, nullptr);
+    auto stage_converter = std::make_unique<idtxflow::converter::UsdStageConverter<idtxflow::types::TargetEngineGodot>>(this, resource_cache_.get());
     idtxflow::converter::StageConversionResult<idtxflow::types::TargetEngineGodot> conversion_result = stage_converter->Convert(result.stage);
     if (conversion_result.ConvertedEntities.empty())
     {

@@ -263,6 +263,11 @@ namespace converter
 			
 			// run the conversion face by face. Either all faces of the mesh or only the ones provided in the filer
 			int faces = !faceFilter.empty() ? faceFilter.size() : facePointCounts.size();
+		    // do a rough forcast for the required vertex and index counts to reduce the number of reallocations
+		    // while creating the MeshData. We assume triangulated faces with each point unique per face and
+		    // thus the same amount of indices
+		    builder.Reserve(meshData, faces * 3, faces * 3, joint_indices.empty() ? 0 : joint_index_element_size);
+		    
 			for (int f = 0; f < faces; ++f)
 			{
 				// get the face index

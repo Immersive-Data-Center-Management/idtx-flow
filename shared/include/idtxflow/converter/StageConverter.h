@@ -568,7 +568,7 @@ namespace converter
                     material = ResourceCache->GetCachedMaterial(materialDesc.id);
                 } else
                 {
-                    material = TypeConverter::toMaterial(materialDesc, Stage);
+                    material = TypeConverter::toMaterial(materialDesc, Stage, ResourceCache);
                     if (ResourceCache && material.has_value())
                     {
                         ResourceCache->CacheMaterial(materialDesc.id, material.value());

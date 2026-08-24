@@ -18,6 +18,8 @@
 #include "../types/TargetTypes.h"
 #include "../types/MaterialTypes.h"
 
+#include "idtxflow/cache/ResourceCache.h"
+
 namespace idtxflow
 {
 namespace converter
@@ -104,7 +106,8 @@ namespace converter
 	    
 	    inline static std::optional<typename Types::Material> toMaterial(
 	        const types::MaterialDescription<typename Types::Texture>& materialDescription,
-	        const pxr::UsdStageRefPtr& stage);
+	        const pxr::UsdStageRefPtr& stage,
+	        cache::UsdResourceCache<TargetEngine>* cache = nullptr);
 	
 	};
 
@@ -117,15 +120,45 @@ namespace converter
 
 		TargetMeshBuilder() = default;
 		virtual ~TargetMeshBuilder() = default;
-		virtual void AddVertex(MeshDataType& mesh, 
-							  const typename Types::Vector3& position,
-							  const typename Types::Vector3& normal,
-							  const typename Types::Vector2& uv,
-							  const std::vector<uint32_t>& boneIdx = {},
-							  const std::vector<float>& boneWeight = {}) = 0;
+        /**
+         * Implement for the target engine to reserve array sizes to store the expected amount of vertices/indices
+         * which will prevent continues reallocations to grow the arrays.
+         * @param mesh The MeshData whose arrays shall be pre-sized
+         * @param vertexCount The number of expected vertices added to the mesh data
+         * @param indexCount The number of expected indices added to the mesh data
+         * @param boneCount The number of bone influences per vertex. If 0 the bone arrays do not need to reserve memory
+         */
+        virtual void Reserve(MeshDataType& mesh, int vertexCount, int indexCount, int boneCount) { }
 
-		virtual typename Types::Index GetVertexCount(const MeshDataType& meshData) = 0;
-		virtual void AddIndex(MeshDataType& meshData, typename Types::Index index) = 0;
+        /**
+         * Store new data into the engine specific mesh data structure
+         * @param mesh The MeshData that will grow by the provided data
+         * @param position      Position of the new vertex
+         * @param normal        Normal of the new vertex
+         * @param uv            UV Texturecoordinate of the vertex
+         * @param boneIdx       BoneIndex list that this vertex is influenced by
+         * @param boneWeight    BoneWeight list matching the boneIndex list for the influence value
+         */
+        virtual void AddVertex(MeshDataType& mesh, 
+                               const typename Types::Vector3& position,
+                               const typename Types::Vector3& normal,
+                               const typename Types::Vector2& uv,
+                               const std::vector<uint32_t>& boneIdx = {},
+                               const std::vector<float>& boneWeight = {}) = 0;
+
+        /**
+         * Retrieve the current number of vertices stored in the MeshData
+         * @param meshData 
+         * @return 
+         */
+        virtual typename Types::Index GetVertexCount(const MeshDataType& meshData) = 0;
+
+        /**
+         * Add a new index to the MeshData
+         * @param meshData The MeshData that will grow with the new index
+         * @param index The actual index value to be added
+         */
+        virtual void AddIndex(MeshDataType& meshData, typename Types::Index index) = 0;
 	};	
 }
 }
