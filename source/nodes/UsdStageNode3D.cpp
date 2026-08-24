@@ -6,6 +6,9 @@
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/resource_saver.hpp>
 #include <godot_cpp/classes/file_access.hpp>
+#include <godot_cpp/classes/worker_thread_pool.hpp>
+#include <godot_cpp/variant/callable.hpp>
+#include <godot_cpp/variant/callable_method_pointer.hpp>
 
 #include <idtxflow/converter/StageConverter.h>
 
@@ -42,7 +45,13 @@ void UsdStageNode3D::_exit_tree()
         pending_load_task_->Cancel();
         is_loading_ = false;
     }
-    
+
+    // Wait for any in-flight async cached-scene save task to complete BEFORE we start
+    // tearing down the scene tree. The worker only touches the captured Ref<PackedScene>
+    // (not our live children), but joining here guarantees we never dangle after the node
+    // leaves the tree (e.g. during a tab switch that pairs _exit_tree with node freeing).
+    _await_pending_save_task();
+
     stage_handle_.reset();
     _cleanup_nodes();
     Node3D::_exit_tree();
@@ -364,25 +373,73 @@ godot::String UsdStageNode3D::_generate_cached_scene_name(const godot::String& s
 
 void UsdStageNode3D::_pack_and_save_cached_scene()
 {
-    // from converted stage create a packed scene and save it as cached scene
+    // from converted stage create a packed scene and save it as cached scene.
+    // PackedScene::pack walks live Nodes -> MUST run on the main thread.
     Ref<PackedScene> packed_scene;
     packed_scene.instantiate();
     Error err = packed_scene->pack(this);
     if (err != OK)
     {
         IDTX_LOGF(IDTX_ERROR, "Unable to pack Scene. Error: {}", static_cast<int>(err));
-    } else
-    {
-        // save the packed scene at the location calculated before
-        // Ensure cache directory exists
-        String cache_dir = cached_scene_name_.get_base_dir();
-        if (!DirAccess::dir_exists_absolute(cache_dir)) {
-            DirAccess::make_dir_recursive_absolute(cache_dir);
-        }
-    
-        ResourceSaver::get_singleton()->save(packed_scene, cached_scene_name_);
+        return;
     }
-    packed_scene.unref();
+
+    // Ensure cache directory exists (cheap; runs on main thread with the rest of the setup).
+    const String cache_dir = cached_scene_name_.get_base_dir();
+    if (!DirAccess::dir_exists_absolute(cache_dir)) {
+        DirAccess::make_dir_recursive_absolute(cache_dir);
+    }
+
+    // If a previous save is still in flight, join it before scheduling a new one.
+    // Serializing the writes also guarantees on-disk ordering matches the order the
+    // scenes were packed.
+    _await_pending_save_task();
+
+    // Dispatch the (thread-safe) ResourceSaver::save call to a WorkerThreadPool worker.
+    // We bind the Ref<PackedScene> and target path into the callable so:
+    //   * the worker is a plain static function - it never dereferences `this`,
+    //     which makes it safe even if the node is torn down after `add_task` returns
+    //     but before the worker picks up the job (though `_exit_tree` still joins to
+    //     keep shutdown deterministic).
+    //   * the Ref<PackedScene>'s refcount keeps the packed scene alive until the save
+    //     finishes, even if the scene tree churns underneath us.
+    Callable save_callable = callable_mp_static(&UsdStageNode3D::_save_packed_scene_worker)
+                                 .bind(packed_scene, cached_scene_name_);
+    pending_save_task_id_ = WorkerThreadPool::get_singleton()->add_task(
+        save_callable,
+        /* p_high_priority = */ false,
+        String("USD cached scene save: ") + cached_scene_name_);
+}
+
+void UsdStageNode3D::_save_packed_scene_worker(Ref<PackedScene> packed_scene, String target_path)
+{
+    // Runs on a WorkerThreadPool thread. ResourceSaver::save is documented as thread-safe.
+    // This is a `static` member on purpose: no `this` access, so no data races with
+    // the scene tree and no lifetime coupling to the UsdStageNode3D instance.
+    if (packed_scene.is_null())
+    {
+        return;
+    }
+
+    Error err = ResourceSaver::get_singleton()->save(packed_scene, target_path);
+    if (err != OK)
+    {
+        IDTX_LOGF(IDTX_ERROR, "Unable to save cached scene '{}'. Error: {}",
+            target_path.utf8().get_data(), static_cast<int>(err));
+    }
+}
+
+void UsdStageNode3D::_await_pending_save_task()
+{
+    if (pending_save_task_id_ == WorkerThreadPool::INVALID_TASK_ID)
+    {
+        return;
+    }
+
+    // Block until the worker finishes. This is safe on the main thread: the worker
+    // never calls back into the scene tree, so there's no risk of a self-deadlock.
+    WorkerThreadPool::get_singleton()->wait_for_task_completion(pending_save_task_id_);
+    pending_save_task_id_ = WorkerThreadPool::INVALID_TASK_ID;
 }
 
 void UsdStageNode3D::_bind_methods()

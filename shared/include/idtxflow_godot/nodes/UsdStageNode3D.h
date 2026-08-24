@@ -5,6 +5,8 @@
 
 #include <godot_cpp/classes/node3d.hpp>
 #include <godot_cpp/classes/mesh_instance3d.hpp>
+#include <godot_cpp/classes/packed_scene.hpp>
+#include <godot_cpp/classes/worker_thread_pool.hpp>
 
 #include <pxr/usd/usd/stage.h>
 
@@ -128,9 +130,26 @@ protected:
 
     /**
      * Pack the current converted stage-scene and save the same. The call to this function will be deferred
-     * to ensure all children are added to the scene tree and ownership is stored
+     * to ensure all children are added to the scene tree and ownership is stored.
+     *
+     * The scene is packed on the main thread (PackedScene::pack walks live Nodes), then the
+     * thread-safe ResourceSaver::save is dispatched to a WorkerThreadPool task. The Ref<PackedScene>
+     * keeps the packed scene alive for the worker.
      */
     void _pack_and_save_cached_scene();
+
+    /**
+     * Worker-thread callback that saves an already-packed scene to disk. Runs on a WorkerThreadPool
+     * thread and touches only the bound arguments (Ref<PackedScene> + target path); it is `static`
+     * on purpose so the worker never dereferences the (possibly destroyed) UsdStageNode3D instance.
+     */
+    static void _save_packed_scene_worker(godot::Ref<godot::PackedScene> packed_scene, godot::String target_path);
+
+    /**
+     * Wait for any in-flight cached-scene save task to complete. Called during teardown so the
+     * worker is never left holding a scene whose backing nodes are being freed underneath it.
+     */
+    void _await_pending_save_task();
     
     static void _bind_methods();
     
@@ -151,4 +170,8 @@ protected:
 
     // Whether an async load is currently in progress
     bool is_loading_;
+
+    // WorkerThreadPool task id for the async cached-scene save (INVALID_TASK_ID when none pending).
+    // PackedScene::pack runs on the main thread; ResourceSaver::save is dispatched to this task.
+    int64_t pending_save_task_id_ = godot::WorkerThreadPool::INVALID_TASK_ID;
 };
