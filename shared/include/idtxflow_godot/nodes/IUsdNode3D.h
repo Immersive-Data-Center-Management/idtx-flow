@@ -7,6 +7,7 @@
 #include <idtxflow_godot/idtxflow_godot_api.h>
 
 class UsdStageNode3D;
+class IExecBridgeHandler;
 
 /**
  * The IUsdNode3D class is used to provide common functionality and features that are shared accress all
@@ -39,7 +40,17 @@ public:
     }
     
     /**
-     * Store the StageNode3D reference that "owns" this node that has been converted from an UsdPrim
+     * Return the optional execution-bridge handler implemented by this node.
+     *
+     * The default implementation reports that the node does not implement the
+     * capability. Implementations must return the pointer using a static_cast in
+     * the DLL that defines the concrete node. This avoids a sibling-base
+     * dynamic_cast across GDExtension DLL boundaries.
+     */
+    virtual IExecBridgeHandler* get_exec_bridge_handler() noexcept { return nullptr; }
+
+    /**
+     * Store the StageNode3D reference that owns this node that has been converted from an UsdPrim
      * @param node The Reference to the StageNode
      */
     void set_stage_node(UsdStageNode3D* node) { stage_node_ = node; }
@@ -166,7 +177,7 @@ protected:
     godot::Dictionary variant_sets_variant_;
 };
 
-#define IUSDNODE(m_class) /*** Define this class as an IUSDNode3D class ****/ \
+#define IUSDNODE(m_class, m_has_exec_bridge_handler) /*** Define this class as an IUSDNode3D class ****/ \
 public: \
     m_class() { \
         set_meta("__iusdnode3d_ptr", \
@@ -179,10 +190,24 @@ public: \
         if (p_name == godot::StringName("metadata/__iusdnode3d_ptr")) return true;\
         return false;\
     }\
-    IUSDNODE_IMPLEMENT_GETTER_SETTER \
+    IUSDNODE_IMPLEMENT_GETTER_SETTER(m_has_exec_bridge_handler) \
 
-#define IUSDNODE_IMPLEMENT_GETTER_SETTER /*** Implement "redirect" to IUsdNode3D setter/getter to be used in Binding *****/ \
+#define IDTXFLOW_IUSDNODE_EXEC_BRIDGE_HANDLER_true \
+    IExecBridgeHandler* get_exec_bridge_handler() noexcept override { \
+        return static_cast<IExecBridgeHandler*>(this); \
+    }
+
+#define IDTXFLOW_IUSDNODE_EXEC_BRIDGE_HANDLER_false \
+    IExecBridgeHandler* get_exec_bridge_handler() noexcept override { return nullptr; }
+
+#define IDTXFLOW_IUSDNODE_CONCAT_IMPL(m_left, m_right) m_left##m_right
+#define IDTXFLOW_IUSDNODE_CONCAT(m_left, m_right) IDTXFLOW_IUSDNODE_CONCAT_IMPL(m_left, m_right)
+#define IDTXFLOW_IUSDNODE_EXEC_BRIDGE_HANDLER(m_has_exec_bridge_handler) \
+    IDTXFLOW_IUSDNODE_CONCAT(IDTXFLOW_IUSDNODE_EXEC_BRIDGE_HANDLER_, m_has_exec_bridge_handler)
+
+#define IUSDNODE_IMPLEMENT_GETTER_SETTER(m_has_exec_bridge_handler) /*** Implement "redirect" to IUsdNode3D setter/getter to be used in Binding *****/ \
 public:\
+    IDTXFLOW_IUSDNODE_EXEC_BRIDGE_HANDLER(m_has_exec_bridge_handler) \
     godot::String get_stage_path() const override { return IUsdNode3D::get_stage_path(); } \
     void set_stage_path(const godot::String& stage_path) override { IUsdNode3D::set_stage_path(stage_path); } \
     godot::String get_prim_path() const override { return IUsdNode3D::get_prim_path(); } \

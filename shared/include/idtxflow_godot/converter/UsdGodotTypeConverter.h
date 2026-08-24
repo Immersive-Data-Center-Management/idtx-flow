@@ -428,11 +428,17 @@ namespace converter
                     }
                 }
 
-                // normalize the boneWeights
-                int64_t boneIndex = meshData.Bones.size() - maxBoneWeightCount;
-                for (size_t i = 0; i < maxBoneWeightCount; ++i)
+                // normalize the boneWeights. Guard a zero total weight: a fully
+                // unweighted vertex would divide by zero and poison every weight with
+                // NaN. Leave such vertices at zero weight so the skeleton converter's
+                // neutral-bone pass can detect and rebind them.
+                if (weightSum > 0.0f)
                 {
-                    meshData.Weights[boneIndex + i] /= weightSum;
+                    int64_t boneIndex = meshData.Bones.size() - maxBoneWeightCount;
+                    for (size_t i = 0; i < maxBoneWeightCount; ++i)
+                    {
+                        meshData.Weights[boneIndex + i] /= weightSum;
+                    }
                 }
             }
         }

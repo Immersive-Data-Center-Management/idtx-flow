@@ -30,7 +30,7 @@
 class UsdStageNode3D : public godot::Node3D, public IUsdNode3D
 {
     GDCLASS(UsdStageNode3D, Node3D)
-    IUSDNODE(UsdStageNode3D)
+    IUSDNODE(UsdStageNode3D, false)
     
 public:
     /*********************** Godot Lifecycle Methods **********************************/

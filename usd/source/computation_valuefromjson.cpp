@@ -14,7 +14,7 @@
 #include <pxr/base/js/json.h>
 #include <pxr/base/js/value.h>
 
-#include "./tokens.h"
+#include <tokens.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 

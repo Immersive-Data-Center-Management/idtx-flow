@@ -8,7 +8,7 @@
 class UsdMultiMeshInstanceNode3D : public godot::MultiMeshInstance3D, public IUsdNode3D
 {
     GDCLASS(UsdMultiMeshInstanceNode3D, MultiMeshInstance3D)
-    IUSDNODE(UsdMultiMeshInstanceNode3D)
+    IUSDNODE(UsdMultiMeshInstanceNode3D, false)
 
 public:
     /**

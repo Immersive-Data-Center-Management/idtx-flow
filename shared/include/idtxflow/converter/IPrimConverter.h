@@ -45,6 +45,8 @@ namespace converter
     {
     public:
         using Types = types::TargetEngineTypes<TargetEngine>;
+        using ConvertedEntity = typename Types::ConvertedEntity;
+        using ConvertedEntityHandle = typename Types::ConvertedEntityHandle;
 
         virtual ~IPrimConverter() = default;
 
@@ -84,10 +86,14 @@ namespace converter
          * it needs from the prim.
          *
          * @param prim The USD prim to convert         
-         * @return A newly allocated engine entity, or nullptr if conversion failed.
+         * @return A stable handle to the newly allocated engine entity, or an
+         *         empty handle if conversion failed. The converter must create
+         *         the handle in the same module as the entity wrapper. For
+         *         any TargetEngine, use Types::GetConvertedEntityHandle(node) and never
+         *         return a raw engine class pointer across a DLL boundary.
          *         Ownership is transferred to the caller (StageConverter).
          */
-        virtual typename Types::ConvertedEntity* Convert(const pxr::UsdPrim& prim) = 0;
+        virtual ConvertedEntityHandle Convert(const pxr::UsdPrim& prim) = 0;
 
         /**
          * Optional post-processing hook called after parent-child relationships are established.
@@ -96,14 +102,18 @@ namespace converter
          * scene hierarchy (e.g., setting up constraints, LOD groups, etc.).
          *
          * @param prim The original USD prim
-         * @param converted The entity produced by Convert()
-         * @param parent The converted parent entity (may be nullptr for root-level entities)
-         * @return The converted node as is or an adjusted version of it
+         * Handles are used here as well because the converted entity and its
+         * parent may have been created by different shared libraries. Resolve
+         * them with Types::ResolveConvertedEntity() before using them.
+         *
+         * @param converted Handle to the entity produced by Convert()
+         * @param parent Handle to the converted parent entity (empty for roots)
+         * @return The converted handle as is or an adjusted entity handle
          */
-        virtual typename Types::ConvertedEntity* PostProcess(
+        virtual ConvertedEntityHandle PostProcess(
             const pxr::UsdPrim& prim,
-            typename Types::ConvertedEntity* converted,
-            typename Types::ConvertedEntity* parent
+            ConvertedEntityHandle converted,
+            ConvertedEntityHandle parent
         ) {
             // Default: no-op. Override in subclass if needed.
             return converted;
