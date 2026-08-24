@@ -155,7 +155,8 @@ namespace converter
     template<>
     inline std::optional<godot::Ref<godot::StandardMaterial3D>> UsdTypeConverter<types::TargetEngineGodot>::toMaterial(
         const types::MaterialDescription<godot::Ref<godot::Texture2D>>& material_description,
-        const pxr::UsdStageRefPtr& stage)
+        const pxr::UsdStageRefPtr& stage,
+        cache::UsdResourceCache<types::TargetEngineGodot>* resourceCache)
     {
         using TextureType = types::TargetEngineTypes<types::TargetEngineGodot>::Texture;
         using TypeConverter = UsdTypeConverter<types::TargetEngineGodot>;
@@ -177,7 +178,7 @@ namespace converter
 					    if (auto godotTexture = UsdAssetConverter<types::TargetEngineGodot>::LoadTextureWithResolver(
 					        textureDescription.filePath,
 					        stage,
-					        TexturePurpose::COLOR_TEXTURE))
+					        TexturePurpose::COLOR_TEXTURE, resourceCache))
 						    standard_material->set_texture(godot::BaseMaterial3D::TEXTURE_ALBEDO, godotTexture.value());
 				        // for diffuse textures use the scale as base color tint
 				        godot::Color albedo = TypeConverter::toColor(textureDescription.scale);
@@ -204,7 +205,7 @@ namespace converter
 				        if (auto godotTexture = UsdAssetConverter<types::TargetEngineGodot>::LoadTextureWithResolver(
 				            textureDescription.filePath,
 				            stage,
-				            TexturePurpose::METALLIC_TEXTURE))
+				            TexturePurpose::METALLIC_TEXTURE, resourceCache))
 				            standard_material->set_texture(godot::BaseMaterial3D::TEXTURE_METALLIC, godotTexture.value());
 
 				        // even though multiple textures may have different scaling and offset authored in USD, Godot does only support those values
@@ -233,7 +234,7 @@ namespace converter
 				        if (auto godotTexture = UsdAssetConverter<types::TargetEngineGodot>::LoadTextureWithResolver(
 				            textureDescription.filePath,
 				            stage,
-				            TexturePurpose::ROUGHNESS_TEXTURE))
+				            TexturePurpose::ROUGHNESS_TEXTURE, resourceCache))
 				            standard_material->set_texture(godot::BaseMaterial3D::TEXTURE_ROUGHNESS, godotTexture.value());
 
 				        // even though multiple textures may have different scaling and offset authored in USD, Godot does only support those values
@@ -271,7 +272,7 @@ namespace converter
 				        if (auto godotTexture = UsdAssetConverter<types::TargetEngineGodot>::LoadTextureWithResolver(
 				            textureDescription.filePath,
 				            stage,
-				            TexturePurpose::COLOR_TEXTURE))
+				            TexturePurpose::COLOR_TEXTURE, resourceCache))
 				            standard_material->set_texture(godot::BaseMaterial3D::TEXTURE_EMISSION, godotTexture.value());
 				        
 				        // even though multiple textures may have different scaling and offset authored in USD, Godot does only support those values
@@ -293,7 +294,7 @@ namespace converter
 				        if (auto godotTexture = UsdAssetConverter<types::TargetEngineGodot>::LoadTextureWithResolver(
 				            textureDescription.filePath,
 				            stage,
-				            TexturePurpose::NORMAL_TEXTURE))
+				            TexturePurpose::NORMAL_TEXTURE, resourceCache))
 				            standard_material->set_texture(godot::BaseMaterial3D::TEXTURE_NORMAL, godotTexture.value());
 
 				        // even though multiple textures may have different scaling and offset authored in USD, Godot does only support those values
@@ -312,7 +313,7 @@ namespace converter
 				        if (auto godotTexture = UsdAssetConverter<types::TargetEngineGodot>::LoadTextureWithResolver(
 				            textureDescription.filePath,
 				            stage,
-				            TexturePurpose::COLOR_TEXTURE))
+				            TexturePurpose::COLOR_TEXTURE, resourceCache))
 				            standard_material->set_texture(godot::BaseMaterial3D::TEXTURE_AMBIENT_OCCLUSION, godotTexture.value());
 
 				        // even though multiple textures may have different scaling and offset authored in USD, Godot does only support those values
@@ -356,7 +357,7 @@ namespace converter
 		                if (auto godotTexture = UsdAssetConverter<types::TargetEngineGodot>::LoadTextureWithResolver(
 		                    textureDescription.filePath,
 		                    stage,
-		                    TexturePurpose::COLOR_TEXTURE))
+		                    TexturePurpose::COLOR_TEXTURE, resourceCache))
 		                    standard_material->set_texture(godot::BaseMaterial3D::TEXTURE_CLEARCOAT, godotTexture.value());
 
 		                // even though multiple textures may have different scaling and offset authored in USD, Godot does only support those values
@@ -390,6 +391,24 @@ namespace converter
     {
     public:
         using Types = idtxflow::types::TargetEngineTypes<idtxflow::types::TargetEngineGodot>;
+        
+        void Reserve(Types::MeshData& meshData, int vertexCount, int indexCount, int boneCount)
+        {
+            meshData.Vertices.resize(vertexCount);
+            meshData.Normals.resize(vertexCount);
+            meshData.UVs.resize(vertexCount);
+            
+            // the most common boneWeightCount is 4 - thus reserve this many space
+            if (boneCount > 0)
+            {
+                // Godot only supports 4 or 8 boneweight counts
+                const int count = boneCount <= 4 ? 4 : 8;
+                meshData.Bones.resize(vertexCount * count);
+                meshData.Weights.resize(vertexCount * count);
+            }
+            
+            meshData.Triangles.resize(indexCount);
+        }
         
         void AddVertex(Types::MeshData& meshData, 
                           const Types::Vector3& position,
