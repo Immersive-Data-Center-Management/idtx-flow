@@ -15,6 +15,7 @@
 
 #include <idtx/datasource.h>
 #include <idtx/mockDatasource_RandomFloat.h>
+#include <idtx/restDatasource.h>
 
 #include <idtxflow/converter/TypeConverter.h>
 #include <idtxflow/converter/StageConverter.h>
@@ -27,6 +28,7 @@
 #include "nodes/UsdMockDatasourceFloatNode3D.h"
 #include "nodes/UsdXFormNode3D.h"
 #include "nodes/UsdMultiMeshInstanceNode3D.h"
+#include "nodes/UsdRestDatasourceNode3D.h"
 
 /**
  * Implement Godot engine specialization of the UsdStageConverter
@@ -121,6 +123,14 @@ namespace helper
 namespace converter
 {
     constexpr float MIN_SPHERE_RADIUS = 1e-6f;
+
+    template<>
+    inline IExecBridgeHandler* UsdStageConverter<types::TargetEngineGodot>::GetExecBridgeHandler(
+        godot::Node3D* node)
+    {
+        IUsdNode3D* usd_node = IUsdNode3D::from_node(node);
+        return usd_node ? usd_node->get_exec_bridge_handler() : nullptr;
+    }
     
     template<>
     inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertXform(
@@ -475,7 +485,58 @@ namespace converter
             skeleton->set_bone_rest(boneIndex, bone.restTransform);
         }
         skeleton->set_joint_to_bone_map(bone_name_map);
-        
+
+        // Neutral-bone remedy for unassigned vertices (issue #23, mirroring
+        // glTF-Blender-IO #1151). Source skinned meshes routinely leave some
+        // vertices fully unweighted (zero total weight). A zero total weight makes
+        // the GPU skin shader produce a zero matrix, collapsing those vertices onto
+        // the origin (the "spike to bone 0" artefact). If any such vertex exists,
+        // append ONE identity bone at the skeleton root and bind every zero-weight
+        // vertex to it with weight 1 so it keeps its authored, undeformed position.
+        // The bone is added only when needed, so fully-skinned avatars are untouched.
+        bool needsNeutralBone = false;
+        for (const converter::SkinTargetDescription<types::TargetEngineGodot>& skinTarget: skeleton_description.SkinTargets)
+        {
+            for (const converter::MeshDescription<types::MeshData>& md: skinTarget.MeshDescriptions)
+            {
+                const godot::PackedFloat32Array& weights = md.meshData.Weights;
+                if (weights.is_empty())
+                {
+                    continue;
+                }
+                const int stride = (md.meshData.boneWeightCount == types::MeshData::BONEWEIGHT_COUNT_8) ? 8 : 4;
+                const int64_t vertexCount = weights.size() / stride;
+                for (int64_t vert = 0; vert < vertexCount; ++vert)
+                {
+                    float weightSum = 0.0f;
+                    for (int k = 0; k < stride; ++k)
+                    {
+                        weightSum += weights[vert * stride + k];
+                    }
+                    if (!(weightSum > 1e-4f))
+                    {
+                        needsNeutralBone = true;
+                        break;
+                    }
+                }
+                if (needsNeutralBone)
+                {
+                    break;
+                }
+            }
+            if (needsNeutralBone)
+            {
+                break;
+            }
+        }
+        int32_t neutralBoneIndex = -1;
+        if (needsNeutralBone)
+        {
+            neutralBoneIndex = skeleton->add_bone(godot::String("neutral_bone"));
+            skeleton->set_bone_parent(neutralBoneIndex, -1);       // root bone
+            skeleton->set_bone_rest(neutralBoneIndex, godot::Transform3D()); // identity rest
+        }
+
         // the skeleton might be skinned by different meshes/skin targets. Create the corresponding MeshInstances
         // used to skin the skeleton
         for (auto& skinTarget: skeleton_description.SkinTargets)
@@ -491,7 +552,14 @@ namespace converter
                 godot::Transform3D bindTransform = bone.bindPose.affine_inverse() * skinTarget.GeomBindingTransform;
                 skin->add_named_bind(godot::String(boneName.c_str()), bindTransform);
             }
-            
+            // The neutral bone is an identity root, so its rest skinning matrix is
+            // just its bind; use GeomBindingTransform (as the regular bones resolve
+            // to at rest) so a vertex bound to it stays at its authored position.
+            if (needsNeutralBone)
+            {
+                skin->add_named_bind(godot::String("neutral_bone"), skinTarget.GeomBindingTransform);
+            }
+
             godot::Ref<godot::ArrayMesh> mesh;
             mesh.instantiate();
             
@@ -509,10 +577,43 @@ namespace converter
                 if (!meshDescription.meshData.VertexColors.is_empty())
                     mesh_arrays[godot::Mesh::ARRAY_COLOR] = meshDescription.meshData.VertexColors;
                 if (!meshDescription.meshData.Bones.is_empty())
-                    mesh_arrays[godot::Mesh::ARRAY_BONES] = meshDescription.meshData.Bones;
-                if (!meshDescription.meshData.Weights.is_empty())
-                    mesh_arrays[godot::Mesh::ARRAY_WEIGHTS] = meshDescription.meshData.Weights;
-                
+                {
+                    godot::PackedInt32Array bones = meshDescription.meshData.Bones;
+                    godot::PackedFloat32Array weights = meshDescription.meshData.Weights;
+                    // Rebind every fully-unweighted vertex to the neutral bone with
+                    // weight 1 so it keeps its authored position instead of collapsing
+                    // onto the origin.
+                    if (needsNeutralBone && !weights.is_empty())
+                    {
+                        const int stride = (meshDescription.meshData.boneWeightCount == types::MeshData::BONEWEIGHT_COUNT_8) ? 8 : 4;
+                        const int64_t vertexCount = weights.size() / stride;
+                        for (int64_t vert = 0; vert < vertexCount; ++vert)
+                        {
+                            const int64_t base = vert * stride;
+                            float weightSum = 0.0f;
+                            for (int k = 0; k < stride; ++k)
+                            {
+                                weightSum += weights[base + k];
+                            }
+                            if (!(weightSum > 1e-4f))
+                            {
+                                bones[base + 0] = neutralBoneIndex;
+                                weights[base + 0] = 1.0f;
+                                for (int k = 1; k < stride; ++k)
+                                {
+                                    bones[base + k] = 0;
+                                    weights[base + k] = 0.0f;
+                                }
+                            }
+                        }
+                    }
+                    mesh_arrays[godot::Mesh::ARRAY_BONES] = bones;
+                    if (!weights.is_empty())
+                    {
+                        mesh_arrays[godot::Mesh::ARRAY_WEIGHTS] = weights;
+                    }
+                }
+
                 // depending on the stored bone weight count per vertex we need to pass a flag to ensure the
                 // bone and bone-weight arrays are treated the right way 
                 uint64_t flags = 0;
@@ -661,6 +762,23 @@ namespace converter
             // use it's _process() method to request fresh data and author it into the prim's "outputs:data" property
             UsdMockDatasourceFloatNode3D* data_source = memnew(UsdMockDatasourceFloatNode3D);
             usd_mock_source.GetIntervalAttr().Get<float>(&data_source->refresh_interval_);
+            
+            return data_source;
+        }
+        
+        if (usdDatasource.GetPrim().IsA<pxr::IDTXRestDatasource>())
+        {
+            pxr::IDTXRestDatasource usd_rest_source(usdDatasource.GetPrim());
+            
+            UsdRestDatasourceNode3D* data_source = memnew(UsdRestDatasourceNode3D);
+            usd_rest_source.GetIntervalAttr().Get<float>(&data_source->refresh_interval_);
+            usd_rest_source.GetEndpointAttr().Get<std::string>(&data_source->endpoint_uri_);
+            usd_rest_source.GetQueryAttr().Get<std::string>(&data_source->query_);
+            pxr::TfToken method;
+            usd_rest_source.GetMethodAttr().Get<pxr::TfToken>(&method);
+            data_source->method_ = method.GetString();
+            usd_rest_source.GetJsonBodyAttr().Get<std::string>(&data_source->json_body_);
+            usd_rest_source.GetAuthorizationAttr().Get<std::string>(&data_source->authorization_header_);
             
             return data_source;
         }

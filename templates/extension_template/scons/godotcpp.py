@@ -2,13 +2,16 @@
 SCons tool: godotcpp
 Builds the godot-cpp library for use as a dependency in the GDExtension build.
 
-The godot-cpp version need to match the targeted Godot version. For Godot 4.5, we use the 4.5 branch of godot-cpp.
+The godot-cpp version must match the IDTXFlow SDK build. IDTXFlow currently
+uses the immutable godot-4.5-stable tag.
 
 Usage in SConstruct:
     env.BuildGodotCPP()
 """
 import os
 import subprocess
+
+GODOTCPP_VERSION = 'godot-4.5-stable'
 
 def generate(env):
     env.AddMethod(_build_godot_cpp, 'BuildGodotCPP')
@@ -21,10 +24,10 @@ def _build_godot_cpp(env):
     if not os.path.exists(godot_cpp_path):
         print("Cloning godot-cpp...")
         subprocess.run([
-            "git", "clone", "-b", "4.5", "--recursive", 
+            "git", "clone", "-b", GODOTCPP_VERSION, "--depth", "1", "--recursive",
             "https://github.com/godotengine/godot-cpp.git", 
             godot_cpp_path
-        ])
+        ], check=True)
 
     print("Building godot-cpp...")
     env["use_exceptions"] = "yes"

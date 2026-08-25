@@ -71,8 +71,14 @@ if protobuf_lib_name:
 # RestCodec parses JSON with pxr::Js, so the suite links OpenUSD. This keeps
 # tests server- and godot-cpp-free while exercising the real REST parser (the
 # library is already built for the extension).
-openusd_version = env.get("openusd_version", "")
-usd_root = "thirdparty/openusd-" + str(openusd_version)
+# Use the same OpenUSD root the extension build uses (OPENUSD_PATH on the env),
+# falling back to reconstructing it from the version if that key is absent.
+usd_root = env.get("OPENUSD_PATH", "")
+if not usd_root:
+    usd_root = "thirdparty/openusd-" + str(env.get("openusd_version", ""))
+# Strip a leading "./" so the "#/" anchoring and abspath joins below resolve cleanly.
+if usd_root.startswith("./"):
+    usd_root = usd_root[2:]
 test_env.Append(CPPPATH=["#/" + usd_root + "/include"])
 test_env.Append(LIBPATH=["#/" + usd_root + "/lib"])
 libs += ["usd_ms", "tbb12" if platform_name == "windows" else "tbb.12"]

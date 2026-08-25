@@ -98,7 +98,13 @@ namespace types
 		typename T::Texture;
 
 		// Node Data Types
-	  typename T::ConvertedEntity; // the type a prim is converted into (most common base type for all node types)
+		typename T::ConvertedEntity; // the type a prim is converted into (most common base type for all node types)
+		typename T::ConvertedEntityHandle; // stable handle used to transfer an entity across module boundaries
+
+		{ T::GetConvertedEntityHandle(static_cast<typename T::ConvertedEntity*>(nullptr)) }
+			-> std::same_as<typename T::ConvertedEntityHandle>;
+		{ T::ResolveConvertedEntity(typename T::ConvertedEntityHandle{}) }
+			-> std::same_as<typename T::ConvertedEntity*>;
 		typename T::OwningEntity; // the type of the entity "Owning" all converted entitys and act as outermost target/root
 		
 		requires Vector4Like<typename T::Vector4>;

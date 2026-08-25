@@ -7,7 +7,7 @@
 #include <pxr/exec/exec/registerSchema.h>
 #include <pxr/exec/vdf/context.h>
 
-#include "./tokens.h"
+#include <tokens.h>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 

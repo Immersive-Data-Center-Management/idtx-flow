@@ -289,24 +289,26 @@ void UsdStageNode3D::_configure_nodes_recursive(godot::Node3D* node, godot::Node
                 .GetExecBridgeForStage(stage_handle_->Stage());
         if (pxr::UsdPrim usdPrim = stage_handle_->Stage()->GetPrimAtPath(pxr::SdfPath(usd_node->get_prim_path().utf8().get_data())))
         {
+            bool registered_compute_attribute = false;
             for (const pxr::UsdAttribute& attribute : usdPrim.GetAttributes())
             {
-                if (attribute.HasAuthoredConnections())
-                    bridge->RegisterAttributeWithConnection(attribute);
+                if (attribute.HasAuthoredConnections() &&
+                    bridge->RegisterAttributeWithConnection(attribute) >= 0)
+                {
+                    registered_compute_attribute = true;
+                }
             }
-            if (bridge->GetValueKeyCount() > 0)
+            if (registered_compute_attribute)
             {
-                bridge->RegisterComputeResultHandler(usdPrim.GetPath(),
-                    std::shared_ptr<IExecBridgeHandler>(
-                        dynamic_cast<IExecBridgeHandler*>(usd_node),
-                        [](IExecBridgeHandler*)
-                        {
-                            /* the empty shared_ptr destructor ensures that the owner of the converted
-                             * node instance is responsible for its lifecycle and releasing the
-                             * last instance of the shared_ptr will not delete/free the contained object
-                             */
-                        }
-                    ));
+                if (IExecBridgeHandler* handler = usd_node->get_exec_bridge_handler())
+                {
+                    bridge->RegisterComputeResultHandler(usdPrim.GetPath(), handler);
+                } else
+                {
+                    IDTX_LOGF(IDTX_WARN,
+                        "Prim '{}' has connected compute attributes, but its converted node does not expose IExecBridgeHandler",
+                        usdPrim.GetPath().GetText());
+                }
             }
         }
     }

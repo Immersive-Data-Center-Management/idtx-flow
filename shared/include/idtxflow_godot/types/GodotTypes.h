@@ -1,6 +1,8 @@
 #pragma once
 #include <godot_cpp/classes/ref.hpp>
+#include <godot_cpp/classes/node3d.hpp>
 #include <godot_cpp/classes/standard_material3d.hpp>
+#include <godot_cpp/core/object.hpp>
 #include <godot_cpp/variant/packed_color_array.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
@@ -11,7 +13,6 @@
 
 namespace godot
 {
-    class Node3D;
     class Texture2D;
     class StandardMaterial3D;
 }
@@ -61,7 +62,31 @@ namespace types
         using Texture = godot::Ref<godot::Texture2D>;
 
         using ConvertedEntity = godot::Node3D;
+        // A godot-cpp Object wrapper belongs to the GDExtension DLL that created
+        // it and must not be dereferenced by another DLL. Godot's ObjectID is a
+        // stable POD value that can safely cross that boundary.
+        using ConvertedEntityHandle = uint64_t;
         using OwningEntity = godot::Node3D;
+
+        /**
+         * Create a cross-module handle for an entity using the caller's local
+         * godot-cpp wrapper. Call this in the module that owns the entity.
+         */
+        static ConvertedEntityHandle GetConvertedEntityHandle(ConvertedEntity* entity) noexcept
+        {
+            return entity ? entity->get_instance_id() : 0;
+        }
+
+        /**
+         * Resolve a handle through the caller's godot-cpp instance-binding
+         * token. The returned wrapper is therefore local to the calling DLL.
+         */
+        static ConvertedEntity* ResolveConvertedEntity(ConvertedEntityHandle handle) noexcept
+        {
+            if (handle == 0) return nullptr;
+            godot::Object* object = godot::ObjectDB::get_instance(handle);
+            return godot::Object::cast_to<godot::Node3D>(object);
+        }
     };
 
     static_assert(TargetEngineTypesLike<TargetEngineTypes<TargetEngineGodot>>, 

@@ -6,6 +6,7 @@
 /addons/*/**/bin
 /addons/IDTXFlow/LICENSES-THIRD-PARTY
 /addons/IDTXFlow/THIRDPARTY.txt
+/__pycache__
 */**/__pycache__
 /source/gen
 # protoc-generated idtxcore.* C++ sources (regenerated from shared/proto/idtxcore/*.proto)
@@ -31,3 +32,6 @@ IDTXFlowGodot.sln.DotSettings.user
 *.o
 *.a
 *.ilk
+
+# ignore local scons settings
+custom.py

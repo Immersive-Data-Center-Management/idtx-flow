@@ -17,10 +17,10 @@ def exists(env):
 #-----------------------------------------------------------------------------------------------------------------------
 def _generate_usd_extensions_code(env):
     print("Generate openUSD Extension code from schema...")
+    open_usd_path =  env["OPENUSD_PATH"]
 
     extension_root = f"usd"
-    openusd_version = env.get('openusd_version', '')
-    openusd_root = os.path.abspath(f"./thirdparty/openusd-{openusd_version}-withPython")
+    openusd_root = os.path.abspath(f"{open_usd_path}-withPython")
     openusd_env = os.environ.copy()
     openusd_env["USD_ROOT"] = openusd_root
     openusd_env["PYTHONPATH"] = f"{openusd_root}/lib/python"
@@ -43,9 +43,7 @@ def _generate_usd_extensions_code(env):
 def _build_usd_extension(env):
     print("Building USD Extensions...")
 
-    openusd_version = env.get('openusd_version', '')
-    openusd_root = os.path.abspath(f"./thirdparty/openusd-{openusd_version}")
-
+    openusd_root =  env["OPENUSD_PATH"]
     extension_root = "./usd"
     idtxflow_sdk_path = "./shared"
 
@@ -59,6 +57,7 @@ def _build_usd_extension(env):
 
     extension_env.Append(CPPPATH=[
         f"{extension_root}/generated",
+        f"{extension_root}/source",
         f"{openusd_root}/include",
         python_include,
     ])
@@ -124,7 +123,9 @@ def _build_usd_extension(env):
         extension_env.Append(CPPDEFINES=["IDTX_EXPORTS"])
 
     # Source files excluding the python wrapper files as we do not need them
-    sources = list(set(extension_env.Glob(f"{extension_root}/generated/*.cpp", exclude=f"{extension_root}/generated/wrap*.cpp")))
+    sources = list(set(
+        extension_env.Glob(f"{extension_root}/generated/*.cpp", exclude=f"{extension_root}/generated/wrap*.cpp") +
+        extension_env.Glob(f"{extension_root}/source/*.cpp")))
 
     # Set build directories
     build_dir = f"{extension_root}/build/{platform_name}"

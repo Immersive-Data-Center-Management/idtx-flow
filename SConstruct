@@ -5,8 +5,22 @@ import platform
 from  SCons.Environment import Environment
 from SCons.Script import ARGUMENTS
 
-# USD Version configuration
+# USD Version and path configuration
 openusd_version = "26.05"
+shared_thirdparty_root = "./thirdparty"
+
+# allow developer to overwrite those paths
+try:
+    import custom
+except ImportError:
+    custom = None
+
+if custom:
+    openusd_version = getattr(custom, "OPENUSD_VERSION", openusd_version)
+    shared_thirdparty_root = getattr(custom, "SHARED_THIRDPARTY_ROOT", shared_thirdparty_root)
+
+usd_root = f"{shared_thirdparty_root}/openusd-{openusd_version}"
+usd_src = f"{shared_thirdparty_root}/openusd-{openusd_version}-src"
 
 # configure the main environment to use the different tools to build all we need
 env = Environment(
@@ -25,6 +39,9 @@ env = Environment(
     ],
     toolpath=["scons"],
     MSVC_VERSION='14.3',
+    OPENUSD_VERSION=openusd_version,
+    OPENUSD_PATH=usd_root,
+    OPENUSD_SRC_PATH=usd_src,
     PATH=os.environ.get("PATH", "")
 )
 
@@ -49,8 +66,6 @@ if platform.system() == "Windows" and (env["CXX"] == "cl" or env["CC"] == "cl"):
 else:
     # GCC/Clang: Enable C++20
     env.Append(CXXFLAGS=['-std=c++20'])
-
-env['openusd_version'] = openusd_version
 
 # download and build IXWebSocket from source as a static library
 env.BuildIXWebSocket()

@@ -10,7 +10,7 @@
 class UsdSkeletonNode3D : public godot::Skeleton3D, public IUsdNode3D
 {
     GDCLASS(UsdSkeletonNode3D, Skeleton3D)
-    IUSDNODE(UsdSkeletonNode3D)
+    IUSDNODE(UsdSkeletonNode3D, false)
     
 public:
     /********************* Godot Lifecycle hooks *****************/

@@ -14,7 +14,7 @@
 class UsdMeshInstanceNode3D : public godot::MeshInstance3D, public IUsdNode3D, public IExecBridgeHandler
 {
     GDCLASS(UsdMeshInstanceNode3D, MeshInstance3D)
-    IUSDNODE(UsdMeshInstanceNode3D)
+    IUSDNODE(UsdMeshInstanceNode3D, true)
     
 public:
     /******************* Godot lifecycle hooks ***************************/

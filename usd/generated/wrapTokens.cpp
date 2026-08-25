@@ -17,6 +17,7 @@ void wrapIDTXTokens()
 {
     pxr_boost::python::class_<IDTXTokensType, pxr_boost::python::noncopyable>
         cls("Tokens", pxr_boost::python::no_init);
+    _ADD_TOKEN(cls, authorization);
     _ADD_TOKEN(cls, Box);
     _ADD_TOKEN(cls, Capsule);
     _ADD_TOKEN(cls, Collide);
@@ -26,10 +27,14 @@ void wrapIDTXTokens()
     _ADD_TOKEN(cls, Convex);
     _ADD_TOKEN(cls, Cylinder);
     _ADD_TOKEN(cls, double_);
+    _ADD_TOKEN(cls, endpoint);
     _ADD_TOKEN(cls, float_);
+    _ADD_TOKEN(cls, GET);
     _ADD_TOKEN(cls, Grab);
     _ADD_TOKEN(cls, guide);
     _ADD_TOKEN(cls, inputsJsonData);
+    _ADD_TOKEN(cls, inputsKey);
+    _ADD_TOKEN(cls, inputsTemplate);
     _ADD_TOKEN(cls, inputsValue);
     _ADD_TOKEN(cls, interactionEnabled);
     _ADD_TOKEN(cls, interactionHighlightable);
@@ -37,8 +42,10 @@ void wrapIDTXTokens()
     _ADD_TOKEN(cls, interactionIdentifier);
     _ADD_TOKEN(cls, interval);
     _ADD_TOKEN(cls, invisible);
+    _ADD_TOKEN(cls, jsonBody);
     _ADD_TOKEN(cls, jsonPath);
     _ADD_TOKEN(cls, jsonValueType);
+    _ADD_TOKEN(cls, method);
     _ADD_TOKEN(cls, NO_VALUE);
     _ADD_TOKEN(cls, none);
     _ADD_TOKEN(cls, outputsData);
@@ -46,9 +53,12 @@ void wrapIDTXTokens()
     _ADD_TOKEN(cls, outputsJsonValueFloat);
     _ADD_TOKEN(cls, outputsJsonValueString);
     _ADD_TOKEN(cls, outputsResult);
+    _ADD_TOKEN(cls, outputsValue);
     _ADD_TOKEN(cls, physicsCollider);
     _ADD_TOKEN(cls, physicsColliderQuerry);
+    _ADD_TOKEN(cls, POST);
     _ADD_TOKEN(cls, purpose);
+    _ADD_TOKEN(cls, query);
     _ADD_TOKEN(cls, Rigidbody);
     _ADD_TOKEN(cls, scalarFactor);
     _ADD_TOKEN(cls, Select);
@@ -58,9 +68,12 @@ void wrapIDTXTokens()
     _ADD_TOKEN(cls, visibility);
     _ADD_TOKEN(cls, CollisionAPI);
     _ADD_TOKEN(cls, CollisionSetAPI);
+    _ADD_TOKEN(cls, Compute_Environment);
     _ADD_TOKEN(cls, Compute_ScaleDouble);
     _ADD_TOKEN(cls, Compute_ValueFromJson);
+    _ADD_TOKEN(cls, Compute_VarReplacements);
     _ADD_TOKEN(cls, Datasource);
     _ADD_TOKEN(cls, InteractionAPI);
     _ADD_TOKEN(cls, MockDatasource_RandomFloat);
+    _ADD_TOKEN(cls, RestDatasource);
 }

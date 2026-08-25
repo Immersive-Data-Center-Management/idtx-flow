@@ -10,7 +10,7 @@
 class UsdXformNode3D : public godot::Node3D, public IUsdNode3D
 {
     GDCLASS(UsdXformNode3D, Node3D)
-    IUSDNODE(UsdXformNode3D)
+    IUSDNODE(UsdXformNode3D, false)
     
 public:
     /**
