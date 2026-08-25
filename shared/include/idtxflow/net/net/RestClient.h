@@ -1,0 +1,83 @@
+#pragma once
+
+/**
+ * @file RestClient.h
+ * @brief REST orchestration for the collaboration backend: builds requests,
+ *        attaches auth, applies protocol rules, and delivers model results.
+ *
+ * It owns no transport, JSON, or engine types — it drives an IHttpTransport,
+ * reads the bearer token from an ITokenProvider, translates bytes through the
+ * REST codec, and posts results onto the engine thread via the dispatcher.
+ * Results arrive through caller-supplied callbacks so any binding can wire them
+ * to its own event sink.
+ */
+
+#include <functional>
+#include <string>
+#include <vector>
+
+#include <idtxflow/net/model/Types.h>
+#include <idtxflow/net/ports/IHttpTransport.h>
+#include <idtxflow/net/ports/IMainThreadDispatcher.h>
+#include <idtxflow/net/ports/ITokenProvider.h>
+#include <idtxflow/utils/Logger.h>
+
+namespace idtxflow
+{
+namespace net
+{
+    class RestClient
+    {
+    public:
+        using LoginCb   = std::function<void(const model::LoginResult&)>;
+        using FilesCb   = std::function<void(const std::vector<model::FileEntry>&)>;
+        using SessionCb = std::function<void(const model::SessionInfo&)>;
+        using DeletedCb = std::function<void()>;
+        using ErrorCb   = std::function<void(const model::RestError&)>;
+
+        RestClient(ports::IHttpTransport* http,
+                   ports::ITokenProvider* token,
+                   ports::IMainThreadDispatcher* dispatcher)
+            : http_(http), token_(token), dispatcher_(dispatcher) {}
+
+        void set_base_url(const std::string& url);
+
+        /// POST /auth/login (unauthenticated). Does not store the token; the
+        /// caller decides what to do with the result.
+        void login(const std::string& username, const std::string& password,
+                   LoginCb on_ok, ErrorCb on_err);
+
+        /// GET /files with optional filters (either may be empty). Authenticated.
+        void list_files(const std::string& name_contains, const std::string& extension,
+                        FilesCb on_ok, ErrorCb on_err);
+
+        /// POST /sessions { usd_file, mode }. Authenticated.
+        void create_session(const std::string& usd_file, const std::string& mode,
+                            SessionCb on_ok, ErrorCb on_err);
+
+        /// DELETE /sessions/<id>. 2xx and 404 both count as "gone". Authenticated.
+        void delete_session(const std::string& session_id,
+                            DeletedCb on_ok, ErrorCb on_err);
+
+        /// Derive the WebSocket base from the HTTP base (http->ws, https->wss).
+        std::string ws_base_url() const;
+
+        /// Compose the full USD download URL: <base>/api/v1/download/<usd_file>.
+        std::string download_url(const std::string& usd_file) const;
+
+    private:
+        IDTX_LOG_CATEGORY("RestClient")
+
+        // Apply the protocol rule that a 401 on any operation invalidates the
+        // stored token, then hand the error to the caller on the engine thread.
+        void report_error(const model::RestError& error, const ErrorCb& on_err);
+
+        static std::string url_encode(const std::string& s);
+
+        ports::IHttpTransport*        http_;
+        ports::ITokenProvider*        token_;
+        ports::IMainThreadDispatcher* dispatcher_;
+    };
+
+} // namespace net
+} // namespace idtxflow

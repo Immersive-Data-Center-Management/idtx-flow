@@ -56,6 +56,13 @@ public:
 
 protected:
     static void _bind_methods();
+    /**
+     * Handle Godot lifecycle notifications: on PARENTED, wire up the deferred
+     * skeleton link; on TRANSFORM_CHANGED, route the local edit to the IDTX
+     * transform sync so it is authored into the live USD stage and conditionally
+     * broadcast. Requires set_notify_transform(true), enabled in this node's
+     * _ready() and during stage conversion.
+     */
     void _notification(int p_what);
     
     // if this node is linked to a skeleton we store the reference here. This is required, as the creation and

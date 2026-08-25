@@ -16,6 +16,8 @@ extends "res://addons/IDTXFlow/import_manager/file_provider.gd"
 ## backend gains subtree listing, flip it to true and have `list_dir(dir)`
 ## request that subtree — the browser UI already supports navigation.
 
+const IdtxAccess := preload("res://addons/IDTXFlow/import_manager/idtx_client_access.gd")
+
 var _server_url: String = ""
 var _loading: bool = false
 ## The directory currently being listed; echoed back with the results so the
@@ -41,9 +43,7 @@ func dir_exists(dir: String) -> bool:
 
 
 func _idtx() -> Object:
-	if not Engine.has_singleton("IdtxClient"):
-		return null
-	return Engine.get_singleton("IdtxClient")
+	return IdtxAccess.get_client()
 
 
 func list_dir(dir: String) -> void:
@@ -57,37 +57,18 @@ func list_dir(dir: String) -> void:
 	_loading = true
 	_pending_dir = dir
 
-	client.files_listed.connect(_on_files_listed, CONNECT_ONE_SHOT)
-	client.request_failed.connect(_on_request_failed, CONNECT_ONE_SHOT)
-	client.list_files("", "")
+	client.list_files("", "", _on_list_done)
 
 
-func _on_files_listed(files: Array) -> void:
+func _on_list_done(result: Dictionary) -> void:
 	_loading = false
-	_disconnect_handlers()
-	entries_ready.emit(_pending_dir, _build_entries(files))
-
-
-func _on_request_failed(op: String, http_code: int, code: String, message: String) -> void:
-	# Only react to list_files failures here.
-	if op != "list_files":
+	if bool(result.get("ok", false)):
+		entries_ready.emit(_pending_dir, _build_entries(result.get("result", [])))
 		return
-	_loading = false
-	_disconnect_handlers()
-	var msg := message
+	var msg := String(result.get("message", ""))
 	if msg.is_empty():
-		msg = "%d %s" % [http_code, code]
+		msg = "%d %s" % [int(result.get("http_code", 0)), String(result.get("error_code", ""))]
 	list_failed.emit(_pending_dir, "Failed to list files: %s" % msg)
-
-
-func _disconnect_handlers() -> void:
-	var client := _idtx()
-	if client == null:
-		return
-	if client.files_listed.is_connected(_on_files_listed):
-		client.files_listed.disconnect(_on_files_listed)
-	if client.request_failed.is_connected(_on_request_failed):
-		client.request_failed.disconnect(_on_request_failed)
 
 
 ## Turn the backend's flat file list into browser entries: for each directory
@@ -97,14 +78,13 @@ func _disconnect_handlers() -> void:
 func _build_entries(files: Array) -> Array:
 	var entries: Array = []
 
-	# Group entries by their 'directory' field. The backend may return Windows
-	# separators (e.g. "Teapot\geo"); normalize to forward slashes for display
-	# and for the paths we send back to /sessions and /download.
+	# Group entries by their 'directory' field. Paths arrive already normalized
+	# to forward slashes, so grouping is a pure display concern.
 	var groups := {}   # directory -> Array of entry dicts
 	for f in files:
 		if typeof(f) != TYPE_DICTIONARY:
 			continue
-		var directory := String(f.get("directory", "")).replace("\\", "/")
+		var directory := String(f.get("directory", ""))
 		if not groups.has(directory):
 			groups[directory] = []
 		groups[directory].append(f)
@@ -136,15 +116,14 @@ func _build_entries(files: Array) -> Array:
 
 		for f in group_files:
 			var filename := String(f.get("filename", ""))
-			# Normalize Windows separators and any stray leading slash so the
-			# path matches the backend's /sessions + /download contract.
-			var filepath := String(f.get("filepath", "")).replace("\\", "/").lstrip("/")
+			# The path already matches the /sessions + /download contract.
+			var filepath := String(f.get("filepath", ""))
 			var meta := {
 				"name": filename,
 				"path": filepath,             # used by get_selected_path()
 				"is_dir": false,
 				"size_bytes": int(f.get("size", 0)),
-				"modified": _format_modified(f.get("modified", 0)),
+				"modified": _format_modified(f),
 				"description": String(directory),
 			}
 			entries.append({
@@ -158,23 +137,14 @@ func _build_entries(files: Array) -> Array:
 	return entries
 
 
-## The backend `modified` is an opaque numeric timestamp
-## (file_time_type::time_since_epoch().count()). We can't reliably interpret its
-## unit, so present a readable date when the value plausibly looks like Unix
-## seconds/millis, otherwise just stringify it. (Used for display only.)
-func _format_modified(value) -> String:
-	var n := int(value)
-	if n <= 0:
+## Present the modification time for display. The engine decodes the opaque
+## backend value to Unix seconds (`modified_epoch`, 0 when it cannot be
+## interpreted); show a readable date when it resolves, otherwise the raw value.
+func _format_modified(entry) -> String:
+	var epoch := int(entry.get("modified_epoch", 0))
+	if epoch > 0:
+		return Time.get_datetime_string_from_unix_time(epoch).substr(0, 10)
+	var raw := int(entry.get("modified", 0))
+	if raw <= 0:
 		return ""
-	var secs := n
-	# Heuristic: values far larger than "now in seconds" are millis/nanos.
-	if secs > 100_000_000_000:          # > ~year 5138 in seconds → likely millis
-		secs = int(secs / 1000)
-	if secs > 100_000_000_000:          # still huge → likely micros
-		secs = int(secs / 1000)
-	if secs > 100_000_000_000:          # still huge → likely nanos
-		secs = int(secs / 1000)
-	if secs > 1_000_000_000 and secs < 100_000_000_000:
-		return Time.get_datetime_string_from_unix_time(secs).substr(0, 10)
-	# Fallback: opaque value, show as-is.
-	return str(value)
+	return str(raw)

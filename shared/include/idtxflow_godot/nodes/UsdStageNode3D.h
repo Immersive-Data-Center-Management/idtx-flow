@@ -39,14 +39,6 @@ public:
     void _exit_tree() override;
 
     /**
-     * Route Godot transform changes on the stage node itself to the IDTX
-     * transform sync (§9.4). Enables verifying/collab-syncing the imported
-     * stage's root transform when only the stage node is selectable in the editor.
-     */
-    void _notification(int p_what);
-
-
-    /**
      * Set the URI of the stage that shall be opened and converted
      * @param path 
      */

@@ -1,0 +1,202 @@
+# tests/SConscript — opt-in build + run of the engine-agnostic core unit suite.
+#
+# The top-level SConstruct delegates here (SConscript('tests/SConscript', ...)).
+# The suite is a standalone console executable that links the core sources under
+# test, the generated protobuf messages + runtime, and OpenUSD (the REST codec
+# parses JSON with pxr::Js). It links no godot-cpp and needs no server, so the
+# core stays testable without an engine or a live backend.
+#
+# It is wired as an explicit `test` alias so the default build is untouched:
+#
+#     scons test
+#
+# The alias both builds the executable and runs it via a post-action, so a
+# failing assertion (non-zero exit) fails the SCons invocation.
+#
+# All paths are anchored at the project root ('#/...') because a SConscript runs
+# with its own directory as the base for relative paths; anchoring keeps include
+# and object paths correct regardless of where SCons emits them.
+
+import glob
+import os
+import platform
+
+Import('env')
+
+platform_name = env["platform_name"]
+
+net_src_dir = "shared/src/idtxflow/net"
+proto_gen_dir = net_src_dir + "/proto_gen"
+unit_dir = "tests/unit"
+
+project_root = Dir('#').abspath
+
+
+def _anchor(entry):
+    """Re-anchor a parent-env relative path at the project root ('#')."""
+    e = str(entry)
+    if e.startswith("#") or os.path.isabs(e):
+        return e
+    if e.startswith("./"):
+        e = e[2:]
+    return "#/" + e
+
+
+test_env = env.Clone()
+
+# Parent CPPPATH/LIBPATH entries are relative to the project root, not this
+# SConscript's dir; re-anchor them so they resolve from here.
+test_env['CPPPATH'] = [_anchor(p) for p in test_env.get('CPPPATH', [])]
+if 'LIBPATH' in test_env.Dictionary():
+    test_env['LIBPATH'] = [_anchor(p) for p in test_env.get('LIBPATH', [])]
+
+protobuf_include_dir = env.get("protobuf_include_dir", "")
+protobuf_lib_dir = env.get("protobuf_lib_dir", "")
+protobuf_lib_name = env.get("protobuf_lib_name", "")
+
+test_env.Append(CPPPATH=[
+    "#/shared/include",
+    "#/" + unit_dir + "/support",
+    "#/" + proto_gen_dir,
+])
+if protobuf_include_dir:
+    test_env.Append(CPPPATH=[_anchor(protobuf_include_dir)])
+if protobuf_lib_dir:
+    test_env.Append(LIBPATH=[_anchor(protobuf_lib_dir)])
+
+libs = []
+if protobuf_lib_name:
+    libs.append(protobuf_lib_name)
+
+# RestCodec parses JSON with pxr::Js, so the suite links OpenUSD. This keeps
+# tests server- and godot-cpp-free while exercising the real REST parser (the
+# library is already built for the extension).
+openusd_version = env.get("openusd_version", "")
+usd_root = "thirdparty/openusd-" + str(openusd_version)
+test_env.Append(CPPPATH=["#/" + usd_root + "/include"])
+test_env.Append(LIBPATH=["#/" + usd_root + "/lib"])
+libs += ["usd_ms", "tbb12" if platform_name == "windows" else "tbb.12"]
+
+if platform.system() == "Windows" and (env["CXX"] == "cl" or env["CC"] == "cl"):
+    test_env.Append(CXXFLAGS=['/EHsc', '/GR', '/std:c++20'])
+    test_env.Append(CCFLAGS=['/EHsc', '/MT', '/Zi', '/Od', '/FS'])
+    test_env.Append(CPPDEFINES=["NOMINMAX", "WIN32_LEAN_AND_MEAN", "_ITERATOR_DEBUG_LEVEL=0"])
+    libs += ["advapi32", "ws2_32"]
+else:
+    test_env.Append(CXXFLAGS=['-std=c++20', '-fexceptions', '-frtti', '-g'])
+    libs += ["pthread"] if platform_name == "linux" else []
+
+# Optional live-transport tests: only when a backend URL is configured. This
+# pulls in IXWebSocket + OpenSSL and the IX adapter source, and defines
+# IDTX_TESTS_WITH_IX so the guarded live test compiles. Kept off by default so
+# the suite stays server- and IX-free.
+extra_sources = []
+with_ix = bool(env["ENV"].get("IDTX_TEST_BASE_URL"))
+if with_ix:
+    print("  IDTX_TEST_BASE_URL set: enabling live IX transport tests.")
+    test_env.Append(CPPDEFINES=["IDTX_TESTS_WITH_IX"])
+    test_env.Append(CPPPATH=[_anchor(env.get("ixws_path", "thirdparty/ixwebsocket"))])
+    ixws_build_dir = "thirdparty/ixwebsocket/build_%s_%s" % (platform_name, env['target'])
+    test_env.Append(LIBPATH=[
+        "#/" + (ixws_build_dir + "/Release" if platform_name == "windows" else ixws_build_dir),
+    ])
+    libs.append("ixwebsocket")
+    if platform_name == "windows":
+        vcpkg_installed = "thirdparty/vcpkg/installed/x64-windows-static"
+        test_env.Append(LIBPATH=["#/" + vcpkg_installed + "/lib"])
+        test_env.Append(CPPPATH=["#/" + vcpkg_installed + "/include"])
+        libs += ["libssl", "libcrypto", "crypt32", "user32"]
+    else:
+        libs += ["ssl", "crypto"]
+    extra_sources += [net_src_dir + "/adapters/transport/ix/IxHttpTransport.cpp"]
+test_env.Append(LIBS=libs)
+
+# ---------------------------------------------------------------------------
+# Collect sources (all anchored at the project root):
+#   - the test runner + every *Tests.cpp under tests/unit (recursively),
+#   - the engine-agnostic core sources under test,
+#   - the generated protobuf messages,
+#   - any optional IX adapter source.
+# ---------------------------------------------------------------------------
+
+def _glob_recursive(rel_dir, pattern):
+    """Recursive glob (SCons '**' is not recursive), returning File nodes
+    anchored at the project root."""
+    root = os.path.join(project_root, rel_dir.replace("/", os.sep))
+    hits = glob.glob(os.path.join(root, "**", pattern), recursive=True)
+    return [test_env.File("#/" + os.path.relpath(h, project_root).replace("\\", "/")) for h in hits]
+
+
+def _core_sources_under_test():
+    """The engine-agnostic core .cpp files compiled into the test binary.
+
+    Globs the real logic layers (wire codec, REST translator + orchestration)
+    and the engine facade. Only files that exist are returned.
+    """
+    sources = []
+    sources += test_env.Glob("#/" + net_src_dir + "/wire/*.cpp")
+    sources += test_env.Glob("#/" + net_src_dir + "/adapters/rest/*.cpp")
+    sources += test_env.Glob("#/" + net_src_dir + "/net/*.cpp")
+    engine_cpp = os.path.join(project_root, net_src_dir.replace("/", os.sep), "CollabEngine.cpp")
+    if os.path.exists(engine_cpp):
+        sources += [test_env.File("#/" + net_src_dir + "/CollabEngine.cpp")]
+    return sources
+
+
+test_sources = _glob_recursive(unit_dir, "*.cpp")
+core_sources = _core_sources_under_test()
+proto_sources = test_env.Glob("#/" + proto_gen_dir + "/*.pb.cc")
+ix_sources = [test_env.File("#/" + p) for p in extra_sources]
+
+all_sources = list(set(test_sources + core_sources + proto_sources + ix_sources))
+
+# ---------------------------------------------------------------------------
+# Emit test-private object files under build/tests/obj/<rel>, preserving the
+# source tree layout. Shared sources (proto, core) are also compiled by the
+# extension build, so a distinct object tree avoids a target collision.
+# ---------------------------------------------------------------------------
+
+def _obj_for(src):
+    src_path = getattr(src, 'abspath', None) or str(src)
+    rel = os.path.relpath(src_path, project_root).replace("\\", "/")
+    while rel.startswith("./"):
+        rel = rel[2:]
+    stem, _ = os.path.splitext(rel)
+    return "#/build/tests/obj/" + stem
+
+
+objects = []
+for s in all_sources:
+    objects.extend(test_env.Object(target=_obj_for(s), source=s))
+
+program = test_env.Program("#/build/tests/idtx_core_tests", objects)
+
+# OpenUSD/tbb ship as shared libraries; make them findable when the post-action
+# runs the test exe (they live in the USD lib/bin dirs, not next to the exe).
+usd_runtime_dirs = [
+    os.path.abspath(os.path.join(project_root, usd_root, "lib")),
+    os.path.abspath(os.path.join(project_root, usd_root, "bin")),
+]
+test_env["tests_runtime_dirs"] = usd_runtime_dirs
+
+
+def _run_tests(target, source, env):
+    import subprocess
+    exe = target[0].abspath
+    print("Running unit tests: " + exe)
+    run_env = dict(os.environ)
+    runtime_dirs = env.get("tests_runtime_dirs", [])
+    if runtime_dirs:
+        run_env["PATH"] = os.pathsep.join(runtime_dirs) + os.pathsep + run_env.get("PATH", "")
+    result = subprocess.run([exe], env=run_env)
+    if result.returncode != 0:
+        raise Exception("Unit tests failed (exit code %d)" % result.returncode)
+    print("Unit tests passed.")
+
+
+# Build AND run: the post-action executes the freshly built binary so a failing
+# assertion fails `scons test`. AlwaysBuild keeps the alias from being considered
+# satisfied without running the binary.
+test_env.AddPostAction(program, _run_tests)
+test_alias = test_env.Alias("test", program)
+test_env.AlwaysBuild(test_alias)

@@ -78,3 +78,7 @@ env.BuildGdExtension()
 # with the GDExtension built, we can grab everything that is required to form an IDTXFlowGodotExtension SDK to implement
 # an extension of this very GDExtension
 env.ComposeIdtxFlowGodotSDK()
+# Configure the standalone unit-test suite (built + run via `scons test`); does not
+# affect the default build. Delegated to tests/SConscript and placed after proto
+# generation so the generated sources exist.
+SConscript('tests/SConscript', exports={'env': env})

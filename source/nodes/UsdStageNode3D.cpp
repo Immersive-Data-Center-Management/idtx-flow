@@ -14,7 +14,6 @@
 
 #include "converter/UsdGodotStageConverter.h"
 
-#include "../net/IdtxClient.h"
 
 using namespace godot;
 using namespace pxr;
@@ -32,20 +31,6 @@ void UsdStageNode3D::_ready()
 {
     Node3D::_ready();
     node_ready_ = true;
-    // Receive transform-changed notifications so moving the stage node in the
-    // editor routes to the IDTX transform sync (§9.4).
-    set_notify_transform(true);
-}
-
-void UsdStageNode3D::_notification(int p_what)
-{
-    if (p_what == NOTIFICATION_TRANSFORM_CHANGED)
-    {
-        if (IdtxClient* client = IdtxClient::get_singleton())
-        {
-            client->notify_local_transform_changed(this);
-        }
-    }
 }
 
 void UsdStageNode3D::_exit_tree()
@@ -286,15 +271,15 @@ void UsdStageNode3D::_configure_nodes_recursive(godot::Node3D* node, godot::Node
     if (usd_node)
         usd_node->set_stage_node(this);
 
-    // Enable Godot transform-changed notifications so local gizmo/script edits
-    // are routed to the IDTX transform sync (§9.4). Nodes that override
-    // _notification (e.g. UsdXformNode3D) will then author the change into the
-    // live USD stage and conditionally broadcast it.
-    node->set_notify_transform(true);
-    
     // if this is a UsdStageNode3D itself, skip traversing the childrens, as this node takes care of it
     // on it's own
     if (dynamic_cast<UsdStageNode3D*>(node)) return;
+
+    // Enable Godot transform-changed notifications so local gizmo/script edits
+    // are routed to the IDTX transform sync. Nodes that override _notification
+    // (e.g. UsdXformNode3D) then author the change into the live USD stage and
+    // conditionally broadcast it.
+    node->set_notify_transform(true);
     
     // if "register_compute" is true, the configuration happens during loading of a cached stage scene. Thus, the 
     // stage converter did not run and registered compute attributes into the ExecComputeBridge. Do this here now

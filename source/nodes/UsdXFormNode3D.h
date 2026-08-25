@@ -16,8 +16,8 @@ public:
     /**
      * Route Godot transform changes (gizmo/script edits) to the IDTX transform
      * sync so they are authored into the live USD stage and conditionally
-     * broadcast (§9.4). Requires set_notify_transform(true), which is enabled
-     * during stage conversion in UsdStageNode3D::_configure_nodes_recursive.
+     * broadcast. Requires set_notify_transform(true), enabled during stage
+     * conversion.
      */
     void _notification(int p_what);
 

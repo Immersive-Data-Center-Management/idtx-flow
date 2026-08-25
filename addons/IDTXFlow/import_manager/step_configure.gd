@@ -1,10 +1,10 @@
 @tool
 extends VBoxContainer
 
-## Step 3 (merged) — Import options.
+## Import options step: destination + settings in one place.
 ##
-## Combines the former "Configure" (step 3) and "Confirm" (step 4) into a single
-## step, since destination + settings are all import options. Layout:
+## Presents all import options (destination, prim types, definition, settings) on a
+## single screen. Layout:
 ##
 ##   Header: "Step 3 of 3 — Configure: Define import settings"
 ##   HSplit (same 2-panel layout/separation as the browse step)

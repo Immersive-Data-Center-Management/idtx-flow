@@ -9,7 +9,7 @@
 #include <idtxflow/resolver/HttpResolver.h>
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
 #include <idtxflow/exec/ExecBridgeManager.h>
-#include <idtxflow/net/JwtHttpFetcher.h>
+#include <idtxflow/net/adapters/auth/JwtHttpFetcher.h>
 
 #include <godot_cpp/classes/engine.hpp>
 
@@ -18,7 +18,7 @@
 #include "nodes/UsdMockDatasourceFloatNode3D.h"
 #include "nodes/UsdMultiMeshInstanceNode3D.h"
 #include "nodes/UsdXFormNode3D.h"
-#include "net/IdtxClient.h"
+#include "collab_godot/IdtxClient.h"
 #include "utils/IDTXFlowGodotLogger.h"
 
 using namespace godot;
@@ -72,6 +72,15 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     GDREGISTER_CLASS(UsdMockDatasourceFloatNode3D)
     GDREGISTER_CLASS(UsdStaticBodyNode3D)
     GDREGISTER_CLASS(IdtxClient)
+
+    // Create and register the collaboration client as the engine singleton
+    // "IdtxClient" from module init (before any script runs), then start it, so
+    // it is reachable via Engine.get_singleton("IdtxClient") and its poll() is
+    // driven by the frame ticker.
+    IdtxClient* idtx_client = memnew(IdtxClient);
+    IdtxClient::set_singleton(idtx_client);
+    Engine::get_singleton()->register_singleton("IdtxClient", idtx_client);
+    idtx_client->initialize();
     
 #ifdef IDTXFLOW_MDL_ENABLED
     // activate the mdl material conversion
@@ -88,11 +97,11 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     
     // Configure the HTTP asset resolver with a JWT-injecting fetcher so protected
     // /api/v1/download/<usd_file> assets can be fetched. The fetcher reads the
-    // current token from IdtxTokenHolder at fetch time (set on login), so token
-    // rotation needs no reconfiguration. See IMPLEMENTATION_PLAN §4.7.
+    // current token from the process-wide token provider at fetch time, so token
+    // rotation needs no reconfiguration.
     pxr::UsdHttpAssetResolver::ConfigureWithFetcher(
         ProjectSettings::get_singleton()->globalize_path("user://usd_cache").utf8().get_data(),
-        idtxflow::net::JwtHttpFetcher{});
+        idtxflow::net::adapters::JwtHttpFetcher{});
     
     // Run the openExec computation bridge
     idtxflow::exec::ExecBridgeManager::Instance().Start();
@@ -107,6 +116,13 @@ void uninitialize_idtxflow_module(ModuleInitializationLevel p_level) {
     
     // Stop the openExec computation bridge
     idtxflow::exec::ExecBridgeManager::Instance().Cancel();
+
+    // Tear down and free the collaboration singleton created at init.
+    if (IdtxClient* idtx_client = IdtxClient::get_singleton())
+    {
+        idtx_client->shutdown();
+        memdelete(idtx_client);
+    }
     
 #ifdef IDTXFLOW_MDL_ENABLED
     // shutdown the mdl material conversion

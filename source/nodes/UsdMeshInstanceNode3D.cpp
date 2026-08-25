@@ -6,7 +6,7 @@
 #include <pxr/usd/usdGeom/tokens.h>
 
 #include "idtxflow_godot//converter/UsdGodotTypeConverter.h"
-#include "../net/IdtxClient.h"
+#include "../collab_godot/IdtxClient.h"
 
 using namespace godot;
 
@@ -167,7 +167,8 @@ void UsdMeshInstanceNode3D::_notification(int p_what)
     }
     else if (p_what == NOTIFICATION_TRANSFORM_CHANGED)
     {
-        // Route local transform edits to the IDTX transform sync (§9.4).
+        // Forward a local transform edit to the collaboration client, which
+        // authors it into the live stage and conditionally broadcasts it.
         if (IdtxClient* client = IdtxClient::get_singleton())
         {
             client->notify_local_transform_changed(this);
