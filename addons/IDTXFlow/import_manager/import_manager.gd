@@ -19,8 +19,10 @@ extends PanelContainer
 ##     2. step_browse_server   - browse the asset server file list (thin wrapper around
 ##                               the shared WizardFileBrowser + a ServerFileProvider that
 ##                               talks to the real IDTX backend via IdtxClient)
-##     3. step_configure       - same merged import-options step; "Import" triggers the
-##                               server import (create session + import from download URL)
+##     3. step_configure       - same merged import-options step. A server import defaults
+##                               to a plain authenticated download (like the local import);
+##                               the "Import as collaboration session" option opts into a
+##                               live session (WebSocket) with a single/collaborative mode.
 
 const WizardTheme := preload("res://addons/IDTXFlow/import_manager/wizard_theme.gd")
 const IdtxAccess := preload("res://addons/IDTXFlow/import_manager/idtx_client_access.gd")
@@ -31,12 +33,6 @@ const STEP_SELECT_SOURCE_PATH := "res://addons/IDTXFlow/import_manager/step_sele
 const STEP_BROWSE_FILES_PATH  := "res://addons/IDTXFlow/import_manager/step_browse_files.gd"
 const STEP_BROWSE_SERVER_PATH := "res://addons/IDTXFlow/import_manager/step_browse_server.gd"
 const STEP_CONFIGURE_PATH     := "res://addons/IDTXFlow/import_manager/step_configure.gd"
-
-# DEBUG_COLLAB_MODE - when true, server imports open a "collaborative_edit"
-# session instead of "single_edit", so a SECOND WS client can join the SAME session and drive/observe
-# transforms during editor testing. v1 ships single_edit,
-# so leave this false for normal use.
-const DEBUG_COLLAB_MODE := false
 
 # Shared wizard state.
 #   "source"        : "local" or "server"
@@ -182,6 +178,10 @@ func _show_step(index: int) -> void:
 			_step_configure.set_selected_meta(meta)
 		elif _step_configure.has_method("set_selected_path"):
 			_step_configure.set_selected_path(_import_state.get("selected_path", ""))
+		# Collaboration option is server-only; hide it for local imports.
+		if _step_configure.has_method("set_collaboration_option_visible"):
+			_step_configure.set_collaboration_option_visible(
+				_import_state.get("source", "") == "server")
 		# Keep the "Target:" line live while on step 3.
 		_hook_selection_listener()
 		_update_target_info()
@@ -367,21 +367,54 @@ func _perform_local_import(file_path: String) -> void:
 		_perform_import_into_current_scene(file_path)
 
 
-## Server import path: create a session, then import from the authenticated
-## download URL and open the session WebSocket. `file_path` is the server-side
+## Server import path. Defaults to a plain authenticated download (like a local
+## import); only opens a live session (create session + WebSocket) when the
+## operator opted into collaboration in step 3. `file_path` is the server-side
 ## `filepath` (e.g. "scenes/foo.usda").
 func _perform_server_import(file_path: String) -> void:
+	if _step_configure.get_session_based():
+		_perform_server_session_import(file_path)
+	else:
+		_perform_server_download_import(file_path)
+
+
+## Default server import: fetch the file over the authenticated download URL and
+## load it exactly like a local import (no session, no WebSocket). The USD stage
+## node fetches the URL via the JWT-injecting asset resolver, so we only need the
+## resolved URL and a valid login.
+func _perform_server_download_import(file_path: String) -> void:
+	var client := _idtx()
+	if client == null:
+		push_error("[IDTXFlow] [Import Manager] IDTX client not available; cannot download.")
+		return
+	if not client.is_authenticated():
+		push_error("[IDTXFlow] [Import Manager] Not authenticated; log in before importing.")
+		return
+
+	var url: String = client.download_url(file_path)
+	if url.is_empty():
+		push_error("[IDTXFlow] [Import Manager] Could not resolve download URL for '%s'." % file_path)
+		return
+
+	var destination: String = _import_state.get("destination", "current")
+	if destination == "new":
+		_perform_import_into_new_scene(url)
+	else:
+		_perform_import_into_current_scene(url)
+
+
+## Collaboration server import: create a session, then import from the
+## authenticated download URL and open the session WebSocket. The session mode
+## (single_edit / collaborative_edit) is chosen in step 3.
+func _perform_server_session_import(file_path: String) -> void:
 	var client := _idtx()
 	if client == null:
 		push_error("[IDTXFlow] [Import Manager] IDTX client not available; cannot start server import.")
 		return
 
 	client.session_ready.connect(_on_session_ready, CONNECT_ONE_SHOT)
-	# v1 uses single_edit. DEBUG_COLLAB_MODE opens collaborative_edit instead so a
-	# 2nd WS client (the E2E harness) can join the same session during editor testing.
-	var mode: String = "collaborative_edit" if DEBUG_COLLAB_MODE else "single_edit"
-	if DEBUG_COLLAB_MODE:
-		print("[IDTXFlow] [Import Manager] DEBUG_COLLAB_MODE on → creating '%s' session." % mode)
+	var mode: String = _step_configure.get_session_mode()
+	print("[IDTXFlow] [Import Manager] Creating '%s' session." % mode)
 	# The engine owns the create → open-socket sequence: the create result comes
 	# back through the completion; the resolved stage download URL then arrives on
 	# `session_ready`.

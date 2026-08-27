@@ -36,11 +36,21 @@ const AssetPanel   := preload("res://addons/IDTXFlow/import_manager/asset_detail
 const DEST_CURRENT := "current"
 const DEST_NEW     := "new"
 
+# Collaboration session mode identifiers (server imports only).
+const MODE_SINGLE := "single_edit"
+const MODE_COLLAB := "collaborative_edit"
+
 var _asset_panel: Node
 
 var _radio_current: CheckBox
 var _radio_new: CheckBox
 var _target_info_label: Label
+
+# Collaboration (server-only) opt-in: when off, a server import just downloads
+# the file (like a local import); when on, it opens a live session over WebSocket.
+var _collab_section: Control
+var _collab_checkbox: CheckBox
+var _collab_mode_option: OptionButton
 
 # Re-entrancy guard: `add_theme_stylebox_override` / `remove_theme_stylebox_override`
 # emit `theme_changed`, which we listen to for re-applying the section tint.
@@ -126,6 +136,11 @@ func _build() -> void:
 
 	# Import destination — same collapsible-section rhythm as the others.
 	content.add_child(_build_destination_section())
+
+	# Collaboration section (server imports only; hidden for local). Shown/hidden
+	# by the manager via set_collaboration_option_visible().
+	_collab_section = _build_collaboration_section()
+	content.add_child(_collab_section)
 
 	# Settings sections in two sub-columns beneath the destination.
 	var cols := HBoxContainer.new()
@@ -226,6 +241,31 @@ func get_destination() -> String:
 	return DEST_CURRENT
 
 
+## True when the operator opted into a live collaboration session (server only).
+func get_session_based() -> bool:
+	return _collab_checkbox != null and _collab_checkbox.button_pressed
+
+
+## The selected session mode string ("single_edit" / "collaborative_edit").
+## Only meaningful when get_session_based() is true.
+func get_session_mode() -> String:
+	if _collab_mode_option and _collab_mode_option.selected == 1:
+		return MODE_COLLAB
+	return MODE_SINGLE
+
+
+## Show the collaboration section (server imports) or hide it (local imports).
+## When hidden, the checkbox is forced off so a local import can never be
+## session-based.
+func set_collaboration_option_visible(show_it: bool) -> void:
+	if _collab_section:
+		_collab_section.visible = show_it
+	if not show_it and _collab_checkbox:
+		_collab_checkbox.button_pressed = false
+		if _collab_mode_option:
+			_collab_mode_option.disabled = true
+
+
 # ---------------------------------------------------------------------------
 # Import destination section (native FoldableContainer, matching the others)
 # ---------------------------------------------------------------------------
@@ -306,6 +346,47 @@ func _on_radio_current_toggled(pressed: bool) -> void:
 func _on_radio_new_toggled(pressed: bool) -> void:
 	if pressed:
 		destination_changed.emit(DEST_NEW)
+
+
+# ---------------------------------------------------------------------------
+# Collaboration section (server imports only)
+# ---------------------------------------------------------------------------
+
+## A server import defaults to a plain authenticated download (like a local
+## import). Turning on "Import as collaboration session" instead opens a live
+## editing session over WebSocket; the mode dropdown then selects single- vs
+## collaborative-edit. The dropdown is enabled only while the checkbox is on.
+func _build_collaboration_section() -> Control:
+	var fc := _make_section("Collaboration")
+	var body := _get_section_content(fc)
+
+	_collab_checkbox = CheckBox.new()
+	_collab_checkbox.text = "Import as collaboration session"
+	_collab_checkbox.button_pressed = false
+	_collab_checkbox.toggled.connect(_on_collab_toggled)
+	body.add_child(_collab_checkbox)
+
+	# Session mode: enabled only when the checkbox is on.
+	_collab_mode_option = OptionButton.new()
+	_collab_mode_option.add_item("Single edit (only you)")       # index 0 -> single_edit
+	_collab_mode_option.add_item("Collaborative edit (others can join)")  # index 1 -> collaborative_edit
+	_collab_mode_option.selected = 0
+	_collab_mode_option.disabled = true
+	body.add_child(_make_caption_indent(_collab_mode_option))
+
+	var hint := _make_inline_caption(
+		"Opens a live editing session (WebSocket). Single-edit locks the file to you;"
+		+ " collaborative lets other clients join the same session. Leave off to just"
+		+ " download the file."
+	)
+	body.add_child(_make_caption_indent(hint))
+
+	return fc
+
+
+func _on_collab_toggled(pressed: bool) -> void:
+	if _collab_mode_option:
+		_collab_mode_option.disabled = not pressed
 
 
 # ---------------------------------------------------------------------------

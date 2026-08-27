@@ -69,7 +69,7 @@ func _run() -> void:
 
 	# Best-effort socket check (clear message rather than a silent no-op).
 	if client.has_method("is_socket_open") and not client.is_socket_open():
-		push_warning("[emit_outbound_once] Session socket is NOT open — import a live collaborative_edit stage first (DEBUG_COLLAB_MODE := true). Sending anyway; it will author locally but won't broadcast.")
+		push_warning("[emit_outbound_once] Session socket is NOT open — import a live collaborative_edit stage first (enable 'Import as collaboration session' in step 3 and pick Collaborative edit). Sending anyway; it will author locally but won't broadcast.")
 
 	# Build a fresh transform from the current one so the move is visible.
 	var t: Transform3D = node.get_transform()
