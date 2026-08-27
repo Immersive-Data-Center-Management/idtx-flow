@@ -6,21 +6,23 @@
  *
  * Installed once into the USD HTTP asset resolver, it is then driven from USD's
  * background worker threads to download protected assets. It is a value functor
- * copied into the resolver, so it must not hold a per-instance pointer that
- * could dangle; it reads the current token from the process-wide
- * StaticTokenProvider at fetch time, which also lets token rotation take effect
- * without reconfiguring the resolver.
+ * copied into the resolver, so it holds its transport as a shared_ptr (safe to
+ * copy) and reads the current token from the process-wide StaticTokenProvider at
+ * fetch time, which also lets token rotation take effect without reconfiguring
+ * the resolver.
  *
- * Engine-agnostic: std + IXWebSocket only.
+ * Engine- and transport-agnostic: it talks only to the IHttpTransport port and
+ * names no HTTP library. The concrete transport (and its dependency on a
+ * specific HTTP library) is injected by the composition root.
  */
 
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 
-#include <ixwebsocket/IXHttpClient.h>
-
 #include <idtxflow/net/adapters/auth/StaticTokenProvider.h>
+#include <idtxflow/net/ports/IHttpTransport.h>
 #include <idtxflow/utils/Logger.h>
 
 namespace idtxflow
@@ -33,41 +35,43 @@ namespace adapters
     {
         IDTX_LOG_CATEGORY("JwtHttpFetcher")
 
-        /// TLS options passed to IXWebSocket's HttpClient (defaults to system CA store).
-        ix::SocketTLSOptions tls_options;
+        /// Transport used to perform the download. Shared so the value functor
+        /// can be copied into the resolver without dangling.
+        std::shared_ptr<ports::IHttpTransport> http;
 
         JwtHttpFetcher() = default;
-        explicit JwtHttpFetcher(ix::SocketTLSOptions opts) : tls_options(std::move(opts)) {}
+        explicit JwtHttpFetcher(std::shared_ptr<ports::IHttpTransport> transport)
+            : http(std::move(transport))
+        {
+        }
 
         bool operator()(const std::string& url, const std::filesystem::path& dest) const
         {
+            if (!http)
+            {
+                IDTX_LOG(IDTX_ERROR, "No transport configured; cannot fetch '{}'", url);
+                return false;
+            }
+
             std::filesystem::create_directories(dest.parent_path());
 
-            ix::HttpClient client;
-            client.setTLSOptions(tls_options);
-
-            ix::HttpRequestArgsPtr args = client.createRequest(url);
-            args->followRedirects = true;
-            args->maxRedirects = 5;
-            args->connectTimeout = 30;
-            args->transferTimeout = 120;
-            args->compress = false;
+            ports::IHttpTransport::Request req;
+            req.method = "GET";
+            req.url = url; // absolute URL used verbatim by the transport
 
             // Attach the bearer token from the process-wide provider if present.
             const std::string auth = StaticTokenProvider::instance().auth_header_value();
             if (!auth.empty())
             {
-                args->extraHeaders["Authorization"] = auth;
+                req.headers["Authorization"] = auth;
             }
 
-            auto response = client.get(url, args);
+            const ports::IHttpTransport::Response resp = http->request_sync(req);
 
-            if (!response || response->statusCode < 200 || response->statusCode >= 300)
+            if (!resp.ok())
             {
-                const std::string err = response ? response->errorMsg : "null response";
-                const int code = response ? response->statusCode : 0;
                 IDTX_LOG(IDTX_ERROR, "Authenticated download failed for '{}': {} (HTTP {})",
-                    url, err, code);
+                    url, resp.error.empty() ? "request failed" : resp.error, resp.status);
                 return false;
             }
 
@@ -78,7 +82,7 @@ namespace adapters
                 return false;
             }
 
-            file.write(response->body.data(), static_cast<std::streamsize>(response->body.size()));
+            file.write(resp.body.data(), static_cast<std::streamsize>(resp.body.size()));
             file.close();
 
             if (file.fail())
@@ -90,7 +94,7 @@ namespace adapters
             }
 
             IDTX_LOG(IDTX_INFO, "Downloaded (auth): {} -> {} (HTTP {}, {} bytes)",
-                url, dest.string(), response->statusCode, response->body.size());
+                url, dest.string(), resp.status, resp.body.size());
             return true;
         }
     };
@@ -98,3 +102,4 @@ namespace adapters
 } // namespace adapters
 } // namespace net
 } // namespace idtxflow
+

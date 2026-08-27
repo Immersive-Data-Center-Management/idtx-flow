@@ -27,6 +27,12 @@ namespace ports
             std::string endpoint;   ///< path appended to the base url
             std::string body;
             std::map<std::string, std::string> headers;
+
+            /// Absolute request URL used verbatim when non-empty; otherwise the
+            /// transport composes `base_url + endpoint`. Lets a caller target a
+            /// fully-qualified URL (e.g. an authenticated asset download) without
+            /// depending on a configured base url.
+            std::string url;
         };
 
         struct Response

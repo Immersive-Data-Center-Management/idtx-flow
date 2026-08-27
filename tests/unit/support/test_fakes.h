@@ -59,6 +59,7 @@ namespace test
             std::string method;
             std::string endpoint;
             std::string body;
+            std::string url;
             std::map<std::string, std::string> headers;
         };
 
@@ -93,13 +94,13 @@ namespace test
 
         void request_async(const Request& request, Cb callback) override
         {
-            sent.push_back(Sent{request.method, request.endpoint, request.body, request.headers});
+            sent.push_back(Sent{request.method, request.endpoint, request.body, request.url, request.headers});
             if (callback) callback(next());
         }
 
         Response request_sync(const Request& request) override
         {
-            sent.push_back(Sent{request.method, request.endpoint, request.body, request.headers});
+            sent.push_back(Sent{request.method, request.endpoint, request.body, request.url, request.headers});
             return next();
         }
     };

@@ -58,7 +58,7 @@ namespace
         ix::HttpClient client;
         ix::HttpRequestArgsPtr args = make_args(client, request, connect_ms, transfer_ms);
 
-        const std::string url = base_url + request.endpoint;
+        const std::string url = !request.url.empty() ? request.url : (base_url + request.endpoint);
 
         ix::HttpResponsePtr resp;
         if (request.method == "POST")
