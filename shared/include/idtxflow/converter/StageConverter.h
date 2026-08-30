@@ -536,8 +536,10 @@ namespace converter
                         
                         UsdAnimationConverter<TargetEngine> animationConverter;
                         std::optional<AnimationDescription<TargetEngine>> skeletonAnimation = animationConverter.Convert(usdSkelRoot, usdSkelSkeleton, StageTimecodesPerSec);
+                        std::vector<std::pair<std::string, AnimationDescription<TargetEngine>>> namedClips =
+                            animationConverter.ConvertNamed(usdSkelRoot, StageTimecodesPerSec);
                         
-                        convertedEntity = ConvertSkeleton(TypeConverter::toTransform(matrix), skeletonAnimation, skeletonDescription);
+                        convertedEntity = ConvertSkeleton(TypeConverter::toTransform(matrix), skeletonAnimation, namedClips, skeletonDescription);
                         
                         // as mentioned, we will only convert one skeleton of the UsdSkelRoot for the time being
                         break;
@@ -878,6 +880,7 @@ namespace converter
         typename Types::ConvertedEntity* ConvertSkeleton(
             const typename Types::Transform& transform,
             const std::optional<AnimationDescription<TargetEngine>>& animation,
+            const std::vector<std::pair<std::string, AnimationDescription<TargetEngine>>>& namedClips,
             const SkeletonDescription<TargetEngine>& skeletonDescription);
 
         /**
