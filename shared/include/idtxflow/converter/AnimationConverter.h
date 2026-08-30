@@ -36,7 +36,8 @@ namespace converter
         TRACK_POSITION,
         TRACK_ROTATION,
         TRACK_SCALE,
-        TRACK_TRANSFORM
+        TRACK_TRANSFORM,
+        TRACK_BLEND_WEIGHT  // Blend shape weight (Godot range -1..1)
     };
 
     template<typename TargetEngine>
@@ -47,7 +48,7 @@ namespace converter
         using Transform = typename idtxflow::types::TargetEngineTypes<TargetEngine>::Transform;
         
         double Time;
-        std::variant<Vector3, Quaternion, Transform> Value;
+        std::variant<Vector3, Quaternion, Transform, float> Value;
     };
 
     template<typename TargetEngine>
@@ -154,6 +155,11 @@ namespace converter
                     // other animated attributes do not create any tracks
                     continue;
                 
+                // This attribute's tracks start where the list currently ends;
+                // accumulating sizes instead indexes past the vector once a
+                // third attribute arrives.
+                trackOffset = animation.Tracks.size();
+
                 // for each bone add an empty track for this track type
                 // the order of key frames in the authored timecodes is stable and matches
                 // the order of joints in this array.
@@ -204,7 +210,57 @@ namespace converter
                     }
                 }
 
-                trackOffset += animation.Tracks.size();
+            }
+
+            // Extract blend shape weight animation from the same animQuery.
+            // Each blend shape becomes one TRACK_BLEND_WEIGHT track whose keys
+            // are (time, weight) pairs.  We reuse the joint-transform time
+            // samples (already baked above) -- both sets live on the same
+            // UsdSkelAnimation prim, so identical time codes resolve correctly.
+            // If the joint animation has no time samples, we emit a single
+            // rest-pose key so downstream code has a consistent track structure.
+            std::vector<double> blendTimecodes;
+            animQuery.GetBlendShapeWeightTimeSamples(&blendTimecodes);
+            if (blendTimecodes.empty())
+                blendTimecodes = animTimecodes;
+            if (blendTimecodes.empty())
+            {
+                blendTimecodes.push_back(0.0);
+            }
+
+            pxr::VtArray<pxr::TfToken> blendOrder = animQuery.GetBlendShapeOrder();
+            if (!blendOrder.empty())
+            {
+                const size_t numBlends = blendOrder.size();
+                const size_t blendTrackStart = animation.Tracks.size();
+                // Reserve a TRACK_BLEND_WEIGHT track for each blend shape.
+                // The Name holds the blend shape's token name.
+                for (const pxr::TfToken& bname : blendOrder)
+                {
+                    AnimationTrackDescription<TargetEngine> bt;
+                    bt.Type = TRACK_BLEND_WEIGHT;
+                    bt.Name = bname.GetString();
+                    animation.Tracks.push_back(std::move(bt));
+                }
+
+                // Sample the blend weights at each timecode.
+                pxr::VtArray<float> blendWeights;
+                for (double tc : blendTimecodes)
+                {
+                    if (!animQuery.ComputeBlendShapeWeights(&blendWeights, pxr::UsdTimeCode(tc)))
+                        continue;
+                    if (blendWeights.size() < numBlends)
+                        continue;
+                    // Timesample in seconds.
+                    const double ts = tc / usdTimeCodesPerSec;
+                    for (size_t b = 0; b < numBlends; ++b)
+                    {
+                        AnimationTrackKey<TargetEngine> key;
+                        key.Time = ts;
+                        key.Value = blendWeights[b];
+                        animation.Tracks[blendTrackStart + b].Keys.push_back(std::move(key));
+                    }
+                }
             }
 
             return animation;
