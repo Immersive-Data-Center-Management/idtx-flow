@@ -467,7 +467,7 @@ func _build_top_toolbar() -> void:
 	top.add_child(_directory_edit)
 
 	_refresh_button = _make_flat_icon_button("reload", "Reload", "Refresh files.")
-	_refresh_button.pressed.connect(_populate_file_list)
+	_refresh_button.pressed.connect(_on_refresh_pressed)
 	top.add_child(_refresh_button)
 
 
@@ -689,6 +689,14 @@ func _rerender_cached() -> void:
 		if not bool(e.get("is_dir", false)):
 			file_count += 1
 	listing_status.emit("%d file(s)" % file_count)
+
+
+## Refresh button: drop any cached listing/tree in the provider (so new uploads
+## / server changes appear), then re-list the current directory.
+func _on_refresh_pressed() -> void:
+	if _provider and _provider.has_method("request_reload"):
+		_provider.request_reload()
+	_populate_file_list()
 
 
 ## Ask the current provider to (re)list `_current_dir`. Rendering happens

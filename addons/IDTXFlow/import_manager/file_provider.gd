@@ -75,3 +75,9 @@ func supports_thumbnails() -> bool:
 ## for providers that don't support thumbnails.
 func request_thumbnail(_usd_file: String) -> void:
 	pass
+
+
+## Discard any cached listing/tree so the next `list_dir()` re-fetches from the
+## source. Called by the browser's refresh button. No-op by default.
+func request_reload() -> void:
+	pass
