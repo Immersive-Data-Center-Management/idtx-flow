@@ -96,6 +96,8 @@ bool CollabEngine::is_authenticated() const
 void CollabEngine::clear_credentials()
 {
     if (ports_.token) ports_.token->clear();
+    // Logging out: cached thumbnails were fetched with the old identity, drop them.
+    if (rest_) rest_->clear_thumbnail_cache();
 }
 
 void CollabEngine::login(const std::string& username, const std::string& password)
@@ -116,6 +118,14 @@ void CollabEngine::health()
     rest_->health(
         [this](const model::HealthResult& hr) { if (observer_) observer_->on_health(hr); },
         [this](const model::RestError& e) { if (observer_) observer_->on_request_failed(Op::Health, e); });
+}
+
+void CollabEngine::fetch_thumbnail(const std::string& usd_file)
+{
+    if (!rest_) return;
+    rest_->fetch_thumbnail(usd_file,
+        [this](const model::ThumbnailResult& tr) { if (observer_) observer_->on_thumbnail(tr); },
+        [this](const model::RestError& e) { if (observer_) observer_->on_request_failed(Op::FetchThumbnail, e); });
 }
 
 void CollabEngine::list_files(const std::string& name_contains, const std::string& extension)

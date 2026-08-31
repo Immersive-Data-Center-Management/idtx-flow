@@ -70,6 +70,15 @@ var _history_pos: int = -1
 ## so filter/sort/view changes can re-render without re-listing.
 var _last_entries: Array = []
 
+# Grid thumbnails (thumbnail display mode, thumbnail-capable providers only):
+#   _thumb_index    : usd_file -> current ItemList index, rebuilt every render so
+#                     late results for a since-changed listing are ignored.
+#   _thumb_tex_cache: usd_file -> decoded ImageTexture, so re-renders (sort /
+#                     filter / mode toggle) don't re-decode. The network dedup is
+#                     handled by the engine-agnostic byte cache in the core.
+var _thumb_index: Dictionary = {}
+var _thumb_tex_cache: Dictionary = {}
+
 # Widgets
 var _dir_prev: Button
 var _dir_next: Button
@@ -134,10 +143,16 @@ func set_file_provider(provider: RefCounted) -> void:
 			_provider.entries_ready.disconnect(_on_provider_entries_ready)
 		if _provider.list_failed.is_connected(_on_provider_list_failed):
 			_provider.list_failed.disconnect(_on_provider_list_failed)
+		if _provider.thumbnail_ready.is_connected(_on_provider_thumbnail_ready):
+			_provider.thumbnail_ready.disconnect(_on_provider_thumbnail_ready)
 	_provider = provider
 	if _provider:
 		_provider.entries_ready.connect(_on_provider_entries_ready)
 		_provider.list_failed.connect(_on_provider_list_failed)
+		_provider.thumbnail_ready.connect(_on_provider_thumbnail_ready)
+		# A new provider's thumbnails are unrelated; drop any decoded textures.
+		_thumb_tex_cache.clear()
+		_thumb_index.clear()
 		_root_prefix = _provider.get_root_prefix()
 		_history.clear()
 		_history_pos = -1
@@ -707,6 +722,9 @@ func _render_entries(entries: Array) -> void:
 	_file_list.clear()
 	_selected_file = ""
 	_selected_meta = {}
+	# Rebuilt below; entries not present here after a render are treated as stale
+	# by the thumbnail-ready handler.
+	_thumb_index = {}
 
 	var patterns := _active_filter_patterns()
 
@@ -761,6 +779,59 @@ func _render_entries(entries: Array) -> void:
 		_file_list.set_item_metadata(idx, e)
 		if not bool(e.get("selectable", true)):
 			_file_list.set_item_selectable(idx, false)
+		elif not is_dir:
+			# Thumbnails load in both layouts (grid + list); the grid/list toggle
+			# is a layout switch only. No-ops for providers without thumbnails.
+			_maybe_request_thumbnail(e, idx)
+
+
+## Ask the provider for `entry`'s thumbnail (thumbnail mode + thumbnail-capable
+## providers only). If we already decoded it this session, apply the cached
+## texture immediately; otherwise record the row index and kick off the async
+## request (resolved in `_on_provider_thumbnail_ready`).
+func _maybe_request_thumbnail(entry: Dictionary, idx: int) -> void:
+	if _provider == null or not _provider.supports_thumbnails():
+		return
+	var meta: Dictionary = entry.get("meta", {})
+	var usd_file := String(meta.get("path", entry.get("path", "")))
+	if usd_file.is_empty():
+		return
+	_thumb_index[usd_file] = idx
+	if _thumb_tex_cache.has(usd_file):
+		_file_list.set_item_icon(idx, _thumb_tex_cache[usd_file])
+		return
+	_provider.request_thumbnail(usd_file)
+
+
+func _on_provider_thumbnail_ready(usd_file: String, bytes: PackedByteArray, content_type: String) -> void:
+	var tex := _decode_image(bytes, content_type)
+	if tex == null:
+		return
+	_thumb_tex_cache[usd_file] = tex
+	# Apply only if this file is still shown at a known row (else it's stale).
+	if _thumb_index.has(usd_file):
+		var idx: int = _thumb_index[usd_file]
+		if _file_list and idx >= 0 and idx < _file_list.item_count:
+			_file_list.set_item_icon(idx, tex)
+
+
+## Decode PNG/JPEG bytes into a texture, or null on failure.
+func _decode_image(bytes: PackedByteArray, content_type: String) -> Texture2D:
+	if bytes.is_empty():
+		return null
+	var img := Image.new()
+	var err := ERR_UNAVAILABLE
+	if content_type.contains("png"):
+		err = img.load_png_from_buffer(bytes)
+	elif content_type.contains("jpeg") or content_type.contains("jpg"):
+		err = img.load_jpg_from_buffer(bytes)
+	else:
+		err = img.load_png_from_buffer(bytes)
+		if err != OK:
+			err = img.load_jpg_from_buffer(bytes)
+	if err != OK:
+		return null
+	return ImageTexture.create_from_image(img)
 
 
 ## Filter a flat/grouped entry list in place-order: keep all directory headers,

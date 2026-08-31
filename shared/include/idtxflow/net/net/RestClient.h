@@ -13,6 +13,7 @@
  */
 
 #include <functional>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -31,6 +32,7 @@ namespace net
     public:
         using LoginCb   = std::function<void(const model::LoginResult&)>;
         using HealthCb  = std::function<void(const model::HealthResult&)>;
+        using ThumbnailCb = std::function<void(const model::ThumbnailResult&)>;
         using FilesCb   = std::function<void(const std::vector<model::FileEntry>&)>;
         using SessionCb = std::function<void(const model::SessionInfo&)>;
         using DeletedCb = std::function<void()>;
@@ -46,6 +48,17 @@ namespace net
         /// GET /health (unauthenticated). A reachability/liveness probe: reports
         /// ok on a 2xx response, otherwise an error (including transport failure).
         void health(HealthCb on_ok, ErrorCb on_err);
+
+        /// GET /thumbnail/<usd_file> (authenticated). Returns the image bytes +
+        /// content-type. Successful results are cached in-memory keyed by
+        /// usd_file, so a repeat request (e.g. re-selecting a file, or re-listing
+        /// a directory) is served without another round-trip. Failures (incl.
+        /// 404 "not generated yet") are NOT cached, so a later retry can pick up
+        /// a thumbnail once the backend produces it.
+        void fetch_thumbnail(const std::string& usd_file, ThumbnailCb on_ok, ErrorCb on_err);
+
+        /// Drop all cached thumbnail bytes (e.g. on logout or a base-url change).
+        void clear_thumbnail_cache();
 
         /// POST /auth/login (unauthenticated). Does not store the token; the
         /// caller decides what to do with the result.
@@ -89,6 +102,11 @@ namespace net
         ports::IHttpTransport*        http_;
         ports::ITokenProvider*        token_;
         ports::IMainThreadDispatcher* dispatcher_;
+
+        // In-memory thumbnail byte cache, keyed by usd_file. Accessed only on the
+        // engine thread (all reads/writes happen inside dispatcher-posted work),
+        // so no locking is required.
+        std::map<std::string, model::ThumbnailResult> thumb_cache_;
     };
 
 } // namespace net

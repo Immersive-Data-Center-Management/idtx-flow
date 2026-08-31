@@ -22,7 +22,7 @@ namespace idtxflow
 namespace net
 {
     /// Which REST operation an error belongs to, so a host can route failures.
-    enum class Op { Login, ListFiles, CreateSession, DeleteSession, Health };
+    enum class Op { Login, ListFiles, CreateSession, DeleteSession, Health, FetchThumbnail };
 
     class CollabObserver
     {
@@ -32,6 +32,7 @@ namespace net
         // --- REST results ---
         virtual void on_login_ok(const model::LoginResult& result) = 0;
         virtual void on_health(const model::HealthResult& result) = 0;
+        virtual void on_thumbnail(const model::ThumbnailResult& result) = 0;
         virtual void on_files(const std::vector<model::FileEntry>& files) = 0;
         virtual void on_session_created(const model::SessionInfo& session) = 0;
         virtual void on_request_failed(Op op, const model::RestError& error) = 0;

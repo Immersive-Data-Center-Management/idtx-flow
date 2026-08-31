@@ -14,6 +14,14 @@ void RestClient::set_base_url(const std::string& url)
     // The transport owns the base URL; keep it as the single source of truth so
     // the URL helpers below stay in sync with where requests are actually sent.
     http_->set_base_url(url);
+    // A different backend's thumbnails are unrelated; drop the cache so we never
+    // serve one server's bytes for another's file.
+    clear_thumbnail_cache();
+}
+
+void RestClient::clear_thumbnail_cache()
+{
+    thumb_cache_.clear();
 }
 
 std::string RestClient::ws_base_url() const
@@ -113,6 +121,52 @@ void RestClient::health(HealthCb on_ok, ErrorCb on_err)
         hr.ok = true;
         hr.http_code = resp.status;
         dispatcher_->post([hr, on_ok] { if (on_ok) on_ok(hr); });
+    });
+}
+
+void RestClient::fetch_thumbnail(const std::string& usd_file, ThumbnailCb on_ok, ErrorCb on_err)
+{
+    // Cache hit: serve the stored bytes without a round-trip. (This method is
+    // called on the engine thread, so touching thumb_cache_ here is safe.)
+    auto cached = thumb_cache_.find(usd_file);
+    if (cached != thumb_cache_.end())
+    {
+        model::ThumbnailResult hit = cached->second;
+        IDTX_LOG(IDTX_DEBUG, "thumbnail cache hit for '{}' ({} bytes)", usd_file, hit.bytes.size());
+        dispatcher_->post([hit, on_ok] { if (on_ok) on_ok(hit); });
+        return;
+    }
+
+    ports::IHttpTransport::Request req;
+    req.method = "GET";
+    req.endpoint = "/api/v1/thumbnail/" + usd_file;
+    if (!attach_auth(req, on_err)) return;
+    IDTX_LOG(IDTX_DEBUG, "thumbnail cache miss -> GET {}", req.endpoint);
+
+    http_->request_async(req, [this, usd_file, on_ok, on_err](const ports::IHttpTransport::Response& resp)
+    {
+        if (!resp.ok())
+        {
+            // Includes 404 "not generated yet" — deliver as an error and do NOT
+            // cache it, so a later retry can pick up a thumbnail once produced.
+            IDTX_LOG(IDTX_DEBUG, "thumbnail HTTP {} for '{}' (body {}B)", resp.status, usd_file, resp.body.size());
+            model::RestError err = adapters::RestCodec::parse_error(resp.status, resp.body, resp.error);
+            dispatcher_->post([this, err, on_err] { report_error(err, on_err); });
+            return;
+        }
+
+        model::ThumbnailResult tr;
+        tr.bytes = resp.body;
+        auto ct = resp.headers.find("Content-Type");
+        if (ct != resp.headers.end()) tr.content_type = ct->second;
+
+        IDTX_LOG(IDTX_DEBUG, "thumbnail OK '{}' ({}B, ct='{}')", usd_file, tr.bytes.size(), tr.content_type);
+
+        dispatcher_->post([this, usd_file, tr, on_ok]
+        {
+            thumb_cache_[usd_file] = tr;   // store on the engine thread
+            if (on_ok) on_ok(tr);
+        });
     });
 }
 

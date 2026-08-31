@@ -71,6 +71,32 @@ func _on_list_done(result: Dictionary) -> void:
 	list_failed.emit(_pending_dir, "Failed to list files: %s" % msg)
 
 
+func supports_thumbnails() -> bool:
+	return true
+
+
+## Fetch a thumbnail for a server file via IdtxClient. The core caches the bytes
+## by usd_file, so repeat requests (re-render/re-list) don't re-hit the network.
+func request_thumbnail(usd_file: String) -> void:
+	var client := _idtx()
+	if client == null or not client.has_method("fetch_thumbnail"):
+		return
+	# /thumbnail is authenticated; skip when not logged in (avoids a 401).
+	if client.has_method("is_authenticated") and not client.is_authenticated():
+		return
+	client.fetch_thumbnail(usd_file, _on_thumb_done_img.bind(usd_file))
+
+
+func _on_thumb_done_img(result: Dictionary, usd_file: String) -> void:
+	if not bool(result.get("ok", false)):
+		return   # silent: caller keeps its placeholder icon
+	var data: Dictionary = result.get("result", {})
+	var bytes: PackedByteArray = data.get("bytes", PackedByteArray())
+	if bytes.is_empty():
+		return
+	thumbnail_ready.emit(usd_file, bytes, String(data.get("content_type", "")))
+
+
 ## Turn the backend's flat file list into browser entries: for each directory
 ## group, a non-selectable header entry followed by its file entries. The
 ## browser handles sorting/filtering, so we emit a stable grouped order and let

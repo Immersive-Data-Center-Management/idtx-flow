@@ -218,6 +218,12 @@ void IdtxClient::health(const Callable& on_done)
     engine_.health();
 }
 
+void IdtxClient::fetch_thumbnail(const String& usd_file, const Callable& on_done)
+{
+    if (on_done.is_valid()) thumbnail_cbs_.push_back(on_done);
+    engine_.fetch_thumbnail(usd_file.utf8().get_data());
+}
+
 void IdtxClient::list_files(const String& name_contains, const String& extension, const Callable& on_done)
 {
     if (on_done.is_valid()) list_cbs_.push_back(on_done);
@@ -364,6 +370,23 @@ void IdtxClient::on_health(const idtxflow::net::model::HealthResult& r)
     resolve_next(health_cbs_, ok);
 }
 
+void IdtxClient::on_thumbnail(const idtxflow::net::model::ThumbnailResult& r)
+{
+    PackedByteArray bytes;
+    bytes.resize((int64_t)r.bytes.size());
+    if (!r.bytes.empty())
+    {
+        memcpy(bytes.ptrw(), r.bytes.data(), r.bytes.size());
+    }
+    Dictionary img;
+    img["bytes"] = bytes;
+    img["content_type"] = String(r.content_type.c_str());
+    Dictionary ok;
+    ok["ok"]     = true;
+    ok["result"] = img;
+    resolve_next(thumbnail_cbs_, ok);
+}
+
 void IdtxClient::on_files(const std::vector<idtxflow::net::model::FileEntry>& files)
 {
     Array arr;
@@ -425,6 +448,7 @@ void IdtxClient::on_request_failed(idtxflow::net::Op op, const idtxflow::net::mo
                                              String(e.message.c_str()));
     if (op == idtxflow::net::Op::Login)              resolve_next(login_cbs_, err);
     else if (op == idtxflow::net::Op::Health)        resolve_next(health_cbs_, err);
+    else if (op == idtxflow::net::Op::FetchThumbnail) resolve_next(thumbnail_cbs_, err);
     else if (op == idtxflow::net::Op::ListFiles)     resolve_next(list_cbs_, err);
     else if (op == idtxflow::net::Op::CreateSession) resolve_next(create_cbs_, err);
 }
@@ -477,6 +501,8 @@ void IdtxClient::_bind_methods()
     ClassDB::bind_method(D_METHOD("login", "username", "password", "on_done"), &IdtxClient::login,
                          DEFVAL(Callable()));
     ClassDB::bind_method(D_METHOD("health", "on_done"), &IdtxClient::health, DEFVAL(Callable()));
+    ClassDB::bind_method(D_METHOD("fetch_thumbnail", "usd_file", "on_done"), &IdtxClient::fetch_thumbnail,
+                         DEFVAL(Callable()));
     ClassDB::bind_method(D_METHOD("list_files", "name_contains", "extension", "on_done"),
                          &IdtxClient::list_files, DEFVAL(""), DEFVAL(""), DEFVAL(Callable()));
     ClassDB::bind_method(D_METHOD("create_session", "usd_file", "mode"), &IdtxClient::create_session,

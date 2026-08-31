@@ -29,6 +29,10 @@ signal entries_ready(dir: String, entries: Array)
 ## Emitted when a `list_dir()` request fails (e.g. HTTP error, backend down).
 signal list_failed(dir: String, message: String)
 
+## Emitted when a `request_thumbnail()` resolves with image bytes. Providers
+## that don't support thumbnails never emit this (see `supports_thumbnails()`).
+signal thumbnail_ready(usd_file: String, bytes: PackedByteArray, content_type: String)
+
 
 ## Request a listing of `dir`. Implementations resolve asynchronously and emit
 ## `entries_ready(dir, entries)` on success or `list_failed(dir, message)` on
@@ -57,3 +61,17 @@ func get_root_prefix() -> String:
 ## subdirectories for a navigable tree.
 func supports_navigation() -> bool:
 	return true
+
+
+## Whether this provider can supply per-file thumbnail images asynchronously via
+## `request_thumbnail()` / `thumbnail_ready`. Off by default (e.g. local files).
+func supports_thumbnails() -> bool:
+	return false
+
+
+## Request a thumbnail image for `usd_file`. Implementations resolve
+## asynchronously and emit `thumbnail_ready(usd_file, bytes, content_type)` on
+## success; failures are silent (the caller keeps its placeholder icon). No-op
+## for providers that don't support thumbnails.
+func request_thumbnail(_usd_file: String) -> void:
+	pass

@@ -102,6 +102,13 @@ namespace model
         std::string status;          ///< reported status string (e.g. "ok")
     };
 
+    /// The bytes and content-type of a fetched thumbnail image.
+    struct ThumbnailResult
+    {
+        std::string bytes;         ///< raw image data (PNG/JPEG)
+        std::string content_type;  ///< e.g. "image/png" (may be empty)
+    };
+
 } // namespace model
 } // namespace net
 } // namespace idtxflow

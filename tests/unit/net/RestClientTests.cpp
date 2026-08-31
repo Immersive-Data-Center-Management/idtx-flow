@@ -224,3 +224,63 @@ TEST(RestClient, AuthenticatedCallSendsWhenTokenPresent)
     CHECK_EQ(f.http.sent.size(), static_cast<size_t>(1));
     CHECK_EQ(f.http.sent[0].headers.at("Authorization"), std::string("Bearer tok"));
 }
+
+TEST(RestClient, ThumbnailFetchesThenCaches)
+{
+    Fixture f;
+    f.token.set("tok", "Bearer");
+    f.http.queue(200, "PNGDATA");   // only ONE canned response
+
+    int got = 0;
+    idtxflow::net::model::ThumbnailResult last;
+    auto ok = [&](const idtxflow::net::model::ThumbnailResult& tr) { ++got; last = tr; };
+    auto err = [&](const idtxflow::net::model::RestError&) {};
+
+    // First call: hits the transport.
+    f.client.fetch_thumbnail("scenes/a.usda", ok, err);
+    CHECK_EQ(got, 1);
+    CHECK_EQ(last.bytes, std::string("PNGDATA"));
+    CHECK_EQ(f.http.sent.size(), static_cast<size_t>(1));
+    CHECK_EQ(f.http.sent[0].method, std::string("GET"));
+    CHECK_EQ(f.http.sent[0].endpoint, std::string("/api/v1/thumbnail/scenes/a.usda"));
+    CHECK_EQ(f.http.sent[0].headers.at("Authorization"), std::string("Bearer tok"));
+
+    // Second call for the same file: served from cache, NO new request.
+    f.client.fetch_thumbnail("scenes/a.usda", ok, err);
+    CHECK_EQ(got, 2);
+    CHECK_EQ(f.http.sent.size(), static_cast<size_t>(1));   // still only one request
+}
+
+TEST(RestClient, ThumbnailFailureNotCached)
+{
+    Fixture f;
+    f.token.set("tok", "Bearer");
+    f.http.queue(404, R"({"error_code":"not_found"})");
+    f.http.queue(200, "PNGDATA");
+
+    bool errored = false;
+    f.client.fetch_thumbnail("scenes/b.usda",
+        [&](const idtxflow::net::model::ThumbnailResult&) {},
+        [&](const idtxflow::net::model::RestError&) { errored = true; });
+    CHECK(errored);
+    CHECK_EQ(f.http.sent.size(), static_cast<size_t>(1));
+
+    // A 404 must NOT be cached: a retry issues a new request (and now succeeds).
+    bool got = false;
+    f.client.fetch_thumbnail("scenes/b.usda",
+        [&](const idtxflow::net::model::ThumbnailResult&) { got = true; },
+        [&](const idtxflow::net::model::RestError&) {});
+    CHECK(got);
+    CHECK_EQ(f.http.sent.size(), static_cast<size_t>(2));
+}
+
+TEST(RestClient, ThumbnailWithoutTokenShortCircuits)
+{
+    Fixture f;
+    bool errored = false;
+    f.client.fetch_thumbnail("scenes/c.usda",
+        [&](const idtxflow::net::model::ThumbnailResult&) {},
+        [&](const idtxflow::net::model::RestError&) { errored = true; });
+    CHECK(errored);
+    CHECK_EQ(f.http.sent.size(), static_cast<size_t>(0));
+}

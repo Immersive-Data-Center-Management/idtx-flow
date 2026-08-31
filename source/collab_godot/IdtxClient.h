@@ -22,6 +22,7 @@
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/callable.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/transform3d.hpp>
 
@@ -73,6 +74,10 @@ public:
     // Reachability probe: GET /health (unauthenticated). `on_done` receives
     // { "ok": true } on a healthy response, or the error dict on failure.
     void health(const godot::Callable& on_done = godot::Callable());
+    // Fetch a server thumbnail image (authenticated, cached in the core by
+    // usd_file). `on_done` receives { ok:true, result:{ bytes:PackedByteArray,
+    // content_type:String } } or the error dict (incl. 404 when not generated).
+    void fetch_thumbnail(const godot::String& usd_file, const godot::Callable& on_done = godot::Callable());
     void list_files(const godot::String& name_contains = "", const godot::String& extension = "",
                     const godot::Callable& on_done = godot::Callable());
     void create_session(const godot::String& usd_file, const godot::String& mode = "single_edit");
@@ -112,6 +117,7 @@ public:
     // CollabObserver
     void on_login_ok(const idtxflow::net::model::LoginResult& result) override;
     void on_health(const idtxflow::net::model::HealthResult& result) override;
+    void on_thumbnail(const idtxflow::net::model::ThumbnailResult& result) override;
     void on_files(const std::vector<idtxflow::net::model::FileEntry>& files) override;
     void on_session_created(const idtxflow::net::model::SessionInfo& session) override;
     void on_request_failed(idtxflow::net::Op op, const idtxflow::net::model::RestError& error) override;
@@ -152,6 +158,7 @@ private:
 
     std::vector<godot::Callable> login_cbs_;
     std::vector<godot::Callable> health_cbs_;
+    std::vector<godot::Callable> thumbnail_cbs_;
     std::vector<godot::Callable> list_cbs_;
     std::vector<godot::Callable> create_cbs_;
 
