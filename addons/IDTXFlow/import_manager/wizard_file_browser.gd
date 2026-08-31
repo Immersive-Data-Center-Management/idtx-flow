@@ -301,7 +301,7 @@ func set_display_mode(mode: int) -> void:
 		return
 	_display_mode = mode
 	_apply_display_mode()
-	_populate_file_list()
+	_rerender_cached()
 
 
 func get_display_mode() -> int:
@@ -368,7 +368,7 @@ func set_filename_filter(filter: String) -> void:
 	if _filename_filter_edit and _filename_filter_edit.text != filter:
 		_filename_filter_edit.text = filter
 	filename_filter_changed.emit(filter)
-	_populate_file_list()
+	_rerender_cached()
 
 
 func get_filename_filter() -> String:
@@ -673,6 +673,22 @@ func _update_nav_buttons() -> void:
 		_dir_next.disabled = _history_pos >= _history.size() - 1
 	if _dir_up:
 		_dir_up.disabled = _current_dir == _root_prefix or _current_dir.is_empty()
+
+
+## Re-apply sort/filter/display to the already-fetched listing without a network
+## round-trip. Sort, extension/filename filters and the grid/list layout are all
+## client-side transforms of the same entries, so they never need a re-list.
+## Falls back to a fresh fetch if no cached entries exist yet.
+func _rerender_cached() -> void:
+	if _provider == null or _last_entries.is_empty():
+		_populate_file_list()
+		return
+	_render_entries(_last_entries)
+	var file_count := 0
+	for e in _last_entries:
+		if not bool(e.get("is_dir", false)):
+			file_count += 1
+	listing_status.emit("%d file(s)" % file_count)
 
 
 ## Ask the current provider to (re)list `_current_dir`. Rendering happens
@@ -1035,7 +1051,7 @@ func _on_file_item_activated(index: int) -> void:
 
 
 func _on_filter_option_selected(_idx: int) -> void:
-	_populate_file_list()
+	_rerender_cached()
 
 
 func _on_filename_filter_toggle(pressed: bool) -> void:
@@ -1054,7 +1070,7 @@ func _on_sort_option_selected(id: int) -> void:
 		var popup := _file_sort_button.get_popup()
 		for i in popup.item_count:
 			popup.set_item_checked(i, popup.get_item_id(i) == id)
-	_populate_file_list()
+	_rerender_cached()
 
 
 # ==========================================================================
