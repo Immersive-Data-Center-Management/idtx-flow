@@ -73,6 +73,26 @@ void RestClient::report_error(const model::RestError& error, const ErrorCb& on_e
     }
 }
 
+bool RestClient::attach_auth(ports::IHttpTransport::Request& req, const ErrorCb& on_err)
+{
+    const std::string header = token_ ? token_->auth_header_value() : std::string();
+    if (header.empty())
+    {
+        // No token: an unauthenticated attempt at a protected endpoint. Fail
+        // fast without issuing a request (which would 401 and clear the token).
+        // This is an expected state (e.g. not logged in yet), so it is delivered
+        // to the caller but not logged as an error.
+        model::RestError err;
+        err.http_code = 401;
+        err.error_code = "not_authenticated";
+        err.message = "Not authenticated: no token; log in first.";
+        dispatcher_->post([err, on_err] { if (on_err) on_err(err); });
+        return false;
+    }
+    req.headers["Authorization"] = header;
+    return true;
+}
+
 void RestClient::health(HealthCb on_ok, ErrorCb on_err)
 {
     ports::IHttpTransport::Request req;
@@ -152,7 +172,7 @@ void RestClient::list_files(const std::string& name_contains, const std::string&
     ports::IHttpTransport::Request req;
     req.method = "GET";
     req.endpoint = endpoint;
-    req.headers["Authorization"] = token_->auth_header_value();
+    if (!attach_auth(req, on_err)) return;
 
     http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp)
     {
@@ -177,7 +197,7 @@ void RestClient::create_session(const std::string& usd_file, const std::string& 
     req.endpoint = "/api/v1/sessions";
     req.body = adapters::RestCodec::make_session_body(usd_file, mode);
     req.headers["Content-Type"] = "application/json";
-    req.headers["Authorization"] = token_->auth_header_value();
+    if (!attach_auth(req, on_err)) return;
 
     http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp)
     {
@@ -212,7 +232,7 @@ void RestClient::delete_session(const std::string& session_id,
     ports::IHttpTransport::Request req;
     req.method = "DELETE";
     req.endpoint = "/api/v1/sessions/" + session_id;
-    req.headers["Authorization"] = token_->auth_header_value();
+    if (!attach_auth(req, on_err)) return;
 
     http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp)
     {

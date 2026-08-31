@@ -77,6 +77,13 @@ namespace net
         // stored token, then hand the error to the caller on the engine thread.
         void report_error(const model::RestError& error, const ErrorCb& on_err);
 
+        // Attach the bearer token to an authenticated request, or short-circuit:
+        // if no token is held this is an unauthenticated attempt at a protected
+        // endpoint, so deliver a synthetic "not authenticated" error (no network
+        // I/O, no noisy 401 log) and return false. Calling this is what marks a
+        // request as authenticated.
+        bool attach_auth(ports::IHttpTransport::Request& req, const ErrorCb& on_err);
+
         static std::string url_encode(const std::string& s);
 
         ports::IHttpTransport*        http_;

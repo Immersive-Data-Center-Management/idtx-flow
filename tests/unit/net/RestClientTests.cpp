@@ -172,3 +172,55 @@ TEST(RestClient, HealthErrorOnUnreachable)
     CHECK(!healthy);
     CHECK(errored);
 }
+
+TEST(RestClient, AuthenticatedCallsShortCircuitWithoutToken)
+{
+    // No token set on the provider: authenticated calls must fail fast with a
+    // synthetic not_authenticated error and issue NO request to the transport.
+    {
+        Fixture f;
+        bool errored = false;
+        idtxflow::net::model::RestError got;
+        f.client.list_files("", "",
+            [&](const std::vector<idtxflow::net::model::FileEntry>&) {},
+            [&](const idtxflow::net::model::RestError& e) { errored = true; got = e; });
+        CHECK(errored);
+        CHECK_EQ(got.http_code, 401);
+        CHECK_EQ(got.error_code, std::string("not_authenticated"));
+        CHECK_EQ(f.http.sent.size(), static_cast<size_t>(0));
+    }
+    {
+        Fixture f;
+        bool errored = false;
+        f.client.create_session("scenes/a.usda", "single_edit",
+            [&](const idtxflow::net::model::SessionInfo&) {},
+            [&](const idtxflow::net::model::RestError&) { errored = true; });
+        CHECK(errored);
+        CHECK_EQ(f.http.sent.size(), static_cast<size_t>(0));
+    }
+    {
+        Fixture f;
+        bool errored = false;
+        f.client.delete_session("sid-1",
+            [&]() {},
+            [&](const idtxflow::net::model::RestError&) { errored = true; });
+        CHECK(errored);
+        CHECK_EQ(f.http.sent.size(), static_cast<size_t>(0));
+    }
+}
+
+TEST(RestClient, AuthenticatedCallSendsWhenTokenPresent)
+{
+    Fixture f;
+    f.token.set("tok", "Bearer");
+    f.http.queue(200, R"({"files":[]})");
+
+    bool errored = false;
+    f.client.list_files("", "",
+        [&](const std::vector<idtxflow::net::model::FileEntry>&) {},
+        [&](const idtxflow::net::model::RestError&) { errored = true; });
+
+    CHECK(!errored);
+    CHECK_EQ(f.http.sent.size(), static_cast<size_t>(1));
+    CHECK_EQ(f.http.sent[0].headers.at("Authorization"), std::string("Bearer tok"));
+}
