@@ -110,6 +110,14 @@ void CollabEngine::login(const std::string& username, const std::string& passwor
         [this](const model::RestError& e) { if (observer_) observer_->on_request_failed(Op::Login, e); });
 }
 
+void CollabEngine::health()
+{
+    if (!rest_) return;
+    rest_->health(
+        [this](const model::HealthResult& hr) { if (observer_) observer_->on_health(hr); },
+        [this](const model::RestError& e) { if (observer_) observer_->on_request_failed(Op::Health, e); });
+}
+
 void CollabEngine::list_files(const std::string& name_contains, const std::string& extension)
 {
     if (!rest_) return;

@@ -70,6 +70,9 @@ public:
     // list_files. The matching broadcast signals still fire and are deprecated.
     void login(const godot::String& username, const godot::String& password,
                const godot::Callable& on_done = godot::Callable());
+    // Reachability probe: GET /health (unauthenticated). `on_done` receives
+    // { "ok": true } on a healthy response, or the error dict on failure.
+    void health(const godot::Callable& on_done = godot::Callable());
     void list_files(const godot::String& name_contains = "", const godot::String& extension = "",
                     const godot::Callable& on_done = godot::Callable());
     void create_session(const godot::String& usd_file, const godot::String& mode = "single_edit");
@@ -108,6 +111,7 @@ public:
 
     // CollabObserver
     void on_login_ok(const idtxflow::net::model::LoginResult& result) override;
+    void on_health(const idtxflow::net::model::HealthResult& result) override;
     void on_files(const std::vector<idtxflow::net::model::FileEntry>& files) override;
     void on_session_created(const idtxflow::net::model::SessionInfo& session) override;
     void on_request_failed(idtxflow::net::Op op, const idtxflow::net::model::RestError& error) override;
@@ -147,6 +151,7 @@ private:
                                         const godot::String& message) const;
 
     std::vector<godot::Callable> login_cbs_;
+    std::vector<godot::Callable> health_cbs_;
     std::vector<godot::Callable> list_cbs_;
     std::vector<godot::Callable> create_cbs_;
 

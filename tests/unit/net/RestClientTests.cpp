@@ -137,3 +137,38 @@ TEST(RestClient, UrlBuild)
         CHECK_EQ(f.client.ws_base_url(), std::string("wss://host"));
     }
 }
+
+TEST(RestClient, HealthOkOn200)
+{
+    Fixture f;
+    f.http.queue(200, R"({"status":"ok"})");
+
+    bool healthy = false;
+    bool errored = false;
+    f.client.health(
+        [&](const idtxflow::net::model::HealthResult& hr) { healthy = hr.ok; },
+        [&](const idtxflow::net::model::RestError&) { errored = true; });
+
+    CHECK(healthy);
+    CHECK(!errored);
+    CHECK_EQ(f.http.sent.size(), static_cast<size_t>(1));
+    CHECK_EQ(f.http.sent[0].method, std::string("GET"));
+    CHECK_EQ(f.http.sent[0].endpoint, std::string("/api/v1/health"));
+    // Unauthenticated probe: no Authorization header attached.
+    CHECK(f.http.sent[0].headers.find("Authorization") == f.http.sent[0].headers.end());
+}
+
+TEST(RestClient, HealthErrorOnUnreachable)
+{
+    Fixture f;
+    f.http.queue(0, "");  // transport failure (status 0)
+
+    bool healthy = false;
+    bool errored = false;
+    f.client.health(
+        [&](const idtxflow::net::model::HealthResult&) { healthy = true; },
+        [&](const idtxflow::net::model::RestError&) { errored = true; });
+
+    CHECK(!healthy);
+    CHECK(errored);
+}

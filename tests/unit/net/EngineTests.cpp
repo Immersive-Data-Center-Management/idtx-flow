@@ -34,6 +34,7 @@ namespace
     struct NullObserver : CollabObserver
     {
         void on_login_ok(const idtxflow::net::model::LoginResult&) override {}
+        void on_health(const idtxflow::net::model::HealthResult&) override {}
         void on_files(const std::vector<idtxflow::net::model::FileEntry>&) override {}
         void on_session_created(const idtxflow::net::model::SessionInfo&) override {}
         void on_request_failed(idtxflow::net::Op, const idtxflow::net::model::RestError&) override {}
@@ -152,6 +153,7 @@ namespace
         std::string closed_id;
 
         void on_login_ok(const idtxflow::net::model::LoginResult&) override {}
+        void on_health(const idtxflow::net::model::HealthResult&) override {}
         void on_files(const std::vector<idtxflow::net::model::FileEntry>&) override {}
         void on_session_created(const idtxflow::net::model::SessionInfo&) override { ++created; }
         void on_request_failed(idtxflow::net::Op, const idtxflow::net::model::RestError&) override { ++failed; }

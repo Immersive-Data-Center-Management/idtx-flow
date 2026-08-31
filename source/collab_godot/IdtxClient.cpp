@@ -212,6 +212,12 @@ void IdtxClient::login(const String& username, const String& password, const Cal
     engine_.login(username.utf8().get_data(), password.utf8().get_data());
 }
 
+void IdtxClient::health(const Callable& on_done)
+{
+    if (on_done.is_valid()) health_cbs_.push_back(on_done);
+    engine_.health();
+}
+
 void IdtxClient::list_files(const String& name_contains, const String& extension, const Callable& on_done)
 {
     if (on_done.is_valid()) list_cbs_.push_back(on_done);
@@ -348,6 +354,16 @@ void IdtxClient::on_login_ok(const idtxflow::net::model::LoginResult& r)
     resolve_next(login_cbs_, ok);
 }
 
+void IdtxClient::on_health(const idtxflow::net::model::HealthResult& r)
+{
+    Dictionary status;
+    status["http_code"] = (int)r.http_code;
+    Dictionary ok;
+    ok["ok"]     = true;
+    ok["result"] = status;
+    resolve_next(health_cbs_, ok);
+}
+
 void IdtxClient::on_files(const std::vector<idtxflow::net::model::FileEntry>& files)
 {
     Array arr;
@@ -408,6 +424,7 @@ void IdtxClient::on_request_failed(idtxflow::net::Op op, const idtxflow::net::mo
     const Dictionary err = make_error_result(e.http_code, String(e.error_code.c_str()),
                                              String(e.message.c_str()));
     if (op == idtxflow::net::Op::Login)              resolve_next(login_cbs_, err);
+    else if (op == idtxflow::net::Op::Health)        resolve_next(health_cbs_, err);
     else if (op == idtxflow::net::Op::ListFiles)     resolve_next(list_cbs_, err);
     else if (op == idtxflow::net::Op::CreateSession) resolve_next(create_cbs_, err);
 }
@@ -459,6 +476,7 @@ void IdtxClient::_bind_methods()
 
     ClassDB::bind_method(D_METHOD("login", "username", "password", "on_done"), &IdtxClient::login,
                          DEFVAL(Callable()));
+    ClassDB::bind_method(D_METHOD("health", "on_done"), &IdtxClient::health, DEFVAL(Callable()));
     ClassDB::bind_method(D_METHOD("list_files", "name_contains", "extension", "on_done"),
                          &IdtxClient::list_files, DEFVAL(""), DEFVAL(""), DEFVAL(Callable()));
     ClassDB::bind_method(D_METHOD("create_session", "usd_file", "mode"), &IdtxClient::create_session,

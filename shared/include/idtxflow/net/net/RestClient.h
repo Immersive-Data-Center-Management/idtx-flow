@@ -30,6 +30,7 @@ namespace net
     {
     public:
         using LoginCb   = std::function<void(const model::LoginResult&)>;
+        using HealthCb  = std::function<void(const model::HealthResult&)>;
         using FilesCb   = std::function<void(const std::vector<model::FileEntry>&)>;
         using SessionCb = std::function<void(const model::SessionInfo&)>;
         using DeletedCb = std::function<void()>;
@@ -41,6 +42,10 @@ namespace net
             : http_(http), token_(token), dispatcher_(dispatcher) {}
 
         void set_base_url(const std::string& url);
+
+        /// GET /health (unauthenticated). A reachability/liveness probe: reports
+        /// ok on a 2xx response, otherwise an error (including transport failure).
+        void health(HealthCb on_ok, ErrorCb on_err);
 
         /// POST /auth/login (unauthenticated). Does not store the token; the
         /// caller decides what to do with the result.

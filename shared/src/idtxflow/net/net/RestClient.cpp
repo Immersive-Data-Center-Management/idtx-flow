@@ -73,6 +73,29 @@ void RestClient::report_error(const model::RestError& error, const ErrorCb& on_e
     }
 }
 
+void RestClient::health(HealthCb on_ok, ErrorCb on_err)
+{
+    ports::IHttpTransport::Request req;
+    req.method = "GET";
+    req.endpoint = "/api/v1/health";
+    // Unauthenticated probe: no Authorization header.
+
+    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp)
+    {
+        if (!resp.ok())
+        {
+            model::RestError err = adapters::RestCodec::parse_error(resp.status, resp.body, resp.error);
+            dispatcher_->post([this, err, on_err] { report_error(err, on_err); });
+            return;
+        }
+
+        model::HealthResult hr;
+        hr.ok = true;
+        hr.http_code = resp.status;
+        dispatcher_->post([hr, on_ok] { if (on_ok) on_ok(hr); });
+    });
+}
+
 void RestClient::login(const std::string& username, const std::string& password,
                        LoginCb on_ok, ErrorCb on_err)
 {

@@ -120,9 +120,9 @@ func _ensure_built() -> void:
 
 	add_child(_error_panel)
 
-	# Connect button --------------------------------------------------
+	# Login button ---------------------------------------------------
 	_connect_btn = Button.new()
-	_connect_btn.text = "Connect"
+	_connect_btn.text = "Login"
 	_connect_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_connect_btn.custom_minimum_size = Vector2(0, WizardTheme.px(WizardTheme.BTN_HEIGHT + 4))
 	_connect_btn.pressed.connect(_try_login)
@@ -152,14 +152,14 @@ func _try_login() -> void:
 
 	_hide_error()
 	_connect_btn.disabled = true
-	_connect_btn.text = "Connecting…"
+	_connect_btn.text = "Logging in…"
 
 	client.login(user, pw, _on_login_done)
 
 
 func _on_login_done(result: Dictionary) -> void:
 	_connect_btn.disabled = false
-	_connect_btn.text = "Connect"
+	_connect_btn.text = "Login"
 	if bool(result.get("ok", false)):
 		login_succeeded.emit(_server_url, _username_input.text, _remember_cb.button_pressed)
 		return

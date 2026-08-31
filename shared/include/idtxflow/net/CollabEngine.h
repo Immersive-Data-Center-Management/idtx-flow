@@ -70,6 +70,7 @@ namespace net
 
         // --- REST operations (results delivered to the observer) ---
         void login(const std::string& username, const std::string& password);
+        void health();
         void list_files(const std::string& name_contains, const std::string& extension);
         void create_session(const std::string& usd_file, const std::string& mode);
         void delete_session(const std::string& session_id);
