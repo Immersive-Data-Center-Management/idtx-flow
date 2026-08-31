@@ -3,15 +3,13 @@ extends VBoxContainer
 
 ## Import options step: destination + settings in one place.
 ##
-## Presents all import options (destination, prim types, definition, settings) on a
-## single screen. Layout:
+## Presents the import options on a single screen. Layout:
 ##
 ##   Header: "Step 3 of 3 — Configure: Define import settings"
 ##   HSplit (same 2-panel layout/separation as the browse step)
 ##     LEFT  (options):  Label "Import Options:"  (OUTSIDE the card)
 ##                       Filled card (ItemListSecondary bg + scroll overlay):
-##                         Import destination → Prim Types →
-##                         Import Definition → Import Settings
+##                         Import destination → Collaboration (server only)
 ##     RIGHT (preview):  AssetDetailPanel (SELECTED_ASSET style)
 ##   Footer: [Back] … [Cancel] [Import]
 ##
@@ -141,46 +139,6 @@ func _build() -> void:
 	# by the manager via set_collaboration_option_visible().
 	_collab_section = _build_collaboration_section()
 	content.add_child(_collab_section)
-
-	# Settings sections in two sub-columns beneath the destination.
-	var cols := HBoxContainer.new()
-	cols.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	cols.add_theme_constant_override("separation", 0)
-	#cols.add_theme_constant_override("separation", WizardTheme.px(12))
-	#cols.add_theme_constant_override("separation", 0)
-	content.add_child(cols)
-
-	var left_col := VBoxContainer.new()
-	left_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	#left_col.add_theme_constant_override("separation", WizardTheme.px(6))
-	left_col.add_theme_constant_override("separation", 0)
-	cols.add_child(left_col)
-
-	var prim_types := _make_section("Prim Types")
-	left_col.add_child(prim_types)
-	var prim_body := _get_section_content(prim_types)
-	prim_body.add_child(_make_checkbox_row("A", true))
-	prim_body.add_child(_make_checkbox_row("B", true))
-	prim_body.add_child(_make_checkbox_row("C", true))
-	prim_body.add_child(_make_checkbox_row("D", false))
-
-	var right_col := VBoxContainer.new()
-	right_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	#right_col.add_theme_constant_override("separation", WizardTheme.px(6))
-	right_col.add_theme_constant_override("separation", 0)
-	cols.add_child(right_col)
-
-	var import_def := _make_section("Import Definition")
-	right_col.add_child(import_def)
-	var def_body := _get_section_content(import_def)
-	def_body.add_child(_make_checkbox_row("Cameras", true))
-	def_body.add_child(_make_checkbox_row("Lights", true))
-
-	var import_settings := _make_section("Import Settings")
-	right_col.add_child(import_settings)
-	var settings_body := _get_section_content(import_settings)
-	settings_body.add_child(_make_spin_row("Scale", 1.0, 0.001, 1000.0, 0.001))
-	settings_body.add_child(_make_spin_row("Light Intensity", 1.0, 0.0, 100.0, 0.1))
 
 	# RIGHT: selected-asset preview -------------------------------------
 	var right := VBoxContainer.new()
@@ -528,6 +486,9 @@ func _get_section_content(section: FoldableContainer) -> VBoxContainer:
 
 # ---------------------------------------------------------------------------
 # Property row helpers (inspector two-column layout)
+#
+# Generic, reusable building blocks for inspector-style option rows. Kept
+# available for future import options; not tied to any specific setting.
 # ---------------------------------------------------------------------------
 
 ## Inspector-style property row: label in the LEFT column (plain, transparent)
@@ -633,3 +594,4 @@ func _make_spin_row(caption: String, value: float, min_v: float, max_v: float, s
 	sb.value = value
 	sb.custom_minimum_size = Vector2(0, WizardTheme.px(WizardTheme.INPUT_HEIGHT))
 	return _make_property_row(caption, sb)
+
