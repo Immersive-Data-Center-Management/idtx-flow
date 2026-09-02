@@ -13,6 +13,7 @@
  * Engine-agnostic: standard library only.
  */
 
+#include <iostream>
 #include <mutex>
 #include <string>
 #include <utility>
@@ -28,60 +29,53 @@ namespace adapters
     class StaticTokenProvider : public ports::ITokenProvider
     {
     public:
-        std::string get() const override
+        IDTXFLOW_API std::string get() const override
         {
-            std::lock_guard<std::mutex> lock(mutex());
-            return token();
+            std::lock_guard<std::mutex> lock(mutex_);
+            return token_;
         }
 
-        void set(std::string access_token, std::string type = "Bearer") override
+        IDTXFLOW_API void set(std::string access_token, std::string type = "Bearer") override
         {
-            std::lock_guard<std::mutex> lock(mutex());
-            token() = std::move(access_token);
-            token_type() = type.empty() ? std::string("Bearer") : std::move(type);
+            std::lock_guard<std::mutex> lock(mutex_);
+            token_ = std::move(access_token);
+            token_type_ = type.empty() ? std::string("Bearer") : std::move(type);
         }
 
-        void clear() override
+        IDTXFLOW_API void clear() override
         {
-            std::lock_guard<std::mutex> lock(mutex());
-            token().clear();
+            std::lock_guard<std::mutex> lock(mutex_);
+            token_.clear();
         }
 
-        std::string auth_header_value() const override
+        IDTXFLOW_API std::string auth_header_value() const override
         {
-            std::lock_guard<std::mutex> lock(mutex());
-            if (token().empty())
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (token_.empty())
             {
                 return {};
             }
-            return token_type() + " " + token();
+            return token_type_ + " " + token_;
         }
 
         /// The process-wide provider shared by the engine and the USD fetcher.
-        static StaticTokenProvider& instance()
+        IDTXFLOW_API static StaticTokenProvider& instance()
         {
             static StaticTokenProvider provider;
             return provider;
         }
 
     private:
-        // Process-wide storage guarded by a single mutex; shared across all
-        // instances so a value-copied fetcher sees the same current token.
-        static std::mutex& mutex()
-        {
-            static std::mutex m;
-            return m;
-        }
-        static std::string& token()
-        {
-            static std::string t;
-            return t;
-        }
-        static std::string& token_type()
-        {
-            static std::string tt = "Bearer";
-            return tt;
-        }
+        explicit StaticTokenProvider() {}
+        ~StaticTokenProvider() = default;
+
+        // disallow copy construct on the StaticTokenProvider 
+        StaticTokenProvider(const StaticTokenProvider&) = delete;
+        StaticTokenProvider& operator=(const StaticTokenProvider&) = delete;
+
+        std::string token_type_ = "Bearer";
+        std::string token_;
+        mutable std::mutex mutex_;
     };
 
 } // namespace adapters
