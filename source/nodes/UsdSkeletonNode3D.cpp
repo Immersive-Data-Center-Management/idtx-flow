@@ -93,6 +93,13 @@ void UsdSkeletonNode3D::_bind_methods()
     
     ClassDB::bind_method(D_METHOD("set_animation", "p_animation"), &UsdSkeletonNode3D::set_animation);
     ClassDB::bind_method(D_METHOD("get_animation"), &UsdSkeletonNode3D::get_animation);
+    ClassDB::bind_method(D_METHOD("set_animations", "p_clips"), &UsdSkeletonNode3D::set_animations);
+    ClassDB::bind_method(D_METHOD("get_animations"), &UsdSkeletonNode3D::get_animations);
+    ADD_PROPERTY(
+        PropertyInfo(Variant::DICTIONARY, "animations",
+            PROPERTY_HINT_NONE, "",
+            PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_READ_ONLY),
+        "set_animations", "get_animations");
     ADD_PROPERTY(
         PropertyInfo(Variant::OBJECT, "animation",
             PROPERTY_HINT_NONE, "" ,

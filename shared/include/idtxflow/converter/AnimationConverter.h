@@ -15,6 +15,7 @@
 #include <pxr/usd/usdSkel/skeletonQuery.h>
 #include <pxr/usd/usdSkel/cache.h>
 #include <pxr/usd/usdSkel/animQuery.h>
+#include <pxr/usd/usdSkel/animation.h>
 #include <pxr/base/gf/vec3f.h>
 #include <pxr/base/gf/quatf.h>
 #include <pxr/base/vt/array.h>
@@ -123,6 +124,35 @@ namespace converter
             pxr::UsdSkelAnimQuery animQuery = skelQuery.GetAnimQuery();
             if (!animQuery) return {};
 
+            return ConvertQuery(animQuery, usdTimeCodesPerSec);
+        }
+
+        // Every SkelAnimation prim under the SkelRoot, as an independent named
+        // clip. The bound animation source is one of them; the rest are the
+        // additional clips a consumer scrubs or blends -- a phenotype authored
+        // 0 -> 1 in its own clip composes with another, where segments of a
+        // single timeline cannot.
+        std::vector<std::pair<std::string, AnimationDescription<TargetEngine>>> ConvertNamed(
+            const pxr::UsdSkelRoot& usdSkelRoot, double usdTimeCodesPerSec)
+        {
+            std::vector<std::pair<std::string, AnimationDescription<TargetEngine>>> out;
+            pxr::UsdSkelCache skelCache;
+            skelCache.Populate(usdSkelRoot, pxr::Usd_PrimFlagsPredicate());
+            for (const pxr::UsdPrim& prim : usdSkelRoot.GetPrim().GetDescendants())
+            {
+                pxr::UsdSkelAnimation anim(prim);
+                if (!anim) continue;
+                pxr::UsdSkelAnimQuery q = skelCache.GetAnimQuery(anim);
+                if (!q) continue;
+                std::optional<AnimationDescription<TargetEngine>> d = ConvertQuery(q, usdTimeCodesPerSec);
+                if (d && !d->Tracks.empty())
+                    out.push_back({prim.GetName().GetString(), std::move(*d)});
+            }
+            return out;
+        }
+
+        std::optional<AnimationDescription<TargetEngine>> ConvertQuery(const pxr::UsdSkelAnimQuery& animQuery, double usdTimeCodesPerSec)
+        {
             // retrieve the animation data of the skeleton
             pxr::VtArray<class pxr::TfToken> animJoints = animQuery.GetJointOrder();
             std::vector<pxr::UsdAttribute> animAttributes;

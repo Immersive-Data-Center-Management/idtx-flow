@@ -478,6 +478,7 @@ namespace converter
     inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertSkeleton(
         const godot::Transform3D& transform,
         const std::optional<AnimationDescription<types::TargetEngineGodot>>& animation,
+        const std::vector<std::pair<std::string, AnimationDescription<types::TargetEngineGodot>>>& namedClips,
         const SkeletonDescription<types::TargetEngineGodot>& skeleton_description)
     {
         using GodotMaterialConverter = UsdMaterialConverter<types::TargetEngineGodot>;
@@ -974,7 +975,125 @@ namespace converter
             const auto& animation_description = animation.value();
             helper::AddAnimation(animation_description, skeleton, StageAnimationLength);
         }
-        
+
+        // Every SkelAnimation under the root is an independent named clip a
+        // consumer scrubs or blends; the bound clip appears here too. Bone
+        // tracks keep the joint name as their path and blend tracks the shape
+        // name (grouped members baked through the in-between basis), matching
+        // the bound clip's conventions -- consumers retarget when wiring an
+        // AnimationPlayer or AnimationTree.
+        {
+            auto buildClip = [&](const AnimationDescription<types::TargetEngineGodot>& desc)
+                -> godot::Ref<godot::Animation>
+            {
+                godot::Ref<godot::Animation> clip;
+                clip.instantiate();
+                float length = 0.0f;
+                for (const auto& t : desc.Tracks)
+                    for (const auto& k : t.Keys)
+                        length = std::max(length, static_cast<float>(k.Time));
+                clip->set_length(length);
+                clip->set_loop_mode(godot::Animation::LOOP_NONE);
+                for (const auto& t : desc.Tracks)
+                {
+                    if (t.Keys.empty())
+                        continue;
+                    switch (t.Type)
+                    {
+                    case converter::TRACK_POSITION:
+                    {
+                        const int32_t ti = clip->add_track(godot::Animation::TYPE_POSITION_3D);
+                        clip->track_set_path(ti, godot::NodePath(t.Name.c_str()));
+                        for (const auto& k : t.Keys)
+                            clip->position_track_insert_key(ti, k.Time,
+                                std::get<godot::Vector3>(k.Value));
+                        break;
+                    }
+                    case converter::TRACK_ROTATION:
+                    {
+                        const int32_t ti = clip->add_track(godot::Animation::TYPE_ROTATION_3D);
+                        clip->track_set_path(ti, godot::NodePath(t.Name.c_str()));
+                        for (const auto& k : t.Keys)
+                            clip->rotation_track_insert_key(ti, k.Time,
+                                std::get<godot::Quaternion>(k.Value));
+                        break;
+                    }
+                    case converter::TRACK_SCALE:
+                    {
+                        const int32_t ti = clip->add_track(godot::Animation::TYPE_SCALE_3D);
+                        clip->track_set_path(ti, godot::NodePath(t.Name.c_str()));
+                        for (const auto& k : t.Keys)
+                            clip->scale_track_insert_key(ti, k.Time,
+                                std::get<godot::Vector3>(k.Value));
+                        break;
+                    }
+                    case converter::TRACK_BLEND_WEIGHT:
+                    {
+                        auto git = blendGroups.find(t.Name);
+                        const bool grouped = git != blendGroups.end() && git->second.size() > 1;
+                        if (!grouped)
+                        {
+                            const int32_t ti = clip->add_track(godot::Animation::TYPE_BLEND_SHAPE);
+                            clip->track_set_path(ti, godot::NodePath(t.Name.c_str()));
+                            for (const auto& k : t.Keys)
+                                clip->blend_shape_track_insert_key(ti, k.Time,
+                                    std::get<float>(k.Value));
+                            break;
+                        }
+                        // Grouped: bake through the basis with crossing-time keys.
+                        std::vector<double> times;
+                        std::vector<float> ws;
+                        for (size_t k = 0; k < t.Keys.size(); ++k)
+                        {
+                            const double t0 = t.Keys[k].Time;
+                            const float w0 = std::get<float>(t.Keys[k].Value);
+                            times.push_back(t0); ws.push_back(w0);
+                            if (k + 1 >= t.Keys.size()) continue;
+                            const double t1 = t.Keys[k + 1].Time;
+                            const float w1 = std::get<float>(t.Keys[k + 1].Value);
+                            if (!(t1 > t0) || w0 == w1) continue;
+                            const float lo = std::min(w0, w1), hi = std::max(w0, w1);
+                            for (const auto& e : git->second)
+                                if (e.second > lo && e.second < hi)
+                                {
+                                    times.push_back(t0 + (t1 - t0) * double((e.second - w0) / (w1 - w0)));
+                                    ws.push_back(e.second);
+                                }
+                        }
+                        std::vector<size_t> order(times.size());
+                        for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+                        std::sort(order.begin(), order.end(),
+                                  [&](size_t x, size_t y) { return times[x] < times[y]; });
+                        std::vector<int32_t> memberTracks;
+                        for (const auto& e : git->second)
+                        {
+                            const int32_t ti = clip->add_track(godot::Animation::TYPE_BLEND_SHAPE);
+                            clip->track_set_path(ti,
+                                godot::NodePath(blendShapeNames[static_cast<size_t>(e.first)].c_str()));
+                            memberTracks.push_back(ti);
+                        }
+                        std::vector<std::pair<int, float>> vals;
+                        for (size_t oi : order)
+                        {
+                            evalBlendHat(git->second, ws[oi], vals);
+                            for (size_t m = 0; m < vals.size(); ++m)
+                                clip->blend_shape_track_insert_key(memberTracks[m], times[oi], vals[m].second);
+                        }
+                        break;
+                    }
+                    default:
+                        break;
+                    }
+                }
+                return clip;
+            };
+            godot::Dictionary clips;
+            for (const auto& nc : namedClips)
+                clips[godot::String(nc.first.c_str())] = buildClip(nc.second);
+            if (!clips.is_empty())
+                skeleton->set_animations(clips);
+        }
+
         return skeleton;
     }
     
