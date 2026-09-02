@@ -43,7 +43,7 @@ func _ready() -> void:
 func _build() -> void:
 	var header := WizardHeader.new()
 	add_child(header)
-	header.setup(2, 4, "Browse:", "Select file to import")
+	header.setup(2, 3, "Browse:", "Select file to import")
 
 	_browser = WizardFileBrowser.new()
 	_browser.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -68,6 +68,8 @@ func _build() -> void:
 	_browser.set_side_panel(_detail_panel)
 
 	_browser.file_selected.connect(_on_browser_file_selected)
+	# Local browse doesn't surface async listing status, but connecting keeps
+	# the contract explicit and harmless.
 
 	_footer = WizardFooter.new()
 	add_child(_footer)
@@ -82,7 +84,10 @@ func _build() -> void:
 # Browser events
 # ---------------------------------------------------------------------------
 
-func _on_browser_file_selected(path: String) -> void:
+## The browser now emits `file_selected(path, meta)` uniformly. Local files
+## carry an empty `meta`, so we ignore it and keep populating the detail panel
+## from the path (which reads the file off disk).
+func _on_browser_file_selected(path: String, _meta: Dictionary) -> void:
 	_selected_file = path
 	if _detail_panel and _detail_panel.has_method("populate"):
 		_detail_panel.populate(path)

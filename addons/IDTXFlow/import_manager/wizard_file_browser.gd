@@ -19,13 +19,21 @@ extends VBoxContainer
 ## helper dialogs, favorites, recents. The wizard supplies Back/Cancel/Next via
 ## its own footer.
 
-signal file_selected(path: String)
-signal files_selected(paths: PackedStringArray)
+signal file_selected(path: String, meta: Dictionary)
+signal files_selected(paths: PackedStringArray, metas: Array)
 signal dir_selected(dir: String)
 signal dir_changed(dir: String)
 signal filename_filter_changed(filter: String)
+## Async listing status surface. Emitted with a human-readable message when a
+## provider starts loading, finishes, or fails, so wizard steps can show a
+## small status label (server browse relies on this).
+signal listing_status(message: String)
 
 const WizardTheme := preload("res://addons/IDTXFlow/import_manager/wizard_theme.gd")
+# Providers are resolved with load() at runtime (not preload consts) to avoid
+# parse-time dependency ordering issues when the plugin is first compiled —
+# same pattern import_manager.gd uses for its step scripts.
+const LOCAL_FILE_PROVIDER_PATH := "res://addons/IDTXFlow/import_manager/local_file_provider.gd"
 
 enum FileMode { FILE_MODE_OPEN_FILE, FILE_MODE_OPEN_FILES, FILE_MODE_OPEN_DIR, FILE_MODE_OPEN_ANY }
 enum DisplayMode { DISPLAY_THUMBNAILS, DISPLAY_LIST }
@@ -47,11 +55,29 @@ var _file_sort: int = FileSortOption.NAME
 ## selected. Defaults to true to match FileDialog's behavior.
 var _all_files_option_enabled: bool = true
 
+# Data source. Defaults to a local (res://) provider so the local browse step
+# keeps working with no extra wiring. Server browse swaps in a ServerFileProvider.
+var _provider: RefCounted = null
+
 # Runtime
 var _current_dir: String = ""
 var _selected_file: String = ""
+## Metadata dict for the currently selected file (empty for local files).
+var _selected_meta: Dictionary = {}
 var _history: Array[String] = []
 var _history_pos: int = -1
+## Cache of the entries returned by the last `entries_ready` for `_current_dir`,
+## so filter/sort/view changes can re-render without re-listing.
+var _last_entries: Array = []
+
+# Grid thumbnails (thumbnail display mode, thumbnail-capable providers only):
+#   _thumb_index    : usd_file -> current ItemList index, rebuilt every render so
+#                     late results for a since-changed listing are ignored.
+#   _thumb_tex_cache: usd_file -> decoded ImageTexture, so re-renders (sort /
+#                     filter / mode toggle) don't re-decode. The network dedup is
+#                     handled by the engine-agnostic byte cache in the core.
+var _thumb_index: Dictionary = {}
+var _thumb_tex_cache: Dictionary = {}
 
 # Widgets
 var _dir_prev: Button
@@ -89,8 +115,13 @@ func _init() -> void:
 func _ready() -> void:
 	if _file_list == null:
 		_build()
+	if _provider == null:
+		# Default to a local (res://) provider so the local browse step works
+		# with no extra wiring.
+		set_file_provider((load(LOCAL_FILE_PROVIDER_PATH) as GDScript).new())
 	_update_filters_ui()
 	_apply_display_mode()
+	_apply_navigation_support()
 	if _current_dir.is_empty():
 		_current_dir = _root_prefix
 	_change_dir(_current_dir, true)
@@ -98,6 +129,42 @@ func _ready() -> void:
 	# `FileDialog` theme icons should resolve. This mirrors FileDialog's
 	# `_notification(NOTIFICATION_THEME_CHANGED)` behaviour.
 	_refresh_toolbar_icons()
+
+
+## Swap in the data source. Connects the provider's async listing signals and
+## adopts its root prefix + navigation support. Pass a `FileProvider` subclass
+## instance (LocalFileProvider by default, ServerFileProvider for the server
+## browse step).
+func set_file_provider(provider: RefCounted) -> void:
+	if _provider == provider:
+		return
+	if _provider:
+		if _provider.entries_ready.is_connected(_on_provider_entries_ready):
+			_provider.entries_ready.disconnect(_on_provider_entries_ready)
+		if _provider.list_failed.is_connected(_on_provider_list_failed):
+			_provider.list_failed.disconnect(_on_provider_list_failed)
+		if _provider.thumbnail_ready.is_connected(_on_provider_thumbnail_ready):
+			_provider.thumbnail_ready.disconnect(_on_provider_thumbnail_ready)
+	_provider = provider
+	if _provider:
+		_provider.entries_ready.connect(_on_provider_entries_ready)
+		_provider.list_failed.connect(_on_provider_list_failed)
+		_provider.thumbnail_ready.connect(_on_provider_thumbnail_ready)
+		# A new provider's thumbnails are unrelated; drop any decoded textures.
+		_thumb_tex_cache.clear()
+		_thumb_index.clear()
+		_root_prefix = _provider.get_root_prefix()
+		_history.clear()
+		_history_pos = -1
+		if _current_dir.is_empty() or (not _root_prefix.is_empty() and not _current_dir.begins_with(_root_prefix)):
+			_current_dir = _root_prefix
+	_apply_navigation_support()
+	if is_inside_tree() and _file_list:
+		_change_dir(_current_dir, true)
+
+
+func get_file_provider() -> RefCounted:
+	return _provider
 
 
 ## Reapply theme-dependent state whenever the editor theme changes.
@@ -234,7 +301,7 @@ func set_display_mode(mode: int) -> void:
 		return
 	_display_mode = mode
 	_apply_display_mode()
-	_populate_file_list()
+	_rerender_cached()
 
 
 func get_display_mode() -> int:
@@ -263,14 +330,21 @@ func get_selected_path() -> String:
 	return _selected_file
 
 
+## Metadata dict for the current selection (empty for local files, the backend
+## dict for server files). Kept so wizard steps can forward it to their detail
+## panel / import state.
+func get_selected_meta() -> Dictionary:
+	return _selected_meta
+
+
 func get_selected_files() -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()
 	if _file_list == null:
 		return out
 	for idx in _file_list.get_selected_items():
-		var meta = _file_list.get_item_metadata(idx)
-		if typeof(meta) == TYPE_DICTIONARY and not meta.get("dir", true):
-			out.push_back(_join(_current_dir, meta["name"]))
+		var e = _file_list.get_item_metadata(idx)
+		if typeof(e) == TYPE_DICTIONARY and not bool(e.get("is_dir", true)):
+			out.push_back(String(e.get("path", "")))
 	return out
 
 
@@ -294,7 +368,7 @@ func set_filename_filter(filter: String) -> void:
 	if _filename_filter_edit and _filename_filter_edit.text != filter:
 		_filename_filter_edit.text = filter
 	filename_filter_changed.emit(filter)
-	_populate_file_list()
+	_rerender_cached()
 
 
 func get_filename_filter() -> String:
@@ -393,7 +467,7 @@ func _build_top_toolbar() -> void:
 	top.add_child(_directory_edit)
 
 	_refresh_button = _make_flat_icon_button("reload", "Reload", "Refresh files.")
-	_refresh_button.pressed.connect(_populate_file_list)
+	_refresh_button.pressed.connect(_on_refresh_pressed)
 	top.add_child(_refresh_button)
 
 
@@ -550,17 +624,22 @@ func _build_right_pane() -> void:
 
 func _change_dir(path: String, push_history: bool = true) -> void:
 	var normalized := _normalize_dir(path)
-	if not _root_prefix.is_empty() and not normalized.begins_with(_root_prefix):
-		return
-	if not DirAccess.dir_exists_absolute(normalized):
-		normalized = _root_prefix
-		if not DirAccess.dir_exists_absolute(normalized):
+	var supports_nav: bool = _provider == null or _provider.supports_navigation()
+	# Only enforce the root-prefix boundary / existence check when we're
+	# actually navigating a tree. Flat providers (server) always list their
+	# single root regardless of the typed path.
+	if supports_nav:
+		if not _root_prefix.is_empty() and not normalized.begins_with(_root_prefix):
 			return
+		if _provider and not _provider.dir_exists(normalized):
+			normalized = _root_prefix
+			if not _provider.dir_exists(normalized):
+				return
 
 	_current_dir = normalized
 	if _directory_edit:
 		_directory_edit.text = normalized
-	if push_history:
+	if push_history and supports_nav:
 		_push_history(normalized)
 	_update_nav_buttons()
 	_populate_file_list()
@@ -596,89 +675,256 @@ func _update_nav_buttons() -> void:
 		_dir_up.disabled = _current_dir == _root_prefix or _current_dir.is_empty()
 
 
+## Re-apply sort/filter/display to the already-fetched listing without a network
+## round-trip. Sort, extension/filename filters and the grid/list layout are all
+## client-side transforms of the same entries, so they never need a re-list.
+## Falls back to a fresh fetch if no cached entries exist yet.
+func _rerender_cached() -> void:
+	if _provider == null or _last_entries.is_empty():
+		_populate_file_list()
+		return
+	_render_entries(_last_entries)
+	var file_count := 0
+	for e in _last_entries:
+		if not bool(e.get("is_dir", false)):
+			file_count += 1
+	listing_status.emit("%d file(s)" % file_count)
+
+
+## Refresh button: drop any cached listing/tree in the provider (so new uploads
+## / server changes appear), then re-list the current directory.
+func _on_refresh_pressed() -> void:
+	if _provider and _provider.has_method("request_reload"):
+		_provider.request_reload()
+	_populate_file_list()
+
+
+## Ask the current provider to (re)list `_current_dir`. Rendering happens
+## asynchronously in `_on_provider_entries_ready`.
 func _populate_file_list() -> void:
+	if _file_list == null:
+		return
+	if _provider == null:
+		return
+	listing_status.emit("Loading…")
+	_provider.list_dir(_current_dir)
+
+
+## Provider callback: filter, sort and render the entries it returned.
+## Ignores stale responses for a directory we've since navigated away from.
+func _on_provider_entries_ready(dir: String, entries: Array) -> void:
+	if dir != _current_dir:
+		return
+	_last_entries = entries
+	_render_entries(entries)
+	# Count only selectable file rows for the status line.
+	var file_count := 0
+	for e in entries:
+		if not bool(e.get("is_dir", false)):
+			file_count += 1
+	listing_status.emit("%d file(s)" % file_count)
+
+
+func _on_provider_list_failed(dir: String, message: String) -> void:
+	if dir != _current_dir:
+		return
+	if _file_list:
+		_file_list.clear()
+	_last_entries = []
+	_selected_file = ""
+	_selected_meta = {}
+	listing_status.emit(message)
+
+
+## Apply filters + filename filter + sort to the provider's entries and paint
+## the ItemList. Directory entries are grouped/sorted separately from files,
+## and non-selectable entries (e.g. server directory headers) are marked as
+## such. Each item's metadata is the full entry dict.
+func _render_entries(entries: Array) -> void:
 	if _file_list == null:
 		return
 	_file_list.clear()
 	_selected_file = ""
+	_selected_meta = {}
+	# Rebuilt below; entries not present here after a render are treated as stale
+	# by the thumbnail-ready handler.
+	_thumb_index = {}
 
-	var dir := DirAccess.open(_current_dir)
-	if dir == null:
-		return
-	dir.include_navigational = false
-	dir.include_hidden = _show_hidden_files
-
-	var dirs: PackedStringArray = PackedStringArray()
-	var files: PackedStringArray = PackedStringArray()
-
-	dir.list_dir_begin()
-	var entry := dir.get_next()
-	while entry != "":
-		if _show_hidden_files or not entry.begins_with("."):
-			if dir.current_is_dir():
-				dirs.push_back(entry)
-			else:
-				files.push_back(entry)
-		entry = dir.get_next()
-	dir.list_dir_end()
-
-	# Apply filters + filename filter
 	var patterns := _active_filter_patterns()
-	var filtered_files: Array[String] = []
-	for f in files:
-		if not patterns.is_empty() and not _matches_any(f, patterns):
-			continue
-		if not _filename_filter.is_empty() and not f.to_lower().contains(_filename_filter.to_lower()):
-			continue
-		filtered_files.append(f)
 
-	var filtered_dirs: Array[String] = []
-	for d in dirs:
-		if not _filename_filter.is_empty() and not d.to_lower().contains(_filename_filter.to_lower()):
-			continue
-		filtered_dirs.append(d)
+	var dir_entries: Array = []
+	var file_entries: Array = []
+	for e in entries:
+		var name := String(e.get("name", ""))
+		var is_dir := bool(e.get("is_dir", false))
+		if is_dir:
+			# Directory headers/folders bypass extension filters but still
+			# respect the filename filter (unless non-selectable headers).
+			if bool(e.get("selectable", true)):
+				if not _filename_filter.is_empty() and not name.to_lower().contains(_filename_filter.to_lower()):
+					continue
+			dir_entries.append(e)
+		else:
+			if not patterns.is_empty() and not _matches_any(name, patterns):
+				continue
+			if not _filename_filter.is_empty() and not name.to_lower().contains(_filename_filter.to_lower()):
+				continue
+			file_entries.append(e)
 
-	_sort_names(filtered_dirs, true)
-	_sort_names(filtered_files, false)
+	# Only sort when the provider supports navigation (a real tree). Flat
+	# providers (server) supply a curated grouped order we preserve as-is.
+	if _provider == null or _provider.supports_navigation():
+		_sort_entries(dir_entries, true)
+		_sort_entries(file_entries, false)
 
 	var folder_icon := _theme_icon("folder", "Folder")
 	var file_icon := _theme_icon("file", "File")
 	var folder_thumb := _theme_icon("folder_thumbnail", "Folder")
 	var file_thumb := _theme_icon("file_thumbnail", "File")
 
-	for d in filtered_dirs:
-		var idx := _file_list.add_item(d, folder_thumb if _display_mode == DisplayMode.DISPLAY_THUMBNAILS else folder_icon)
-		_file_list.set_item_metadata(idx, {"name": d, "dir": true})
+	# For flat/grouped providers, headers and their files are interleaved in
+	# the source order (preserving the provider's grouping); for navigable
+	# trees we show dirs first then files.
+	var ordered: Array = []
+	if _provider and not _provider.supports_navigation():
+		ordered = _filter_flat_entries(entries, patterns)
+	else:
+		ordered = dir_entries + file_entries
 
-	for f in filtered_files:
-		var idx2 := _file_list.add_item(f, file_thumb if _display_mode == DisplayMode.DISPLAY_THUMBNAILS else file_icon)
-		_file_list.set_item_metadata(idx2, {"name": f, "dir": false})
+	for e in ordered:
+		var is_dir := bool(e.get("is_dir", false))
+		var name := String(e.get("name", ""))
+		var tex: Texture2D
+		if is_dir:
+			tex = folder_thumb if _display_mode == DisplayMode.DISPLAY_THUMBNAILS else folder_icon
+		else:
+			tex = file_thumb if _display_mode == DisplayMode.DISPLAY_THUMBNAILS else file_icon
+		var idx := _file_list.add_item(name, tex)
+		_file_list.set_item_metadata(idx, e)
+		if not bool(e.get("selectable", true)):
+			_file_list.set_item_selectable(idx, false)
+		elif not is_dir:
+			# Thumbnails load in both layouts (grid + list); the grid/list toggle
+			# is a layout switch only. No-ops for providers without thumbnails.
+			_maybe_request_thumbnail(e, idx)
 
 
-func _sort_names(arr: Array[String], is_dirs: bool) -> void:
-	match _file_sort:
-		FileSortOption.NAME, FileSortOption.MODIFIED_TIME, FileSortOption.TYPE:
-			arr.sort()
-		FileSortOption.NAME_REVERSE, FileSortOption.MODIFIED_TIME_REVERSE, FileSortOption.TYPE_REVERSE:
-			arr.sort()
-			arr.reverse()
-		_:
-			arr.sort()
+## Ask the provider for `entry`'s thumbnail (thumbnail mode + thumbnail-capable
+## providers only). If we already decoded it this session, apply the cached
+## texture immediately; otherwise record the row index and kick off the async
+## request (resolved in `_on_provider_thumbnail_ready`).
+func _maybe_request_thumbnail(entry: Dictionary, idx: int) -> void:
+	if _provider == null or not _provider.supports_thumbnails():
+		return
+	var meta: Dictionary = entry.get("meta", {})
+	var usd_file := String(meta.get("path", entry.get("path", "")))
+	if usd_file.is_empty():
+		return
+	_thumb_index[usd_file] = idx
+	if _thumb_tex_cache.has(usd_file):
+		_file_list.set_item_icon(idx, _thumb_tex_cache[usd_file])
+		return
+	_provider.request_thumbnail(usd_file)
+
+
+func _on_provider_thumbnail_ready(usd_file: String, bytes: PackedByteArray, content_type: String) -> void:
+	var tex := _decode_image(bytes, content_type)
+	if tex == null:
+		return
+	_thumb_tex_cache[usd_file] = tex
+	# Apply only if this file is still shown at a known row (else it's stale).
+	if _thumb_index.has(usd_file):
+		var idx: int = _thumb_index[usd_file]
+		if _file_list and idx >= 0 and idx < _file_list.item_count:
+			_file_list.set_item_icon(idx, tex)
+
+
+## Decode PNG/JPEG bytes into a texture, or null on failure.
+func _decode_image(bytes: PackedByteArray, content_type: String) -> Texture2D:
+	if bytes.is_empty():
+		return null
+	var img := Image.new()
+	var err := ERR_UNAVAILABLE
+	if content_type.contains("png"):
+		err = img.load_png_from_buffer(bytes)
+	elif content_type.contains("jpeg") or content_type.contains("jpg"):
+		err = img.load_jpg_from_buffer(bytes)
+	else:
+		err = img.load_png_from_buffer(bytes)
+		if err != OK:
+			err = img.load_jpg_from_buffer(bytes)
+	if err != OK:
+		return null
+	return ImageTexture.create_from_image(img)
+
+
+## Filter a flat/grouped entry list in place-order: keep all directory headers,
+## keep files that pass the extension + filename filters. Preserves the
+## provider's grouping order.
+func _filter_flat_entries(entries: Array, patterns: PackedStringArray) -> Array:
+	var out: Array = []
+	for e in entries:
+		var is_dir := bool(e.get("is_dir", false))
+		if is_dir:
+			out.append(e)
+			continue
+		var name := String(e.get("name", ""))
+		if not patterns.is_empty() and not _matches_any(name, patterns):
+			continue
+		if not _filename_filter.is_empty() and not name.to_lower().contains(_filename_filter.to_lower()):
+			continue
+		out.append(e)
+	return out
+
+
+func _sort_entries(arr: Array, is_dirs: bool) -> void:
+	# Base: alphabetical by name. Uses named comparator methods rather than
+	# inline lambdas — multi-line lambdas inside `match` arms don't parse in
+	# GDScript, and named methods keep this readable.
+	arr.sort_custom(_cmp_name_asc)
+
+	var reverse: bool = (
+		_file_sort == FileSortOption.NAME_REVERSE
+		or _file_sort == FileSortOption.TYPE_REVERSE
+		or _file_sort == FileSortOption.MODIFIED_TIME_REVERSE
+	)
 
 	if not is_dirs and (_file_sort == FileSortOption.TYPE or _file_sort == FileSortOption.TYPE_REVERSE):
-		arr.sort_custom(func(a, b):
-			return a.get_extension().to_lower() < b.get_extension().to_lower()
-		)
-		if _file_sort == FileSortOption.TYPE_REVERSE:
-			arr.reverse()
+		arr.sort_custom(_cmp_ext_asc)
+	elif not is_dirs and (_file_sort == FileSortOption.MODIFIED_TIME or _file_sort == FileSortOption.MODIFIED_TIME_REVERSE):
+		arr.sort_custom(_cmp_mtime_asc)
 
-	if not is_dirs and (_file_sort == FileSortOption.MODIFIED_TIME or _file_sort == FileSortOption.MODIFIED_TIME_REVERSE):
-		var base := _current_dir
-		arr.sort_custom(func(a, b):
-			return FileAccess.get_modified_time(_join(base, a)) < FileAccess.get_modified_time(_join(base, b))
-		)
-		if _file_sort == FileSortOption.MODIFIED_TIME_REVERSE:
-			arr.reverse()
+	if reverse:
+		arr.reverse()
+
+
+func _cmp_name_asc(a, b) -> bool:
+	return String(a.get("name", "")) < String(b.get("name", ""))
+
+
+func _cmp_ext_asc(a, b) -> bool:
+	return String(a.get("name", "")).get_extension().to_lower() < String(b.get("name", "")).get_extension().to_lower()
+
+
+func _cmp_mtime_asc(a, b) -> bool:
+	var am := int(a.get("meta", {}).get("modified_unix", 0))
+	var bm := int(b.get("meta", {}).get("modified_unix", 0))
+	return am < bm
+
+
+## Show/hide the navigation chrome based on whether the current provider can
+## navigate a tree. Flat providers (server) get a read-only path field and no
+## back/forward/up buttons.
+func _apply_navigation_support() -> void:
+	var nav: bool = _provider == null or _provider.supports_navigation()
+	if _dir_prev:
+		_dir_prev.visible = nav
+	if _dir_next:
+		_dir_next.visible = nav
+	if _dir_up:
+		_dir_up.visible = nav
+	if _directory_edit:
+		_directory_edit.editable = nav
 
 
 # ==========================================================================
@@ -776,35 +1022,44 @@ func _on_directory_edit_submitted(text: String) -> void:
 
 
 func _on_file_item_selected(index: int) -> void:
-	var meta = _file_list.get_item_metadata(index)
-	if typeof(meta) != TYPE_DICTIONARY:
+	var e = _file_list.get_item_metadata(index)
+	if typeof(e) != TYPE_DICTIONARY:
 		return
-	if meta.get("dir", false):
+	if bool(e.get("is_dir", false)):
 		_selected_file = ""
+		_selected_meta = {}
 		if _filename_edit:
 			_filename_edit.text = ""
 		return
-	_selected_file = _join(_current_dir, meta["name"])
+	_selected_file = String(e.get("path", ""))
+	_selected_meta = e.get("meta", {})
 	if _filename_edit:
-		_filename_edit.text = meta["name"]
-	file_selected.emit(_selected_file)
+		_filename_edit.text = String(e.get("name", ""))
+	file_selected.emit(_selected_file, _selected_meta)
 
 
 func _on_file_item_activated(index: int) -> void:
-	var meta = _file_list.get_item_metadata(index)
-	if typeof(meta) != TYPE_DICTIONARY:
+	var e = _file_list.get_item_metadata(index)
+	if typeof(e) != TYPE_DICTIONARY:
 		return
-	if meta.get("dir", false):
-		_change_dir(_join(_current_dir, meta["name"]), true)
+	if bool(e.get("is_dir", false)):
+		# Only navigable providers drill into folders; flat (server) directory
+		# headers are non-selectable and do nothing when double-clicked.
+		if _provider == null or _provider.supports_navigation():
+			var folder_path := String(e.get("path", ""))
+			if folder_path.is_empty():
+				folder_path = _join(_current_dir, String(e.get("name", "")))
+			_change_dir(folder_path, true)
 		return
-	_selected_file = _join(_current_dir, meta["name"])
+	_selected_file = String(e.get("path", ""))
+	_selected_meta = e.get("meta", {})
 	if _filename_edit:
-		_filename_edit.text = meta["name"]
-	file_selected.emit(_selected_file)
+		_filename_edit.text = String(e.get("name", ""))
+	file_selected.emit(_selected_file, _selected_meta)
 
 
 func _on_filter_option_selected(_idx: int) -> void:
-	_populate_file_list()
+	_rerender_cached()
 
 
 func _on_filename_filter_toggle(pressed: bool) -> void:
@@ -823,7 +1078,7 @@ func _on_sort_option_selected(id: int) -> void:
 		var popup := _file_sort_button.get_popup()
 		for i in popup.item_count:
 			popup.set_item_checked(i, popup.get_item_id(i) == id)
-	_populate_file_list()
+	_rerender_cached()
 
 
 # ==========================================================================

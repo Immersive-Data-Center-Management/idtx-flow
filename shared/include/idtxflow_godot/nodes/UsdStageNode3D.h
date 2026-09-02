@@ -38,7 +38,6 @@ public:
     void _ready() override;
     void _exit_tree() override;
 
-
     /**
      * Set the URI of the stage that shall be opened and converted
      * @param path 

@@ -14,6 +14,7 @@
 
 #include "converter/UsdGodotStageConverter.h"
 
+
 using namespace godot;
 using namespace pxr;
 
@@ -269,10 +270,16 @@ void UsdStageNode3D::_configure_nodes_recursive(godot::Node3D* node, godot::Node
     IUsdNode3D* usd_node = IUsdNode3D::from_node(node);
     if (usd_node)
         usd_node->set_stage_node(this);
-    
+
     // if this is a UsdStageNode3D itself, skip traversing the childrens, as this node takes care of it
     // on it's own
     if (dynamic_cast<UsdStageNode3D*>(node)) return;
+
+    // Enable Godot transform-changed notifications so local gizmo/script edits
+    // are routed to the IDTX transform sync. Nodes that override _notification
+    // (e.g. UsdXformNode3D) then author the change into the live USD stage and
+    // conditionally broadcast it.
+    node->set_notify_transform(true);
     
     // if "register_compute" is true, the configuration happens during loading of a cached stage scene. Thus, the 
     // stage converter did not run and registered compute attributes into the ExecComputeBridge. Do this here now

@@ -1,0 +1,6 @@
+# The E2E harness virtualenv and local credentials stay out of git.
+e2e/.venv/
+e2e/.env
+# Python caches.
+**/__pycache__/
+*.pyc

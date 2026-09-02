@@ -14,6 +14,14 @@ class UsdXformNode3D : public godot::Node3D, public IUsdNode3D
     
 public:
     /**
+     * Route Godot transform changes (gizmo/script edits) to the IDTX transform
+     * sync so they are authored into the live USD stage and conditionally
+     * broadcast. Requires set_notify_transform(true), enabled during stage
+     * conversion.
+     */
+    void _notification(int p_what);
+
+    /**
      * Set the animation data to this node
      * @param animation The animation data
      */

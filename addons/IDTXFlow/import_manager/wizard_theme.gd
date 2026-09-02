@@ -81,6 +81,19 @@ static func get_muted_color(host: Control) -> Color:
 	return host.get_theme_color("font_disabled_color", "Label")
 
 
+# The inspector tints its collapsible sub-sections (Transform / Visibility / …)
+# using the theme's `prop_subsection` color drawn at a LOW ALPHA over whatever
+# is behind — it is NOT a different hue and NOT an opaque fill. This returns
+# that exact base color (with a faint neutral fallback); callers apply the
+# alpha reduction the inspector uses (roughly `a *= 0.4`).
+static func get_subsection_color(host: Control) -> Color:
+	if host.has_theme_color("prop_subsection", "Editor"):
+		return host.get_theme_color("prop_subsection", "Editor")
+	# Faint neutral fallback (already semi-transparent) so callers get a subtle
+	# tint even when the editor color is unavailable.
+	return Color(1, 1, 1, 0.06)
+
+
 static func get_editor_icon(host: Control, icon_name: String, fallback: String = "") -> Texture2D:
 	if host and host.is_inside_tree():
 		if host.has_theme_icon(icon_name, "EditorIcons"):

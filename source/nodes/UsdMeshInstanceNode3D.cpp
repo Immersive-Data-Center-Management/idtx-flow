@@ -6,6 +6,7 @@
 #include <pxr/usd/usdGeom/tokens.h>
 
 #include "idtxflow_godot//converter/UsdGodotTypeConverter.h"
+#include "../collab_godot/IdtxClient.h"
 
 using namespace godot;
 
@@ -163,5 +164,14 @@ void UsdMeshInstanceNode3D::_notification(int p_what)
     if (p_what == NOTIFICATION_PARENTED && skeleton_)
     {
         set_skeleton_path(get_path_to(skeleton_));
+    }
+    else if (p_what == NOTIFICATION_TRANSFORM_CHANGED)
+    {
+        // Forward a local transform edit to the collaboration client, which
+        // authors it into the live stage and conditionally broadcasts it.
+        if (IdtxClient* client = IdtxClient::get_singleton())
+        {
+            client->notify_local_transform_changed(this);
+        }
     }
 }

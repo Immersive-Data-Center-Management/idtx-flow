@@ -9,7 +9,7 @@ extends VBoxContainer
 signal login_succeeded(url: String, username: String, remember: bool)
 
 const WizardTheme    := preload("res://addons/IDTXFlow/import_manager/wizard_theme.gd")
-const ServerMockData := preload("res://addons/IDTXFlow/import_manager/server_mock_data.gd")
+const IdtxAccess     := preload("res://addons/IDTXFlow/import_manager/idtx_client_access.gd")
 
 var _server_url: String = ""
 
@@ -65,6 +65,7 @@ func _ensure_built() -> void:
 
 	_username_input = LineEdit.new()
 	_username_input.placeholder_text = "Enter username"
+	_username_input.text = ProjectSettings.get_setting("idtxflow/import/user", "")
 	_username_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_username_input.custom_minimum_size = Vector2(0, WizardTheme.px(WizardTheme.INPUT_HEIGHT))
 	add_child(_username_input)
@@ -120,9 +121,9 @@ func _ensure_built() -> void:
 
 	add_child(_error_panel)
 
-	# Connect button --------------------------------------------------
+	# Login button ---------------------------------------------------
 	_connect_btn = Button.new()
-	_connect_btn.text = "Connect"
+	_connect_btn.text = "Login"
 	_connect_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_connect_btn.custom_minimum_size = Vector2(0, WizardTheme.px(WizardTheme.BTN_HEIGHT + 4))
 	_connect_btn.pressed.connect(_try_login)
@@ -134,14 +135,39 @@ func _ensure_built() -> void:
 	add_child(_remember_cb)
 
 
+func _idtx() -> Object:
+	return IdtxAccess.get_client()
+
+
 func _try_login() -> void:
 	var user := _username_input.text
 	var pw := _password_input.text
-	if ServerMockData.get_credentials_valid(user, pw):
-		_hide_error()
-		login_succeeded.emit(_server_url, user, _remember_cb.button_pressed)
-	else:
-		_show_error("Authentication failed. Invalid username or password.")
+
+	var client := _idtx()
+	if client == null:
+		_show_error("IDTX client not available (GDExtension not loaded). Rebuild and restart the editor.")
+		return
+
+	# Auto-set the base URL from the typed server URL, then authenticate.
+	client.set_base_url(_server_url)
+
+	_hide_error()
+	_connect_btn.disabled = true
+	_connect_btn.text = "Logging in…"
+
+	client.login(user, pw, _on_login_done)
+
+
+func _on_login_done(result: Dictionary) -> void:
+	_connect_btn.disabled = false
+	_connect_btn.text = "Login"
+	if bool(result.get("ok", false)):
+		login_succeeded.emit(_server_url, _username_input.text, _remember_cb.button_pressed)
+		return
+	var msg := String(result.get("message", ""))
+	if msg.is_empty():
+		msg = "Authentication failed (%d %s)." % [int(result.get("http_code", 0)), String(result.get("error_code", ""))]
+	_show_error(msg)
 
 
 func _show_error(msg: String) -> void:

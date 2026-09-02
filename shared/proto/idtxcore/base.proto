@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package idtxcore;
+
+import "transform.proto";
+import "session.proto";
+
+message Handshake {
+  string session_id = 1;
+  string session_layer = 2;
+  string usd_path = 3;
+  string usd_uri = 4;
+}
+
+message BaseMessage {
+  optional string session_id = 1;
+  oneof message {
+    Handshake handshake = 2;
+    TransformUpdate xform_update = 3;
+    TransformBroadcast xform_broadcast = 4;
+    Ack ack = 5;
+    Error error = 6;
+  }
+}
