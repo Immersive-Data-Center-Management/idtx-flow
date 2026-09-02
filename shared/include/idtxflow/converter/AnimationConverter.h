@@ -15,6 +15,7 @@
 #include <pxr/usd/usdSkel/skeletonQuery.h>
 #include <pxr/usd/usdSkel/cache.h>
 #include <pxr/usd/usdSkel/animQuery.h>
+#include <pxr/usd/usdSkel/animation.h>
 #include <pxr/base/gf/vec3f.h>
 #include <pxr/base/gf/quatf.h>
 #include <pxr/base/vt/array.h>
@@ -36,7 +37,8 @@ namespace converter
         TRACK_POSITION,
         TRACK_ROTATION,
         TRACK_SCALE,
-        TRACK_TRANSFORM
+        TRACK_TRANSFORM,
+        TRACK_BLEND_WEIGHT  // Blend shape weight (Godot range -1..1)
     };
 
     template<typename TargetEngine>
@@ -47,7 +49,7 @@ namespace converter
         using Transform = typename idtxflow::types::TargetEngineTypes<TargetEngine>::Transform;
         
         double Time;
-        std::variant<Vector3, Quaternion, Transform> Value;
+        std::variant<Vector3, Quaternion, Transform, float> Value;
     };
 
     template<typename TargetEngine>
@@ -122,6 +124,35 @@ namespace converter
             pxr::UsdSkelAnimQuery animQuery = skelQuery.GetAnimQuery();
             if (!animQuery) return {};
 
+            return ConvertQuery(animQuery, usdTimeCodesPerSec);
+        }
+
+        // Every SkelAnimation prim under the SkelRoot, as an independent named
+        // clip. The bound animation source is one of them; the rest are the
+        // additional clips a consumer scrubs or blends -- a phenotype authored
+        // 0 -> 1 in its own clip composes with another, where segments of a
+        // single timeline cannot.
+        std::vector<std::pair<std::string, AnimationDescription<TargetEngine>>> ConvertNamed(
+            const pxr::UsdSkelRoot& usdSkelRoot, double usdTimeCodesPerSec)
+        {
+            std::vector<std::pair<std::string, AnimationDescription<TargetEngine>>> out;
+            pxr::UsdSkelCache skelCache;
+            skelCache.Populate(usdSkelRoot, pxr::Usd_PrimFlagsPredicate());
+            for (const pxr::UsdPrim& prim : usdSkelRoot.GetPrim().GetDescendants())
+            {
+                pxr::UsdSkelAnimation anim(prim);
+                if (!anim) continue;
+                pxr::UsdSkelAnimQuery q = skelCache.GetAnimQuery(anim);
+                if (!q) continue;
+                std::optional<AnimationDescription<TargetEngine>> d = ConvertQuery(q, usdTimeCodesPerSec);
+                if (d && !d->Tracks.empty())
+                    out.push_back({prim.GetName().GetString(), std::move(*d)});
+            }
+            return out;
+        }
+
+        std::optional<AnimationDescription<TargetEngine>> ConvertQuery(const pxr::UsdSkelAnimQuery& animQuery, double usdTimeCodesPerSec)
+        {
             // retrieve the animation data of the skeleton
             pxr::VtArray<class pxr::TfToken> animJoints = animQuery.GetJointOrder();
             std::vector<pxr::UsdAttribute> animAttributes;
@@ -154,6 +185,11 @@ namespace converter
                     // other animated attributes do not create any tracks
                     continue;
                 
+                // This attribute's tracks start where the list currently ends;
+                // accumulating sizes instead indexes past the vector once a
+                // third attribute arrives.
+                trackOffset = animation.Tracks.size();
+
                 // for each bone add an empty track for this track type
                 // the order of key frames in the authored timecodes is stable and matches
                 // the order of joints in this array.
@@ -204,7 +240,57 @@ namespace converter
                     }
                 }
 
-                trackOffset += animation.Tracks.size();
+            }
+
+            // Extract blend shape weight animation from the same animQuery.
+            // Each blend shape becomes one TRACK_BLEND_WEIGHT track whose keys
+            // are (time, weight) pairs.  We reuse the joint-transform time
+            // samples (already baked above) -- both sets live on the same
+            // UsdSkelAnimation prim, so identical time codes resolve correctly.
+            // If the joint animation has no time samples, we emit a single
+            // rest-pose key so downstream code has a consistent track structure.
+            std::vector<double> blendTimecodes;
+            animQuery.GetBlendShapeWeightTimeSamples(&blendTimecodes);
+            if (blendTimecodes.empty())
+                blendTimecodes = animTimecodes;
+            if (blendTimecodes.empty())
+            {
+                blendTimecodes.push_back(0.0);
+            }
+
+            pxr::VtArray<pxr::TfToken> blendOrder = animQuery.GetBlendShapeOrder();
+            if (!blendOrder.empty())
+            {
+                const size_t numBlends = blendOrder.size();
+                const size_t blendTrackStart = animation.Tracks.size();
+                // Reserve a TRACK_BLEND_WEIGHT track for each blend shape.
+                // The Name holds the blend shape's token name.
+                for (const pxr::TfToken& bname : blendOrder)
+                {
+                    AnimationTrackDescription<TargetEngine> bt;
+                    bt.Type = TRACK_BLEND_WEIGHT;
+                    bt.Name = bname.GetString();
+                    animation.Tracks.push_back(std::move(bt));
+                }
+
+                // Sample the blend weights at each timecode.
+                pxr::VtArray<float> blendWeights;
+                for (double tc : blendTimecodes)
+                {
+                    if (!animQuery.ComputeBlendShapeWeights(&blendWeights, pxr::UsdTimeCode(tc)))
+                        continue;
+                    if (blendWeights.size() < numBlends)
+                        continue;
+                    // Timesample in seconds.
+                    const double ts = tc / usdTimeCodesPerSec;
+                    for (size_t b = 0; b < numBlends; ++b)
+                    {
+                        AnimationTrackKey<TargetEngine> key;
+                        key.Time = ts;
+                        key.Value = blendWeights[b];
+                        animation.Tracks[blendTrackStart + b].Keys.push_back(std::move(key));
+                    }
+                }
             }
 
             return animation;

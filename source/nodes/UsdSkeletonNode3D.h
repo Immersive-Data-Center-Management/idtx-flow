@@ -65,6 +65,10 @@ public:
      */
     bool get_loop_animation() const { return loop_animation_; }
 
+public:
+    void set_animations(const godot::Dictionary& p_clips) { animations_ = p_clips; }
+    godot::Dictionary get_animations() const { return animations_; }
+
 protected:
     static void _bind_methods();
     // mapping of usd joint names to godot bone index
@@ -73,6 +77,7 @@ protected:
     std::vector<godot::Transform3D> bone_bind_transforms_;
     // bone animation data
     godot::Ref<godot::Animation> animation_;
+    godot::Dictionary animations_;
     double current_anim_time_ = 0.0;
     bool loop_animation_ = true;
 };

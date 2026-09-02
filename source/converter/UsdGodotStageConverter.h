@@ -8,6 +8,12 @@
 #include <godot_cpp/classes/standard_material3d.hpp>
 #include <godot_cpp/classes/skin.hpp>
 #include <godot_cpp/classes/skeleton3d.hpp>
+#include <godot_cpp/variant/aabb.hpp>
+#include <godot_cpp/core/math.hpp>
+
+#include <array>
+#include <map>
+#include <vector>
 
 #include <pxr/base/tf/token.h>
 #include <pxr/usd/usdGeom/tokens.h>
@@ -112,6 +118,11 @@ namespace helper
                         }
                         break;
                     }
+                case converter::TRACK_BLEND_WEIGHT:
+                    // Blend-shape weight tracks are handled separately in
+                    // ConvertSkeleton (written to each MeshInstance3D child's
+                    // own animation), not via this helper.
+                    break;
                 }
             }
         } 
@@ -461,11 +472,13 @@ namespace converter
         
         return converted_node;
     }
-    
+
+
     template<>
     inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertSkeleton(
         const godot::Transform3D& transform,
         const std::optional<AnimationDescription<types::TargetEngineGodot>>& animation,
+        const std::vector<std::pair<std::string, AnimationDescription<types::TargetEngineGodot>>>& namedClips,
         const SkeletonDescription<types::TargetEngineGodot>& skeleton_description)
     {
         using GodotMaterialConverter = UsdMaterialConverter<types::TargetEngineGodot>;
@@ -564,6 +577,94 @@ namespace converter
             mesh.instantiate();
             
             auto& MeshDescriptions = skinTarget.MeshDescriptions;
+
+            // Register blend shapes (morph targets) at the mesh level before any
+            // surface is added: Godot requires every surface of a mesh to share the
+            // same ordered blend-shape set. Every section of one USD mesh is bound to
+            // the same UsdSkelBlendShape targets, so the first section that carries
+            // them defines the names (and current weights) for the whole mesh.
+            std::vector<float> blendShapeWeights;
+            size_t blendShapeCount = 0;
+            // primary name -> [(shape index, position)] sorted ascending; a
+            // group of size 1 is a plain shape with no in-betweens.
+            std::map<std::string, std::vector<std::pair<int, float>>> blendGroups;
+            std::vector<std::string> blendShapeNames;
+            // USD evaluates a primary weight w through the chain base(0) ..
+            // in-betweens(p_k) .. primary(1): between two neighbours the two
+            // shapes cross-fade and every other member is 0. Reproducing that
+            // with Godot's independent 0-1 shapes means evaluating this basis.
+            auto evalBlendHat = [](const std::vector<std::pair<int, float>>& entries,
+                                   float w, std::vector<std::pair<int, float>>& out)
+            {
+                out.clear();
+                for (const auto& e : entries) out.push_back({e.first, 0.0f});
+                if (entries.empty() || w <= 0.0f) return;
+                const size_t n = entries.size();
+                if (w >= entries[n - 1].second)
+                {
+                    // At or past the last member its own axis scales linearly,
+                    // matching UsdSkel's extrapolation past weight 1.
+                    out[n - 1].second = w / entries[n - 1].second;
+                    return;
+                }
+                float prevPos = 0.0f;
+                for (size_t k = 0; k < n; ++k)
+                {
+                    const float pos = entries[k].second;
+                    if (w <= pos)
+                    {
+                        const float t = (pos - prevPos) > 0.0f ? (w - prevPos) / (pos - prevPos) : 1.0f;
+                        if (k > 0) out[k - 1].second = 1.0f - t;
+                        out[k].second = t;
+                        return;
+                    }
+                    prevPos = pos;
+                }
+            };
+
+            for (const MeshDescription<types::MeshData>& meshDescription: MeshDescriptions)
+            {
+                if (!meshDescription.meshData.BlendShapes.empty())
+                {
+                    // NORMALIZED, not RELATIVE: Godot stores blend-shape normals
+                    // octahedral-encoded (direction only, unit length), so a non-unit
+                    // "morph - base" normal delta loses its magnitude and a flipped
+                    // face decodes to garbage. Godot's own glTF importer therefore uses
+                    // NORMALIZED mode with ABSOLUTE morphed positions/normals -- the
+                    // shader computes (1 - sum w)*base + sum w*absolute, which for
+                    // positions is algebraically the additive delta result, and for
+                    // normals keeps every stored value unit (oct-safe).
+                    mesh->set_blend_shape_mode(godot::Mesh::BLEND_SHAPE_MODE_NORMALIZED);
+                    for (const types::BlendShapeData& bs: meshDescription.meshData.BlendShapes)
+                    {
+                        mesh->add_blend_shape(godot::String(bs.name.c_str()));
+                        blendShapeWeights.push_back(bs.weight);
+                        blendShapeNames.push_back(bs.name);
+                    }
+                    blendShapeCount = meshDescription.meshData.BlendShapes.size();
+                    // Group each primary with its promoted in-betweens, sorted by
+                    // position, so the primary's single USD weight can be baked
+                    // through the piecewise-linear basis into per-shape values.
+                    for (size_t bi = 0; bi < meshDescription.meshData.BlendShapes.size(); ++bi)
+                    {
+                        const types::BlendShapeData& bs = meshDescription.meshData.BlendShapes[bi];
+                        const std::string& key = bs.primary.empty() ? bs.name : bs.primary;
+                        blendGroups[key].push_back({static_cast<int>(bi), bs.position});
+                    }
+                    for (auto& g : blendGroups)
+                        std::sort(g.second.begin(), g.second.end(),
+                                  [](const auto& a, const auto& b) { return a.second < b.second; });
+                    break;
+                }
+            }
+
+            // Set a custom AABB that covers the base geometry grown by the largest morph
+            // offset, so editor framing and culling stay correct across the full morph
+            // range instead of relying on Godot's per-mode auto AABB.
+            bool haveAabb = false;
+            godot::AABB aabb;
+            float maxBlendDelta = 0.0f;
+
             //for (size_t MeshSection = 0; MeshSection < MeshDescriptions.size(); ++MeshSection)
             for (const auto& meshDescription: MeshDescriptions)
             {
@@ -571,7 +672,11 @@ namespace converter
                 mesh_arrays.resize(godot::Mesh::ARRAY_MAX);
                 mesh_arrays[godot::Mesh::ARRAY_VERTEX] = meshDescription.meshData.Vertices;
                 mesh_arrays[godot::Mesh::ARRAY_INDEX] = meshDescription.meshData.Triangles;
-                mesh_arrays[godot::Mesh::ARRAY_NORMAL] = meshDescription.meshData.Normals;
+                // Authored normals pass through unchanged; a mesh authored
+                // without normals is emitted without normals — nothing is
+                // fabricated or resmoothed at conversion.
+                if (!meshDescription.meshData.Normals.is_empty())
+                    mesh_arrays[godot::Mesh::ARRAY_NORMAL] = meshDescription.meshData.Normals;
                 if (!meshDescription.meshData.UVs.is_empty())
                     mesh_arrays[godot::Mesh::ARRAY_TEX_UV] = meshDescription.meshData.UVs;
                 if (!meshDescription.meshData.VertexColors.is_empty())
@@ -614,16 +719,85 @@ namespace converter
                     }
                 }
 
+
                 // depending on the stored bone weight count per vertex we need to pass a flag to ensure the
-                // bone and bone-weight arrays are treated the right way 
+                // bone and bone-weight arrays are treated the right way
                 uint64_t flags = 0;
                 if (meshDescription.meshData.boneWeightCount == types::MeshData::BONEWEIGHT_COUNT_8)
                     flags = godot::Mesh::ARRAY_FLAG_USE_8_BONE_WEIGHTS;
-                
+
+                // Assemble this section's blend-shape arrays. NORMALIZED mode stores
+                // ABSOLUTE morphed positions and normals (not deltas); it must match the
+                // mesh-level blend-shape count/order registered above, so only emit them
+                // when this section agrees.
+                const godot::PackedVector3Array& baseVerts = meshDescription.meshData.Vertices;
+                godot::Array blend_arrays;
+                if (blendShapeCount > 0
+                    && meshDescription.meshData.BlendShapes.size() == blendShapeCount)
+                {
+                    for (const types::BlendShapeData& bs: meshDescription.meshData.BlendShapes)
+                    {
+                        godot::Array bs_arr;
+                        bs_arr.resize(godot::Mesh::ARRAY_MAX);
+
+                        // ABSOLUTE morphed positions: base + delta.
+                        godot::PackedVector3Array morphedVerts;
+                        morphedVerts.resize(baseVerts.size());
+                        for (int64_t i = 0; i < baseVerts.size(); ++i)
+                        {
+                            morphedVerts[i] = baseVerts[i] + bs.pos_deltas[i];
+                        }
+                        bs_arr[godot::Mesh::ARRAY_VERTEX] = morphedVerts;
+
+                        // ABSOLUTE morphed normals (unit, so octahedral encoding
+                        // stays lossless): normalize(base_normal + authored delta).
+                        // A shape with no authored normal offsets has zero deltas
+                        // and reproduces the base normal exactly; a mesh authored
+                        // without normals gets shapes without normal arrays. In
+                        // neither case is a normal invented at conversion.
+                        const godot::PackedVector3Array& baseNormals = meshDescription.meshData.Normals;
+                        if (!baseNormals.is_empty())
+                        {
+                            godot::PackedVector3Array absNormals;
+                            absNormals.resize(baseNormals.size());
+                            for (int64_t i = 0; i < baseNormals.size(); ++i)
+                            {
+                                const godot::Vector3 n = baseNormals[i] + bs.nrm_deltas[i];
+                                absNormals[i] = (n.length_squared() < 1e-20f) ? baseNormals[i] : n.normalized();
+                            }
+                            bs_arr[godot::Mesh::ARRAY_NORMAL] = absNormals;
+                        }
+                        blend_arrays.push_back(bs_arr);
+
+                        const godot::PackedVector3Array& d = bs.pos_deltas;
+                        for (int64_t i = 0; i < d.size(); ++i)
+                        {
+                            maxBlendDelta = godot::Math::max(maxBlendDelta, godot::Math::abs(d[i].x));
+                            maxBlendDelta = godot::Math::max(maxBlendDelta, godot::Math::abs(d[i].y));
+                            maxBlendDelta = godot::Math::max(maxBlendDelta, godot::Math::abs(d[i].z));
+                        }
+                    }
+                }
+
+                // grow the base-geometry AABB with this section's vertices
+                const godot::PackedVector3Array& secVerts = meshDescription.meshData.Vertices;
+                for (int64_t i = 0; i < secVerts.size(); ++i)
+                {
+                    if (!haveAabb)
+                    {
+                        aabb = godot::AABB(secVerts[i], godot::Vector3());
+                        haveAabb = true;
+                    }
+                    else
+                    {
+                        aabb = aabb.expand(secVerts[i]);
+                    }
+                }
+
                 mesh->add_surface_from_arrays(
                     godot::Mesh::PRIMITIVE_TRIANGLES,
                     mesh_arrays,
-                    godot::Array(),
+                    blend_arrays,
                     godot::Dictionary(),
                     flags);
 
@@ -641,6 +815,14 @@ namespace converter
                 mesh->surface_set_material(mesh->get_surface_count() - 1, standard_material);
             }
 
+            // With blend shapes present, override Godot's (wrong) auto AABB with the
+            // base-geometry bounds grown by the largest morph offset, so editor
+            // framing/culling stay correct instead of stretching toward the origin.
+            if (blendShapeCount > 0 && haveAabb)
+            {
+                mesh->set_custom_aabb(aabb.grow(maxBlendDelta));
+            }
+
             UsdMeshInstanceNode3D* node = memnew(UsdMeshInstanceNode3D);
             node->set_mesh(mesh);
             node->set_skin(skin);
@@ -649,9 +831,138 @@ namespace converter
             node->set_stage_path(Stage->GetRootLayer()->GetRealPath().c_str());
             // TODO: check if required, as all nodes converted from an usdPrim implement IUsdNode3D
             node->set_meta("USD_NODE", true);
-            
+
             node->set_prim_name(skinTarget.Name.c_str());
             node->set_prim_type("Mesh");
+
+            // Apply each blend shape's authored/animated weight (the mesh must already
+            // be set so the shapes exist on the instance). A weight of 0 is the rest
+            // pose; these mirror whatever the bound skel animation resolved to.
+            for (const auto& g : blendGroups)
+            {
+                if (g.second.size() < 2) continue;
+                // The authored weight lives on the primary (position 1, last
+                // after the sort); spread it across the group.
+                const float w = blendShapeWeights[g.second.back().first];
+                std::vector<std::pair<int, float>> vals;
+                evalBlendHat(g.second, w, vals);
+                for (const auto& v : vals) blendShapeWeights[v.first] = v.second;
+            }
+            for (size_t b = 0; b < blendShapeWeights.size(); ++b)
+            {
+                node->set_blend_shape_value(static_cast<int>(b), blendShapeWeights[b]);
+            }
+
+            // If the skeleton animation carries blend-shape-weight tracks, build a
+            // separate Godot Animation for this mesh instance that animates its
+            // blend_shape/<name> properties over time.  The track path uses the
+            // concatenated subname (":blend_shapes/<name>") which is the Godot
+            // convention for MeshInstance3D blend-shape value tracks.
+            if (animation.has_value())
+            {
+                const auto& animDesc = animation.value();
+                bool hasBlendTracks = false;
+                for (const auto& t : animDesc.Tracks)
+                {
+                    if (t.Type == converter::TRACK_BLEND_WEIGHT)
+                    {
+                        hasBlendTracks = true;
+                        break;
+                    }
+                }
+                if (hasBlendTracks && blendShapeCount > 0)
+                {
+                    godot::Ref<godot::Animation> bsAnim;
+                    bsAnim.instantiate();
+                    bsAnim->set_length(StageAnimationLength);
+                    bsAnim->set_loop_mode(godot::Animation::LOOP_NONE);
+
+                    for (const auto& t : animDesc.Tracks)
+                    {
+                        if (t.Type != converter::TRACK_BLEND_WEIGHT)
+                            continue;
+                        if (t.Keys.empty())
+                            continue;
+
+                        auto git = blendGroups.find(t.Name);
+                        const bool grouped = git != blendGroups.end() && git->second.size() > 1;
+                        if (!grouped)
+                        {
+                            // Godot blend-shape tracks are TYPE_VALUE with the
+                            // property path "blend_shapes/<name>" on the mesh instance.
+                            const godot::String blendPath = godot::String(":blend_shapes/") + t.Name.c_str();
+                            const int32_t vt = bsAnim->add_track(godot::Animation::TYPE_VALUE);
+                            bsAnim->track_set_path(vt, godot::NodePath(blendPath));
+                            bsAnim->track_set_interpolation_type(vt, godot::Animation::INTERPOLATION_LINEAR);
+                            for (const auto& key : t.Keys)
+                            {
+                                const float w = std::get<float>(key.Value);
+                                bsAnim->track_insert_key(vt, key.Time, w);
+                            }
+                            continue;
+                        }
+
+                        // In-between group: bake the primary's weight through the
+                        // basis, one track per member. The basis is piecewise
+                        // linear in w, so a weight crossing a member position
+                        // BETWEEN two authored keys needs a key inserted at the
+                        // crossing time -- baking only at authored times cuts
+                        // that corner and undershoots every in-between peak.
+                        std::vector<double> bakeTimes;
+                        std::vector<float> bakeWeights;
+                        for (size_t k = 0; k < t.Keys.size(); ++k)
+                        {
+                            const double t0 = t.Keys[k].Time;
+                            const float w0 = std::get<float>(t.Keys[k].Value);
+                            bakeTimes.push_back(t0);
+                            bakeWeights.push_back(w0);
+                            if (k + 1 >= t.Keys.size()) continue;
+                            const double t1 = t.Keys[k + 1].Time;
+                            const float w1 = std::get<float>(t.Keys[k + 1].Value);
+                            if (!(t1 > t0) || w0 == w1) continue;
+                            const float lo = std::min(w0, w1), hi = std::max(w0, w1);
+                            for (const auto& e : git->second)
+                            {
+                                const float p = e.second;
+                                if (p > lo && p < hi)
+                                {
+                                    const double tc = t0 + (t1 - t0) * double((p - w0) / (w1 - w0));
+                                    bakeTimes.push_back(tc);
+                                    bakeWeights.push_back(p);
+                                }
+                            }
+                        }
+                        // Crossing keys were appended out of order; sort the pairs.
+                        std::vector<size_t> order(bakeTimes.size());
+                        for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+                        std::sort(order.begin(), order.end(),
+                                  [&](size_t a, size_t b) { return bakeTimes[a] < bakeTimes[b]; });
+
+                        std::vector<int32_t> memberTracks;
+                        for (const auto& e : git->second)
+                        {
+                            const godot::String blendPath = godot::String(":blend_shapes/") +
+                                blendShapeNames[static_cast<size_t>(e.first)].c_str();
+                            const int32_t vt = bsAnim->add_track(godot::Animation::TYPE_VALUE);
+                            bsAnim->track_set_path(vt, godot::NodePath(blendPath));
+                            bsAnim->track_set_interpolation_type(vt, godot::Animation::INTERPOLATION_LINEAR);
+                            memberTracks.push_back(vt);
+                        }
+                        std::vector<std::pair<int, float>> vals;
+                        for (size_t oi : order)
+                        {
+                            evalBlendHat(git->second, bakeWeights[oi], vals);
+                            for (size_t m = 0; m < vals.size(); ++m)
+                                bsAnim->track_insert_key(memberTracks[m], bakeTimes[oi], vals[m].second);
+                        }
+                    }
+
+                    if (bsAnim->get_track_count() > 0)
+                    {
+                        node->set_animation(bsAnim);
+                    }
+                }
+            }
 
             skeleton->add_child(node);
         }
@@ -664,7 +975,125 @@ namespace converter
             const auto& animation_description = animation.value();
             helper::AddAnimation(animation_description, skeleton, StageAnimationLength);
         }
-        
+
+        // Every SkelAnimation under the root is an independent named clip a
+        // consumer scrubs or blends; the bound clip appears here too. Bone
+        // tracks keep the joint name as their path and blend tracks the shape
+        // name (grouped members baked through the in-between basis), matching
+        // the bound clip's conventions -- consumers retarget when wiring an
+        // AnimationPlayer or AnimationTree.
+        {
+            auto buildClip = [&](const AnimationDescription<types::TargetEngineGodot>& desc)
+                -> godot::Ref<godot::Animation>
+            {
+                godot::Ref<godot::Animation> clip;
+                clip.instantiate();
+                float length = 0.0f;
+                for (const auto& t : desc.Tracks)
+                    for (const auto& k : t.Keys)
+                        length = std::max(length, static_cast<float>(k.Time));
+                clip->set_length(length);
+                clip->set_loop_mode(godot::Animation::LOOP_NONE);
+                for (const auto& t : desc.Tracks)
+                {
+                    if (t.Keys.empty())
+                        continue;
+                    switch (t.Type)
+                    {
+                    case converter::TRACK_POSITION:
+                    {
+                        const int32_t ti = clip->add_track(godot::Animation::TYPE_POSITION_3D);
+                        clip->track_set_path(ti, godot::NodePath(t.Name.c_str()));
+                        for (const auto& k : t.Keys)
+                            clip->position_track_insert_key(ti, k.Time,
+                                std::get<godot::Vector3>(k.Value));
+                        break;
+                    }
+                    case converter::TRACK_ROTATION:
+                    {
+                        const int32_t ti = clip->add_track(godot::Animation::TYPE_ROTATION_3D);
+                        clip->track_set_path(ti, godot::NodePath(t.Name.c_str()));
+                        for (const auto& k : t.Keys)
+                            clip->rotation_track_insert_key(ti, k.Time,
+                                std::get<godot::Quaternion>(k.Value));
+                        break;
+                    }
+                    case converter::TRACK_SCALE:
+                    {
+                        const int32_t ti = clip->add_track(godot::Animation::TYPE_SCALE_3D);
+                        clip->track_set_path(ti, godot::NodePath(t.Name.c_str()));
+                        for (const auto& k : t.Keys)
+                            clip->scale_track_insert_key(ti, k.Time,
+                                std::get<godot::Vector3>(k.Value));
+                        break;
+                    }
+                    case converter::TRACK_BLEND_WEIGHT:
+                    {
+                        auto git = blendGroups.find(t.Name);
+                        const bool grouped = git != blendGroups.end() && git->second.size() > 1;
+                        if (!grouped)
+                        {
+                            const int32_t ti = clip->add_track(godot::Animation::TYPE_BLEND_SHAPE);
+                            clip->track_set_path(ti, godot::NodePath(t.Name.c_str()));
+                            for (const auto& k : t.Keys)
+                                clip->blend_shape_track_insert_key(ti, k.Time,
+                                    std::get<float>(k.Value));
+                            break;
+                        }
+                        // Grouped: bake through the basis with crossing-time keys.
+                        std::vector<double> times;
+                        std::vector<float> ws;
+                        for (size_t k = 0; k < t.Keys.size(); ++k)
+                        {
+                            const double t0 = t.Keys[k].Time;
+                            const float w0 = std::get<float>(t.Keys[k].Value);
+                            times.push_back(t0); ws.push_back(w0);
+                            if (k + 1 >= t.Keys.size()) continue;
+                            const double t1 = t.Keys[k + 1].Time;
+                            const float w1 = std::get<float>(t.Keys[k + 1].Value);
+                            if (!(t1 > t0) || w0 == w1) continue;
+                            const float lo = std::min(w0, w1), hi = std::max(w0, w1);
+                            for (const auto& e : git->second)
+                                if (e.second > lo && e.second < hi)
+                                {
+                                    times.push_back(t0 + (t1 - t0) * double((e.second - w0) / (w1 - w0)));
+                                    ws.push_back(e.second);
+                                }
+                        }
+                        std::vector<size_t> order(times.size());
+                        for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+                        std::sort(order.begin(), order.end(),
+                                  [&](size_t x, size_t y) { return times[x] < times[y]; });
+                        std::vector<int32_t> memberTracks;
+                        for (const auto& e : git->second)
+                        {
+                            const int32_t ti = clip->add_track(godot::Animation::TYPE_BLEND_SHAPE);
+                            clip->track_set_path(ti,
+                                godot::NodePath(blendShapeNames[static_cast<size_t>(e.first)].c_str()));
+                            memberTracks.push_back(ti);
+                        }
+                        std::vector<std::pair<int, float>> vals;
+                        for (size_t oi : order)
+                        {
+                            evalBlendHat(git->second, ws[oi], vals);
+                            for (size_t m = 0; m < vals.size(); ++m)
+                                clip->blend_shape_track_insert_key(memberTracks[m], times[oi], vals[m].second);
+                        }
+                        break;
+                    }
+                    default:
+                        break;
+                    }
+                }
+                return clip;
+            };
+            godot::Dictionary clips;
+            for (const auto& nc : namedClips)
+                clips[godot::String(nc.first.c_str())] = buildClip(nc.second);
+            if (!clips.is_empty())
+                skeleton->set_animations(clips);
+        }
+
         return skeleton;
     }
     
