@@ -100,6 +100,7 @@ func _build_ui() -> void:
 	root_vb.add_child(_step_container)
 
 	_step_select = (load(STEP_SELECT_SOURCE_PATH) as GDScript).new()
+	_step_select._default_url = ProjectSettings.get_setting("idtxflow/import/server", "http://localhost:8080")
 	_step_container.add_child(_step_select)
 	_step_select.visible = false
 	_step_select.local_files_requested.connect(_on_step1_local_files)
@@ -256,10 +257,14 @@ func _on_step1_local_files() -> void:
 	_show_step(2)
 
 
-func _on_step1_server_login(url: String, _username: String, _remember: bool) -> void:
+func _on_step1_server_login(url: String, username: String, remember: bool) -> void:
 	_import_state["source"] = "server"
 	_import_state["selected_meta"] = {}
 
+	if remember:
+		ProjectSettings.set_setting("idtxflow/import/server", url)
+		ProjectSettings.set_setting("idtxflow/import/user", username)
+		
 	if _step_browse_server.has_method("set_server_url"):
 		_step_browse_server.set_server_url(url)
 	if _step_browse_server.has_method("reset"):

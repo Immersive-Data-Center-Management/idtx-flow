@@ -12,6 +12,25 @@ func _enter_tree() -> void:
 	# The native IdtxClient is created and registered as the "IdtxClient" engine
 	# singleton from C++ at module init, and its poll() is driven by the frame
 	# ticker — so no GDScript autoload is needed to host it.
+	
+	# configure project settings used to persist IDTXFlow default server url and user
+	if (!ProjectSettings.has_setting("idtxflow/import/server")):
+		ProjectSettings.set("idtxflow/import/server", "")		
+	ProjectSettings.set_initial_value("idtxflow/import/server", "")
+	ProjectSettings.add_property_info({
+		"name": "idtxflow/import/server",
+		"type": TYPE_STRING,
+		"hint": PROPERTY_HINT_NONE
+	})
+	
+	if (!ProjectSettings.has_setting("idtxflow/import/user")):
+		ProjectSettings.set("idtxflow/import/user", "")
+	ProjectSettings.set_initial_value("idtxflow/import/user", "")
+	ProjectSettings.add_property_info({
+		"name": "idtxflow/import/user",
+		"type": TYPE_STRING,
+		"hint": PROPERTY_HINT_NONE
+	})
 
 	# Create the main screen and attach it to the editor's main viewport.
 	_main_screen = MainScreenScript.new()

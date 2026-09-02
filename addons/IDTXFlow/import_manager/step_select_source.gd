@@ -32,6 +32,7 @@ var _status_panel: PanelContainer
 var _status_label: Label
 var _status_icon: Label
 
+var _default_url := DEFAULT_URL
 
 func _init() -> void:
 	size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -89,7 +90,7 @@ func _build() -> void:
 
 	_url_input = LineEdit.new()
 	_url_input.placeholder_text = "Input URL"
-	_url_input.text = DEFAULT_URL
+	_url_input.text = _default_url if !_default_url.is_empty() else DEFAULT_URL
 	_url_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_url_input.custom_minimum_size = Vector2(0, WizardTheme.px(ROW_HEIGHT))
 	url_row.add_child(_url_input)

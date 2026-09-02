@@ -65,6 +65,7 @@ func _ensure_built() -> void:
 
 	_username_input = LineEdit.new()
 	_username_input.placeholder_text = "Enter username"
+	_username_input.text = ProjectSettings.get_setting("idtxflow/import/user", "")
 	_username_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_username_input.custom_minimum_size = Vector2(0, WizardTheme.px(WizardTheme.INPUT_HEIGHT))
 	add_child(_username_input)
