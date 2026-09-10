@@ -3,6 +3,7 @@
 #include <vector>
 
 #include <godot_cpp/classes/node.hpp>
+#include <godot_cpp/core/object.hpp>
 
 #include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/tf/weakPtr.h>
@@ -135,7 +136,7 @@ void GodotStageBridge::build_index()
                 continue;
 
             Tracked t;
-            t.node = n3d;
+            t.node_id = n3d->get_instance_id();
             tracked_[std::string(prim_path.utf8().get_data())] = t;
         }
     }
@@ -227,11 +228,17 @@ void GodotStageBridge::apply_remote_edit(const net::model::PrimEdit& edit)
 
     const Transform3D xform = primedit_to_transform(edit);
     author_to_usd(edit.prim_path, xform);
-    if (it != tracked_.end() && it->second.node)
+    if (it != tracked_.end())
     {
-        it->second.node->set_block_signals(true);
-        it->second.node->set_transform(xform);
-        it->second.node->set_block_signals(false);
+        // Resolve the stored ObjectID to a live node. ObjectDB::get_instance()
+        // returns null if the node has been freed. Prevents dangling pointer issues.
+        Node3D* node = Object::cast_to<Node3D>(ObjectDB::get_instance(it->second.node_id));
+        if (node)        
+        {
+            node->set_block_signals(true);
+            node->set_transform(xform);
+            node->set_block_signals(false);
+        }
     }
 
     suppress_broadcast_ = false;

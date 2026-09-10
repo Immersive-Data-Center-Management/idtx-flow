@@ -476,29 +476,20 @@ func _perform_import_into_current_scene(file_path: String) -> void:
 	stage_node.stage_uri = file_path
 
 
-## Builds a fresh Node3D root + empty UsdStageNode3D child, parents it under
-## the wizard so the C++ side sees it inside the editor SceneTree, then
+## Builds a fresh empty UsdStageNode3D root node, then
 ## triggers the async import. The scene is opened as a new tab only after a
 ## successful import (see `_on_stage_loading_finished`). On failure the
 ## in-memory tree is discarded and nothing touches the disk or the editor.
 func _perform_import_into_new_scene(file_path: String) -> void:
-	var root_name: String = file_path.get_file().get_basename()
-	if root_name.is_empty():
-		root_name = "UsdImport"
-
-	var new_root := Node3D.new()
-	new_root.name = root_name
-
+	
 	var stage_node := UsdStageNode3D.new()
-	new_root.add_child(stage_node)
-	stage_node.owner = new_root
-
 	# Parent under the wizard control so the node enters the editor's
 	# SceneTree; UsdStageNode3D only starts loading once it is inside a tree.
-	add_child(new_root)
+	add_child(stage_node)
+	stage_node.owner = stage_node
 
 	stage_node.stage_loading_finished.connect(
-		_on_stage_loading_finished.bind(stage_node, file_path, true, new_root),
+		_on_stage_loading_finished.bind(stage_node, file_path, true),
 		CONNECT_ONE_SHOT
 	)
 	stage_node.stage_uri = file_path
@@ -510,40 +501,33 @@ func _perform_import_into_new_scene(file_path: String) -> void:
 ##   stage_node   - the imported node (may already be freed on failure).
 ##   file_path    - USD source URI, used for logging.
 ##   is_new_scene - true when the import is targeting a fresh scene.
-##   new_root     - only meaningful when `is_new_scene`; the in-memory root
-##                  that will be packed and opened as a new tab on success,
-##                  or freed on failure.
 func _on_stage_loading_finished(
 	success: bool,
 	stage_node: Node,
 	file_path: String,
 	is_new_scene: bool = false,
-	new_root: Node = null,
 ) -> void:
 	if not success:
 		push_error("[IDTXFlow] [Import Manager] Failed to import '%s'. Removing empty stage node." % file_path)
-		if is_new_scene and is_instance_valid(new_root):
-			new_root.queue_free()
-		elif is_instance_valid(stage_node):
+		if is_instance_valid(stage_node):
 			stage_node.queue_free()
+		return
+
+	if is_new_scene:
+		_finalize_new_scene_import(stage_node, file_path)
 		return
 
 	# For server imports, attach live-stage transform sync to the freshly
 	# loaded stage node so gizmo edits broadcast and inbound broadcasts apply.
 	# Outbound broadcasting auto-arms in the engine a few frames after attach, so
 	# the USD-conversion transform writes don't produce phantom broadcasts.
+	# in the 'is_new_scene' scenario this will be handled within '_finalize_new_scene_import'
 	if _import_state.get("source", "") == "server":
 		var client := _idtx()
 		if client and client.has_method("attach_transform_sync"):
 			client.attach_transform_sync(stage_node, true)
 
-	if is_new_scene:
-		_finalize_new_scene_import(stage_node, file_path, new_root)
-		return
-
 	print("[IDTXFlow] [Import Manager] Imported '%s' as child of '%s'." % [file_path, stage_node.get_parent().name])
-
-	_reset_and_go_home()
 
 	if _editor_interface:
 		_editor_interface.set_main_screen_editor("3D")
@@ -553,38 +537,40 @@ func _on_stage_loading_finished(
 			sel.add_node(stage_node)
 		_editor_interface.edit_node(stage_node)
 
+	_reset_and_go_home()
+
 
 ## Packs the imported in-memory scene, writes it to a fresh `res://<name>.tscn`
 ## (with collision suffix), and opens it as a new scene tab.
-func _finalize_new_scene_import(stage_node: Node, file_path: String, new_root: Node) -> void:
+func _finalize_new_scene_import(stage_node: Node, file_path: String) -> void:
 	# Let the C++-side deferred `set_owner` calls (from _configure_nodes_recursive)
 	# settle so all imported prims have `owner == new_root` before packing.
 	await get_tree().process_frame
 
-	if not is_instance_valid(new_root):
+	if not is_instance_valid(stage_node):
 		push_error("[IDTXFlow] [Import Manager] New-scene root was freed before packing; aborting.")
 		return
 
 	# Detach from the wizard so the packed scene doesn't include our Control.
-	if new_root.get_parent() == self:
-		remove_child(new_root)
+	if stage_node.get_parent() == self:
+		remove_child(stage_node)
 
 	var packed := PackedScene.new()
-	var pack_err := packed.pack(new_root)
+	var pack_err := packed.pack(stage_node)
 	if pack_err != OK:
 		push_error("[IDTXFlow] [Import Manager] PackedScene.pack failed (err=%d); aborting." % pack_err)
-		new_root.queue_free()
+		stage_node.queue_free()
 		return
 
-	var target_path := _next_unused_res_scene_path(new_root.name)
+	var target_path := _next_unused_res_scene_path(stage_node.name)
 	var save_err := ResourceSaver.save(packed, target_path)
 	if save_err != OK:
 		push_error("[IDTXFlow] [Import Manager] Failed to save scene '%s' (err=%d); aborting." % [target_path, save_err])
-		new_root.queue_free()
+		stage_node.queue_free()
 		return
 
 	# The in-memory copy is no longer needed; the file on disk holds the state.
-	new_root.queue_free()
+	stage_node.queue_free()
 
 	if _editor_interface == null:
 		push_warning("[IDTXFlow] [Import Manager] No editor interface; scene saved at '%s'." % target_path)
@@ -600,8 +586,6 @@ func _finalize_new_scene_import(stage_node: Node, file_path: String, new_root: N
 
 	print("[IDTXFlow] [Import Manager] Imported '%s' as '%s'." % [file_path, target_path])
 
-	_reset_and_go_home()
-
 	_editor_interface.set_main_screen_editor("3D")
 	var new_stage_node := _find_stage_node(new_scene_root)
 	if new_stage_node:
@@ -610,6 +594,15 @@ func _finalize_new_scene_import(stage_node: Node, file_path: String, new_root: N
 			sel.clear()
 			sel.add_node(new_stage_node)
 		_editor_interface.edit_node(new_stage_node)
+		# The initially loaded stage node is long gone, so we need to re-wire the sync
+		# for the now existing UsdStageNode3D. Otherwise we will not be able to handle
+		# inbound transform changes properly
+		if _import_state.get("source", "") == "server":
+			var client := _idtx()
+			if client and client.has_method("attach_transform_sync"):
+				client.attach_transform_sync(new_stage_node, true)
+
+	_reset_and_go_home()
 
 
 ## Returns the first path of the form `res://<basename>.tscn` (or `_1`, `_2`,

@@ -53,7 +53,8 @@ namespace collab_godot
     private:
         IDTX_LOG_CATEGORY("GodotStageBridge")
 
-        struct Tracked { godot::Node3D* node = nullptr; };
+        // Store the node's Godot ObjectID (a stable POD), not a raw pointer.
+        struct Tracked { uint64_t node_id = 0; };   // Godot ObjectID; 0 == none
 
         void register_listener();
         void revoke_listener();

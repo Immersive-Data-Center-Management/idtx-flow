@@ -55,10 +55,10 @@
   <!-- Windows-specific include paths -->
   <ItemDefinitionGroup Condition="'$(OS)'=='Windows_NT'">
     <ClCompile>
-      <AdditionalIncludeDirectories>thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;usd/generated;usd/source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;./thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;usd/generated;usd/source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Midl>
-      <AdditionalIncludeDirectories>thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;usd/generated;usd/source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>thirdparty\godot-cpp\gdextension;thirdparty\godot-cpp\include;thirdparty\godot-cpp\gen\include;./thirdparty/openusd-26.05/include;./thirdparty/mdl_sdk/include;thirdparty\ixwebsocket;shared/include;source;usd/generated;usd/source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -223,7 +223,6 @@
     <Content Include="addons\IDTXFlow\import_manager\idtx_client_access.gd" />
     <Content Include="addons\IDTXFlow\import_manager\import_manager.gd" />
     <Content Include="addons\IDTXFlow\import_manager\server_login_panel.gd" />
-    <Content Include="addons\IDTXFlow\import_manager\server_mock_data.gd" />
     <Content Include="addons\IDTXFlow\import_manager\step_browse_files.gd" />
     <Content Include="addons\IDTXFlow\import_manager\step_browse_server.gd" />
     <Content Include="addons\IDTXFlow\import_manager\step_configure.gd" />
