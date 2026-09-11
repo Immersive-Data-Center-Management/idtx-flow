@@ -194,16 +194,14 @@ void CollabEngine::begin_session(const std::string& usd_file, const std::string&
 
 void CollabEngine::end_session()
 {
-    // Detach + close before the backend delete so no further frames flush over a
+    // Detach + close so no further frames flush over a
     // socket we are tearing down (matches the previous GDScript teardown order).
     detach_stage();
     close_session_socket();
 
+    // we are not actively deleting the session, just leaving. The backend will reap
+    // sessions with no connected clients based on given rules!
     const std::string closed_id = active_session_id_;
-    if (!active_session_id_.empty())
-    {
-        delete_session(active_session_id_);
-    }
     active_session_id_.clear();
     active_mode_.clear();
 
