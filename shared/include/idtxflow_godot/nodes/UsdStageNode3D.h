@@ -5,6 +5,10 @@
 
 #include <godot_cpp/classes/node3d.hpp>
 #include <godot_cpp/classes/mesh_instance3d.hpp>
+#include <godot_cpp/classes/animation.hpp>
+#include <godot_cpp/classes/animation_library.hpp>
+#include <godot_cpp/classes/animation_mixer.hpp>
+#include <godot_cpp/variant/packed_string_array.hpp>
 
 #include <pxr/usd/usd/stage.h>
 
@@ -80,6 +84,14 @@ public:
      * Check if the stage is currently being loaded asynchronously.
      */
     bool is_loading() const { return is_loading_; }
+
+    /**
+     * Path to the AnimationMixer -- an AnimationPlayer or an AnimationTree -- that plays the
+     * clips this stage converts. It is set in the editor, before anything is loaded, because
+     * the converted nodes do not exist until then and cannot be wired by hand.
+     */
+    void set_animation_mixer(const godot::NodePath& path);
+    godot::NodePath get_animation_mixer() const { return animation_mixer_path_; }
     
 protected:
     /**
@@ -114,6 +126,19 @@ protected:
     void _cleanup_nodes();
 
     /**
+     * Refill this node's one library on the mixer named by animation_mixer_path_, and root that
+     * mixer here so the clip paths resolve. Called after every conversion.
+     */
+    void _wire_animation_mixer();
+
+    /**
+     * Add every converted clip under node into library, repathing each track first. Track
+     * targets that name nothing in the scene are appended to unresolved rather than dropped.
+     */
+    void _collect_clips(godot::Node* node, const godot::Ref<godot::AnimationLibrary>& library,
+                        godot::PackedStringArray& unresolved);
+
+    /**
      * Generate a unique file name for the cached scene (*.tscn/*.scn) file based on the stage URI and
      * whether it has been opened with an overlay layer.
      * @param stage_uri The original stage URI
@@ -133,6 +158,11 @@ protected:
     bool node_ready_ = false;
     godot::String stage_uri_;
     godot::String cached_scene_name_;
+    godot::NodePath animation_mixer_path_;
+    // The one library this node writes, and the mixer holding it. An id rather than a
+    // pointer, because that mixer can be freed between wires.
+    godot::StringName wired_library_;
+    uint64_t wired_mixer_id_ = 0;
     std::unique_ptr<idtxflow::converter::StageHandle> stage_handle_;
 
     // --- Async loading state ---

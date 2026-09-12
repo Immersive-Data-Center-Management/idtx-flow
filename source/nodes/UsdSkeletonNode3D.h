@@ -3,6 +3,7 @@
 #include <vector>
 
 #include <godot_cpp/classes/animation.hpp>
+#include <godot_cpp/classes/animation_library.hpp>
 #include <godot_cpp/classes/skeleton3d.hpp>
 
 #include <idtxflow_godot/nodes/IUsdNode3D.h>
@@ -65,6 +66,10 @@ public:
      */
     bool get_loop_animation() const { return loop_animation_; }
 
+public:
+    void set_animation_library(const godot::Ref<godot::AnimationLibrary>& p_library) { animation_library_ = p_library; }
+    godot::Ref<godot::AnimationLibrary> get_animation_library() const { return animation_library_; }
+
 protected:
     static void _bind_methods();
     // mapping of usd joint names to godot bone index
@@ -73,6 +78,8 @@ protected:
     std::vector<godot::Transform3D> bone_bind_transforms_;
     // bone animation data
     godot::Ref<godot::Animation> animation_;
+    // Named clips, the shape an AnimationPlayer or AnimationTree consumes directly.
+    godot::Ref<godot::AnimationLibrary> animation_library_;
     double current_anim_time_ = 0.0;
     bool loop_animation_ = true;
 };

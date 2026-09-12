@@ -6,6 +6,12 @@
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/resource_saver.hpp>
 #include <godot_cpp/classes/file_access.hpp>
+#include <godot_cpp/classes/skeleton3d.hpp>
+#include <godot_cpp/classes/mesh_instance3d.hpp>
+#include <godot_cpp/classes/animation.hpp>
+#include <godot_cpp/classes/animation_library.hpp>
+#include <godot_cpp/classes/animation_mixer.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
 
 #include <idtxflow/converter/StageConverter.h>
 
@@ -13,6 +19,7 @@
 #include <idtxflow_godot/converter/UsdGodotTypeConverter.h>
 
 #include "converter/UsdGodotStageConverter.h"
+#include "nodes/UsdSkeletonNode3D.h"
 
 using namespace godot;
 using namespace pxr;
@@ -204,6 +211,7 @@ void UsdStageNode3D::_convert_stage()
     
     call_deferred("_pack_and_save_cached_scene");
     
+    _wire_animation_mixer();
     emit_signal("stage_loading_finished", true);
 }
 
@@ -248,6 +256,7 @@ void UsdStageNode3D::_load_converted_stage()
         idtxflow::exec::ExecBridgeManager::Instance().ActivateBridge(bridge);
     }
     
+    _wire_animation_mixer();
     emit_signal("stage_loading_finished", true);
 }
 
@@ -395,6 +404,12 @@ void UsdStageNode3D::_bind_methods()
             PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_READ_ONLY),
         "set_cached_scene_name", "get_cached_scene_name");
     
+    ClassDB::bind_method(D_METHOD("set_animation_mixer", "path"), &UsdStageNode3D::set_animation_mixer);
+    ClassDB::bind_method(D_METHOD("get_animation_mixer"), &UsdStageNode3D::get_animation_mixer);
+    ADD_PROPERTY(
+        PropertyInfo(Variant::NODE_PATH, "animation_mixer", PROPERTY_HINT_NODE_PATH_VALID_TYPES, "AnimationMixer"),
+        "set_animation_mixer", "get_animation_mixer");
+
     // Registration required to allow deferred calling
     ClassDB::bind_method(D_METHOD("_pack_and_save_cached_scene"), &UsdStageNode3D::_pack_and_save_cached_scene);
     
@@ -405,4 +420,123 @@ void UsdStageNode3D::_bind_methods()
     // Signals for async loading lifecycle
     ADD_SIGNAL(MethodInfo("stage_loading_started"));
     ADD_SIGNAL(MethodInfo("stage_loading_finished", PropertyInfo(Variant::BOOL, "success")));
+}
+
+
+void UsdStageNode3D::set_animation_mixer(const NodePath& path)
+{
+    animation_mixer_path_ = path;
+    if (is_inside_tree() && !is_loading_) _wire_animation_mixer();
+}
+
+// A clip names its target with the bare bone or blend-shape name, which only the skeleton's own
+// playback loop resolves. Find the node that owns the name and write the path the mixer needs.
+static Node* _owner_of_track(Node* root, Animation::TrackType type, const String& target)
+{
+    Skeleton3D* skeleton = Object::cast_to<Skeleton3D>(root);
+    MeshInstance3D* mesh = Object::cast_to<MeshInstance3D>(root);
+
+    const bool pose = type == Animation::TYPE_POSITION_3D || type == Animation::TYPE_ROTATION_3D ||
+                      type == Animation::TYPE_SCALE_3D;
+
+    if (pose && skeleton && skeleton->find_bone(target) >= 0) return root;
+    if (!pose && mesh && mesh->find_blend_shape_by_name(target.trim_prefix("blend_shapes/")) >= 0) return root;
+
+    for (int i = 0; i < root->get_child_count(); ++i)
+    {
+        Node* found = _owner_of_track(root->get_child(i), type, target);
+        if (found) return found;
+    }
+    return nullptr;
+}
+
+void UsdStageNode3D::_collect_clips(Node* node, const Ref<AnimationLibrary>& library,
+                                    PackedStringArray& unresolved)
+{
+    UsdSkeletonNode3D* skeleton = Object::cast_to<UsdSkeletonNode3D>(node);
+    const Ref<AnimationLibrary> converted = skeleton ? skeleton->get_animation_library() : Ref<AnimationLibrary>();
+
+    if (converted.is_valid())
+    {
+        const TypedArray<StringName> clips = converted->get_animation_list();
+        for (int c = 0; c < clips.size(); ++c)
+        {
+            const Ref<Animation> clip = converted->get_animation(clips[c]);
+            if (clip.is_null()) continue;
+
+            for (int t = 0; t < clip->get_track_count(); ++t)
+            {
+                const NodePath path = clip->track_get_path(t);
+                // A bare "smile" parses as a node name, not as a subname, so the test for
+                // "already addressed" is the subname. Reading it the other way leaves every
+                // track exactly as the converter wrote it, which a mixer cannot resolve.
+                if (path.get_subname_count() > 0) continue;
+
+                const String target = String(path).trim_prefix(":");
+                Node* owner = target.is_empty() ? nullptr
+                                                : _owner_of_track(this, clip->track_get_type(t), target);
+                // An unresolved track is the failure this pass exists to prevent, and at run time
+                // it is invisible: the mixer plays and nothing moves. Name it instead of skipping.
+                if (!owner) { unresolved.push_back(String(clips[c]) + " -> " + target); continue; }
+
+                clip->track_set_path(t, NodePath(String(get_path_to(owner)) + ":" + target));
+            }
+
+            library->add_animation(StringName(String(node->get_name()) + "_" + String(clips[c])), clip);
+        }
+    }
+
+    for (int i = 0; i < node->get_child_count(); ++i)
+        _collect_clips(node->get_child(i), library, unresolved);
+}
+
+void UsdStageNode3D::_wire_animation_mixer()
+{
+    AnimationMixer* previous = nullptr;
+    if (wired_mixer_id_ != 0 && UtilityFunctions::is_instance_id_valid(wired_mixer_id_))
+        previous = Object::cast_to<AnimationMixer>(UtilityFunctions::instance_from_id(wired_mixer_id_));
+
+    AnimationMixer* mixer = animation_mixer_path_.is_empty()
+        ? nullptr
+        : Object::cast_to<AnimationMixer>(get_node_or_null(animation_mixer_path_));
+
+    // One node writes one library under one name, so moving off a mixer -- or off the property
+    // entirely -- is a single removal rather than a ledger of what went where.
+    if (previous && previous != mixer && previous->has_animation_library(wired_library_))
+        previous->remove_animation_library(wired_library_);
+
+    if (!mixer) { wired_mixer_id_ = 0; return; }
+
+    // Every path written below is relative to this node, so the mixer resolves from here.
+    mixer->set_root_node(mixer->get_path_to(this));
+
+    const StringName name = StringName(String(get_name()).validate_node_name());
+    Ref<AnimationLibrary> library;
+    if (mixer->has_animation_library(name))
+    {
+        library = mixer->get_animation_library(name);
+    }
+    else
+    {
+        library.instantiate();
+        mixer->add_animation_library(name, library);
+    }
+
+    // The library belongs to the mixer, which belongs to the scene somebody authored, so Godot
+    // saves these names there and an AnimationTree binds to them before the next load. Emptying
+    // and refilling the same resource is the whole update: the names come back identical, so a
+    // state machine keeps its bindings and nothing accumulates across reloads.
+    const TypedArray<StringName> stale = library->get_animation_list();
+    for (int i = 0; i < stale.size(); ++i) library->remove_animation(stale[i]);
+
+    PackedStringArray unresolved;
+    _collect_clips(this, library, unresolved);
+    if (!unresolved.is_empty())
+        UtilityFunctions::push_warning(
+            String("UsdStageNode3D: ") + String::num_int64(unresolved.size()) +
+            " track(s) name nothing in the converted scene and would play silently, first: " +
+            unresolved[0]);
+
+    wired_library_ = name;
+    wired_mixer_id_ = mixer->get_instance_id();
 }

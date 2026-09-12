@@ -71,6 +71,16 @@ void UsdMeshInstanceNode3D::_process(double delta)
         case Animation::TYPE_SCALE_3D:
             set_scale(animation_->scale_track_interpolate(t_idx, current_anim_time_));
             break;
+        case Animation::TYPE_VALUE:
+        {
+            godot::StringName prop = animation_->track_get_path(t_idx).get_concatenated_subnames();
+            if (godot::String(prop).begins_with("blend_shapes/"))
+            {
+                godot::Variant val = animation_->value_track_interpolate(t_idx, current_anim_time_);
+                set(prop, val);
+            }
+            break;
+        }
         default:
             break;
         }                
