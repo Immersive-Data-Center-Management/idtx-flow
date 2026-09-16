@@ -58,7 +58,23 @@ namespace
         ix::HttpClient client;
         ix::HttpRequestArgsPtr args = make_args(client, request, connect_ms, transfer_ms);
 
-        const std::string url = !request.url.empty() ? request.url : (base_url + request.endpoint);
+        std::string url;
+        if (!request.url.empty())
+        {
+            url = request.url; // absolute URL used 
+        }
+        else if (!base_url.empty())
+        {
+            url = base_url + request.endpoint; // composed against the configured base
+        }
+        else
+        {
+            // No absolute URL and no configured base: refuse, callers must set_base_url() first
+            ports::IHttpTransport::Response out;
+            out.status = 0;
+            out.error = "HTTP base URL not configured; call set_base_url() before requests";
+            return out;
+        }
 
         ix::HttpResponsePtr resp;
         if (request.method == "GET")

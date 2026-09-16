@@ -39,7 +39,7 @@ namespace adapters
         void set_timeouts(int connect_ms, int transfer_ms) override;
 
     private:
-        std::string base_url_ = "http://localhost:8080";
+        std::string base_url_; // empty until set_base_url() is called
         int         connect_ms_ = 30000;
         int         transfer_ms_ = 120000;
         utils::ThreadPool pool_{2};
