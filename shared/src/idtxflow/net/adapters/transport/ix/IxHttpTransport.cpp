@@ -61,7 +61,11 @@ namespace
         const std::string url = !request.url.empty() ? request.url : (base_url + request.endpoint);
 
         ix::HttpResponsePtr resp;
-        if (request.method == "POST")
+        if (request.method == "GET")
+        {
+            resp = client.get(url, args);
+        }
+        else if (request.method == "POST")
         {
             resp = client.post(url, request.body, args);
         }
@@ -71,7 +75,11 @@ namespace
         }
         else
         {
-            resp = client.get(url, args);
+            // Reject unsupported/unknown methods
+            ports::IHttpTransport::Response out;
+            out.status = 0;
+            out.error = "Unsupported HTTP method: '" + request.method + "'";
+            return out;
         }
         return to_response(resp);
     }
