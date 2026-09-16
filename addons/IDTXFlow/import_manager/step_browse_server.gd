@@ -17,7 +17,7 @@ extends VBoxContainer
 signal file_selected(path: String, meta: Dictionary)
 signal back_requested
 signal cancel_requested
-signal next_requested
+signal confirm_requested
 
 const WizardTheme         := preload("res://addons/IDTXFlow/import_manager/wizard_theme.gd")
 const WizardHeader        := preload("res://addons/IDTXFlow/import_manager/wizard_header.gd")
@@ -73,6 +73,7 @@ func _build() -> void:
 	_browser.set_side_panel(_detail_panel)
 
 	_browser.file_selected.connect(_on_browser_file_selected)
+	_browser.file_activated.connect(_on_browser_file_activated)
 	_browser.listing_status.connect(_on_listing_status)
 
 	# Async listing status line (Loading… / N file(s) / errors).
@@ -85,7 +86,7 @@ func _build() -> void:
 	_footer.setup(true, "Next", false)
 	_footer.back_pressed.connect(func(): back_requested.emit())
 	_footer.cancel_pressed.connect(func(): cancel_requested.emit())
-	_footer.primary_pressed.connect(_on_next_pressed)
+	_footer.primary_pressed.connect(_on_confirm)
 	_footer.set_primary_enabled(false)
 
 
@@ -105,15 +106,21 @@ func _on_browser_file_selected(path: String, meta: Dictionary) -> void:
 	file_selected.emit(path, meta)
 
 
+## Double-click / Enter on a file: apply the selection then commit
+func _on_browser_file_activated(path: String, meta: Dictionary) -> void:
+	_on_browser_file_selected(path, meta)
+	_on_confirm()
+
+
 func _on_listing_status(message: String) -> void:
 	if _status_label:
 		_status_label.text = message
 
 
-func _on_next_pressed() -> void:
+func _on_confirm() -> void:
 	if _selected_path.is_empty():
 		return
-	next_requested.emit()
+	confirm_requested.emit()
 
 
 # ---------------------------------------------------------------------------

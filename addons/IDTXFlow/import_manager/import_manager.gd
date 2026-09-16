@@ -113,7 +113,7 @@ func _build_ui() -> void:
 	_step_browse.file_selected.connect(_on_step2_file_selected_local)
 	_step_browse.back_requested.connect(_on_step2_back)
 	_step_browse.cancel_requested.connect(_on_cancel)
-	_step_browse.next_requested.connect(_on_step2_next)
+	_step_browse.confirm_requested.connect(_on_step2_next)
 
 	_step_browse_server = (load(STEP_BROWSE_SERVER_PATH) as GDScript).new()
 	_step_container.add_child(_step_browse_server)
@@ -121,7 +121,7 @@ func _build_ui() -> void:
 	_step_browse_server.file_selected.connect(_on_step2_file_selected_server)
 	_step_browse_server.back_requested.connect(_on_step2_back)
 	_step_browse_server.cancel_requested.connect(_on_cancel)
-	_step_browse_server.next_requested.connect(_on_step2_next)
+	_step_browse_server.confirm_requested.connect(_on_step2_next)
 
 	# Step 3 is the merged import-options step (destination + settings + preview).
 	# Its "Import" button emits `confirm_requested`, which triggers the import.

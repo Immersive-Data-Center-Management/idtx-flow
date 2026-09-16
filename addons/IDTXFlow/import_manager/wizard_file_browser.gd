@@ -20,6 +20,7 @@ extends VBoxContainer
 ## its own footer.
 
 signal file_selected(path: String, meta: Dictionary)
+signal file_activated(path: String, meta: Dictionary)
 signal files_selected(paths: PackedStringArray, metas: Array)
 signal dir_selected(dir: String)
 signal dir_changed(dir: String)
@@ -1051,11 +1052,9 @@ func _on_file_item_activated(index: int) -> void:
 				folder_path = _join(_current_dir, String(e.get("name", "")))
 			_change_dir(folder_path, true)
 		return
-	_selected_file = String(e.get("path", ""))
-	_selected_meta = e.get("meta", {})
-	if _filename_edit:
-		_filename_edit.text = String(e.get("name", ""))
-	file_selected.emit(_selected_file, _selected_meta)
+	# Selection logic + signal that the user committed to this file
+	_on_file_item_selected(index)
+	file_activated.emit(_selected_file, _selected_meta)
 
 
 func _on_filter_option_selected(_idx: int) -> void:
