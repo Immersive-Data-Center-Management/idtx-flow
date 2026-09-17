@@ -85,9 +85,7 @@ func _build() -> void:
 # Browser events
 # ---------------------------------------------------------------------------
 
-## The browser now emits `file_selected(path, meta)` uniformly. Local files
-## carry an empty `meta`, so we ignore it and keep populating the detail panel
-## from the path (which reads the file off disk).
+## Populate the detail panel from `path` (read off disk); local `meta` is empty and ignored
 func _on_browser_file_selected(path: String, _meta: Dictionary) -> void:
 	_selected_file = path
 	if _detail_panel and _detail_panel.has_method("populate"):

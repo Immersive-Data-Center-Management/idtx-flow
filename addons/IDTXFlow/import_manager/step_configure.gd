@@ -153,7 +153,7 @@ func _build() -> void:
 	if _asset_panel.has_method("set_header_style"):
 		_asset_panel.set_header_style(1)  # SELECTED_ASSET
 
-	# Footer — primary is "Import" now (was "Next").
+	# Footer — primary action is "Import"
 	var footer := WizardFooter.new()
 	add_child(footer)
 	footer.setup(true, "Import", true)

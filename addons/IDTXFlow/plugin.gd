@@ -13,24 +13,8 @@ func _enter_tree() -> void:
 	# singleton from C++ at module init, and its poll() is driven by the frame
 	# ticker — so no GDScript autoload is needed to host it.
 	
-	# configure project settings used to persist IDTXFlow default server url and user
-	if (!ProjectSettings.has_setting("idtxflow/import/server")):
-		ProjectSettings.set("idtxflow/import/server", "")		
-	ProjectSettings.set_initial_value("idtxflow/import/server", "")
-	ProjectSettings.add_property_info({
-		"name": "idtxflow/import/server",
-		"type": TYPE_STRING,
-		"hint": PROPERTY_HINT_NONE
-	})
-	
-	if (!ProjectSettings.has_setting("idtxflow/import/user")):
-		ProjectSettings.set("idtxflow/import/user", "")
-	ProjectSettings.set_initial_value("idtxflow/import/user", "")
-	ProjectSettings.add_property_info({
-		"name": "idtxflow/import/user",
-		"type": TYPE_STRING,
-		"hint": PROPERTY_HINT_NONE
-	})
+	# Configure project settings used to persist IDTXFlow server urls and users
+	_configure_import_project_settings()
 
 	# Create the main screen and attach it to the editor's main viewport.
 	_main_screen = MainScreenScript.new()
@@ -56,6 +40,32 @@ func _exit_tree() -> void:
 	if _main_screen != null:
 		_main_screen.queue_free()
 		_main_screen = null
+
+## Register the import persistence settings
+##
+## Layout:
+##   idtxflow/import/servers     : Dictionary {url: {"users": [String], "last_user": String}}
+##   idtxflow/import/last_server : String
+func _configure_import_project_settings() -> void:
+	# servers map 
+	if not ProjectSettings.has_setting("idtxflow/import/servers"):
+		ProjectSettings.set("idtxflow/import/servers", {})
+	ProjectSettings.set_initial_value("idtxflow/import/servers", {})
+	ProjectSettings.add_property_info({
+		"name": "idtxflow/import/servers",
+		"type": TYPE_DICTIONARY,
+		"hint": PROPERTY_HINT_NONE,
+	})
+
+	# last used server
+	if not ProjectSettings.has_setting("idtxflow/import/last_server"):
+		ProjectSettings.set("idtxflow/import/last_server", "")
+	ProjectSettings.set_initial_value("idtxflow/import/last_server", "")
+	ProjectSettings.add_property_info({
+		"name": "idtxflow/import/last_server",
+		"type": TYPE_STRING,
+		"hint": PROPERTY_HINT_NONE,
+	})
 
 
 func _get_plugin_name() -> String:

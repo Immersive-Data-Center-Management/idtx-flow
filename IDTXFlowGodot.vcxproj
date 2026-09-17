@@ -223,6 +223,7 @@
     <Content Include="addons\IDTXFlow\import_manager\idtx_client_access.gd" />
     <Content Include="addons\IDTXFlow\import_manager\import_manager.gd" />
     <Content Include="addons\IDTXFlow\import_manager\server_login_panel.gd" />
+    <Content Include="addons\IDTXFlow\import_manager\server_registry.gd" />
     <Content Include="addons\IDTXFlow\import_manager\step_browse_files.gd" />
     <Content Include="addons\IDTXFlow\import_manager\step_browse_server.gd" />
     <Content Include="addons\IDTXFlow\import_manager\step_configure.gd" />

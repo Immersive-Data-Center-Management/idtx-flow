@@ -16,6 +16,7 @@ const WizardHeader      := preload("res://addons/IDTXFlow/import_manager/wizard_
 const WizardFooter      := preload("res://addons/IDTXFlow/import_manager/wizard_footer.gd")
 const ServerLoginPanel  := preload("res://addons/IDTXFlow/import_manager/server_login_panel.gd")
 const IdtxAccess        := preload("res://addons/IDTXFlow/import_manager/idtx_client_access.gd")
+const ServerRegistry    := preload("res://addons/IDTXFlow/import_manager/server_registry.gd")
 
 const DEFAULT_URL := "http://localhost:8080"
 
@@ -24,6 +25,7 @@ const DEFAULT_URL := "http://localhost:8080"
 const ROW_HEIGHT := 44
 
 var _url_input: LineEdit
+var _server_dropdown: OptionButton
 var _connect_btn: Button
 var _login_panel: Node
 
@@ -88,12 +90,28 @@ func _build() -> void:
 	url_row.add_theme_constant_override("separation", WizardTheme.px(6))
 	body.add_child(url_row)
 
+	var field_group := HBoxContainer.new()
+	field_group.add_theme_constant_override("separation", 0)
+	field_group.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	url_row.add_child(field_group)
+
 	_url_input = LineEdit.new()
 	_url_input.placeholder_text = "Input URL"
 	_url_input.text = _default_url if !_default_url.is_empty() else DEFAULT_URL
 	_url_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_url_input.custom_minimum_size = Vector2(0, WizardTheme.px(ROW_HEIGHT))
-	url_row.add_child(_url_input)
+	field_group.add_child(_url_input)
+
+	# Compact arrow-only history picker
+	_server_dropdown = OptionButton.new()
+	_server_dropdown.tooltip_text = "Pick a previously used server URL"
+	_server_dropdown.fit_to_longest_item = false
+	_server_dropdown.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_server_dropdown.custom_minimum_size = Vector2(WizardTheme.px(28), WizardTheme.px(ROW_HEIGHT))
+	_server_dropdown.item_selected.connect(_on_server_selected)
+	ServerRegistry.hide_option_button_bullets(_server_dropdown)
+	field_group.add_child(_server_dropdown)
+	_rebuild_server_dropdown()
 
 	_connect_btn = Button.new()
 	_connect_btn.text = "Connect"
@@ -126,6 +144,30 @@ func _build() -> void:
 	add_child(footer)
 	footer.setup(false, "")
 	footer.cancel_pressed.connect(_on_cancel_pressed)
+
+
+## Rebuild the server-URL history dropdown from ServerRegistry; hidden when there are no saved servers
+func _rebuild_server_dropdown() -> void:
+	if _server_dropdown == null:
+		return
+	var urls := ServerRegistry.server_urls()
+	_server_dropdown.clear()
+	for u in urls:
+		_server_dropdown.add_item(String(u))
+	# Blank face: it's a picker; the LineEdit shows the value
+	_server_dropdown.selected = -1
+	_server_dropdown.visible = not urls.is_empty()
+
+
+## Fill the URL field from the picked history entry
+func _on_server_selected(index: int) -> void:
+	if _server_dropdown == null or _url_input == null:
+		return
+	if index >= 0 and index < _server_dropdown.item_count:
+		_url_input.text = _server_dropdown.get_item_text(index)
+	# Keep the face blank; also lets the same item be re-picked
+	_server_dropdown.selected = -1
+
 
 
 func _on_connect_pressed() -> void:

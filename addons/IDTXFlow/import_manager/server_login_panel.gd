@@ -4,16 +4,18 @@ extends VBoxContainer
 ## Inline "Asset Server requires login" panel.
 ##
 ## Shown on step 1 after the user clicks Connect on the URL row.
-## On successful login (demo/demo), emits `login_succeeded`.
+## On successful login, emits `login_succeeded`.
 
 signal login_succeeded(url: String, username: String, remember: bool)
 
 const WizardTheme    := preload("res://addons/IDTXFlow/import_manager/wizard_theme.gd")
 const IdtxAccess     := preload("res://addons/IDTXFlow/import_manager/idtx_client_access.gd")
+const ServerRegistry := preload("res://addons/IDTXFlow/import_manager/server_registry.gd")
 
 var _server_url: String = ""
 
 var _username_input: LineEdit
+var _username_dropdown: OptionButton
 var _password_input: LineEdit
 var _error_panel: PanelContainer
 var _error_label: Label
@@ -38,7 +40,30 @@ func show_for_url(url: String) -> void:
 	_hide_error()
 	if _password_input:
 		_password_input.text = ""
+	_refresh_username_for_server(url)
 	visible = true
+
+
+## Pre-fill the username field and dropdown for this server
+func _refresh_username_for_server(url: String) -> void:
+	if _username_input:
+		var last_user := ServerRegistry.last_user_for(url)
+		if not last_user.is_empty():
+			_username_input.text = last_user
+	_rebuild_username_dropdown(url)
+
+
+## Populate the username dropdown for this server; hidden when none saved
+func _rebuild_username_dropdown(url: String) -> void:
+	if _username_dropdown == null:
+		return
+	var users := ServerRegistry.users_for(url)
+	_username_dropdown.clear()
+	for u in users:
+		_username_dropdown.add_item(String(u))
+	# Blank face: it is a picker; the LineEdit shows the value
+	_username_dropdown.selected = -1
+	_username_dropdown.visible = not users.is_empty()
 
 
 func hide_panel() -> void:
@@ -63,12 +88,27 @@ func _ensure_built() -> void:
 	user_lbl.text = "Username"
 	add_child(user_lbl)
 
+	var user_row := HBoxContainer.new()
+	user_row.add_theme_constant_override("separation", 0)
+	user_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	add_child(user_row)
+
 	_username_input = LineEdit.new()
 	_username_input.placeholder_text = "Enter username"
-	_username_input.text = ProjectSettings.get_setting("idtxflow/import/user", "")
 	_username_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_username_input.custom_minimum_size = Vector2(0, WizardTheme.px(WizardTheme.INPUT_HEIGHT))
-	add_child(_username_input)
+	user_row.add_child(_username_input)
+
+	# Compact arrow-only picker of usernames saved for this server; hidden when none
+	_username_dropdown = OptionButton.new()
+	_username_dropdown.tooltip_text = "Pick a remembered username for this server"
+	_username_dropdown.visible = false
+	_username_dropdown.fit_to_longest_item = false
+	_username_dropdown.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_username_dropdown.custom_minimum_size = Vector2(WizardTheme.px(28), WizardTheme.px(WizardTheme.INPUT_HEIGHT))
+	_username_dropdown.item_selected.connect(_on_username_selected)
+	ServerRegistry.hide_option_button_bullets(_username_dropdown)
+	user_row.add_child(_username_dropdown)
 
 	# Password --------------------------------------------------------
 	var pw_lbl := Label.new()
@@ -135,6 +175,17 @@ func _ensure_built() -> void:
 	add_child(_remember_cb)
 
 
+## Fill the username field from the picked entry
+func _on_username_selected(index: int) -> void:
+	if _username_dropdown == null or _username_input == null:
+		return
+	if index >= 0 and index < _username_dropdown.item_count:
+		_username_input.text = _username_dropdown.get_item_text(index)
+	# Keep the face blank; also lets the same item be re-picked
+	_username_dropdown.selected = -1
+
+
+
 func _idtx() -> Object:
 	return IdtxAccess.get_client()
 
@@ -162,7 +213,12 @@ func _on_login_done(result: Dictionary) -> void:
 	_connect_btn.disabled = false
 	_connect_btn.text = "Login"
 	if bool(result.get("ok", false)):
-		login_succeeded.emit(_server_url, _username_input.text, _remember_cb.button_pressed)
+		var remember := _remember_cb.button_pressed
+		login_succeeded.emit(_server_url, _username_input.text, remember)
+		if _password_input:
+			_password_input.text = ""
+		if not remember and _username_input:
+			_username_input.text = ""
 		return
 	var msg := String(result.get("message", ""))
 	if msg.is_empty():
