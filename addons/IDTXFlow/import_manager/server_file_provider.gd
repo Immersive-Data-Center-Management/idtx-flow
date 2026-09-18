@@ -34,7 +34,11 @@ var _loaded: bool = false
 
 
 func set_server_url(url: String) -> void:
+	if url == _server_url:
+		return
 	_server_url = url
+	# Server changed: drop the cached tree
+	request_reload()
 
 
 func get_root_prefix() -> String:
