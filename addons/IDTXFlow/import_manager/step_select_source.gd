@@ -100,6 +100,8 @@ func _build() -> void:
 	_url_input.text = _default_url if !_default_url.is_empty() else DEFAULT_URL
 	_url_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_url_input.custom_minimum_size = Vector2(0, WizardTheme.px(ROW_HEIGHT))
+	# Editing the URL invalidates a shown login form; require a fresh Connect
+	_url_input.text_changed.connect(_on_url_text_changed)
 	field_group.add_child(_url_input)
 
 	# Compact arrow-only history picker
@@ -165,6 +167,8 @@ func _on_server_selected(index: int) -> void:
 		return
 	if index >= 0 and index < _server_dropdown.item_count:
 		_url_input.text = _server_dropdown.get_item_text(index)
+		# Editing the URL invalidates a shown login form; require a fresh Connect
+		_on_url_text_changed(_url_input.text)
 	# Keep the face blank; also lets the same item be re-picked
 	_server_dropdown.selected = -1
 
@@ -231,6 +235,22 @@ func _hide_login_panel() -> void:
 			_login_panel.hide_panel()
 		else:
 			(_login_panel as Control).visible = false
+
+
+## Hide the login form + status so a changed server requires a fresh Connect
+func reset_login() -> void:
+	_hide_login_panel()
+	_hide_status()
+	if _connect_btn:
+		_connect_btn.disabled = false
+		_connect_btn.text = "Connect"
+
+
+## Editing the URL invalidates any shown login form/status; force a fresh Connect
+func _on_url_text_changed(_new_text: String) -> void:
+	if _login_panel and (_login_panel as Control).visible:
+		_hide_login_panel()
+	_hide_status()
 
 
 func _idtx() -> Object:

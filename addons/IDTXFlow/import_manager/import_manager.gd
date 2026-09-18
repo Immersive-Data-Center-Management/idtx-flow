@@ -296,6 +296,8 @@ func _on_step2_next() -> void:
 
 
 func _on_step2_back() -> void:
+	if _step_select and _step_select.has_method("reset_login"):
+		_step_select.reset_login()
 	_show_step(1)
 
 
@@ -333,6 +335,8 @@ func _reset_and_go_home() -> void:
 		_step_browse.reset()
 	if _step_browse_server and _step_browse_server.has_method("reset"):
 		_step_browse_server.reset()
+	if _step_select and _step_select.has_method("reset_login"):
+		_step_select.reset_login()
 	_show_step(1)
 
 
