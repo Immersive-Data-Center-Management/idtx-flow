@@ -111,12 +111,17 @@ func _on_confirm() -> void:
 # Public API (kept for import_manager.gd compatibility)
 # ---------------------------------------------------------------------------
 
+## Clear selection state and re-list from the server root
 func reset() -> void:
-	_selected_file = ""
+	clear_selection()
 	if _browser:
 		_browser.set_current_dir(ROOT_PATH)
-	# Reset the detail card back to its empty state on step re-entry (the
-	# panel is always visible on step 2 — we don't hide it).
+
+
+## Clear selection state only (no re-list). Used when leaving the wizard (cancel/
+## home) so we don't repopulate a view the user is leaving
+func clear_selection() -> void:
+	_selected_file = ""
 	if _detail_panel and _detail_panel.has_method("populate"):
 		_detail_panel.populate("")
 	if _footer:

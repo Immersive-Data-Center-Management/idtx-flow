@@ -331,10 +331,10 @@ func _reset_and_go_home() -> void:
 	_import_state["source"] = ""
 	_import_state["selected_path"] = ""
 	_import_state["selected_meta"] = {}
-	if _step_browse and _step_browse.has_method("reset"):
-		_step_browse.reset()
-	if _step_browse_server and _step_browse_server.has_method("reset"):
-		_step_browse_server.reset()
+	if _step_browse and _step_browse.has_method("clear_selection"):
+		_step_browse.clear_selection()
+	if _step_browse_server and _step_browse_server.has_method("clear_selection"):
+		_step_browse_server.clear_selection()
 	if _step_select and _step_select.has_method("reset_login"):
 		_step_select.reset_login()
 	_show_step(1)

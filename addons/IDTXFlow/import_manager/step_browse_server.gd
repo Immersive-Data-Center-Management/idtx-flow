@@ -132,17 +132,22 @@ func set_server_url(url: String) -> void:
 	if _provider and _provider.has_method("set_server_url"):
 		_provider.set_server_url(url)
 
-
+## Clear selection state and re-list from the server root
 func reset() -> void:
+	clear_selection()
+	if _browser:
+		_browser.set_current_dir(_server_url)
+
+
+## Clear selection state only (no re-list). Used when leaving the wizard (cancel/
+## home) so we don't re-fetch listings/thumbnails for a view the user is leaving
+func clear_selection() -> void:
 	_selected_path = ""
 	_selected_meta = {}
 	if _detail_panel and _detail_panel.has_method("populate_from_dict"):
 		_detail_panel.populate_from_dict({})
 	if _footer:
 		_footer.set_primary_enabled(false)
-	if _browser:
-		# Re-list from the server root.
-		_browser.set_current_dir(_server_url)
 
 
 func get_selected_path() -> String:
