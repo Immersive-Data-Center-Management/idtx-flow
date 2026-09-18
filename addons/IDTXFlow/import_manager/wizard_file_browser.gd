@@ -624,15 +624,18 @@ func _build_right_pane() -> void:
 # ==========================================================================
 
 func _change_dir(path: String, push_history: bool = true) -> void:
+	# No provider means nothing to list
+	if _provider == null:
+		return
 	var normalized := _normalize_dir(path)
-	var supports_nav: bool = _provider == null or _provider.supports_navigation()
+	var supports_nav: bool = _provider.supports_navigation()
 	# Only enforce the root-prefix boundary / existence check when we're
 	# actually navigating a tree. Flat providers (server) always list their
 	# single root regardless of the typed path.
 	if supports_nav:
 		if not _root_prefix.is_empty() and not normalized.begins_with(_root_prefix):
 			return
-		if _provider and not _provider.dir_exists(normalized):
+		if not _provider.dir_exists(normalized):
 			normalized = _root_prefix
 			if not _provider.dir_exists(normalized):
 				return
@@ -705,6 +708,7 @@ func _on_refresh_pressed() -> void:
 func _populate_file_list() -> void:
 	if _file_list == null:
 		return
+	# No provider means nothing to list
 	if _provider == null:
 		return
 	listing_status.emit("Loading…")
@@ -774,7 +778,7 @@ func _render_entries(entries: Array) -> void:
 
 	# Only sort when the provider supports navigation (a real tree). Flat
 	# providers (server) supply a curated grouped order we preserve as-is.
-	if _provider == null or _provider.supports_navigation():
+	if _provider.supports_navigation():
 		_sort_entries(dir_entries, true)
 		_sort_entries(file_entries, false)
 
@@ -787,7 +791,7 @@ func _render_entries(entries: Array) -> void:
 	# the source order (preserving the provider's grouping); for navigable
 	# trees we show dirs first then files.
 	var ordered: Array = []
-	if _provider and not _provider.supports_navigation():
+	if not _provider.supports_navigation():
 		ordered = _filter_flat_entries(entries, patterns)
 	else:
 		ordered = dir_entries + file_entries
@@ -815,7 +819,7 @@ func _render_entries(entries: Array) -> void:
 ## texture immediately; otherwise record the row index and kick off the async
 ## request (resolved in `_on_provider_thumbnail_ready`).
 func _maybe_request_thumbnail(entry: Dictionary, idx: int) -> void:
-	if _provider == null or not _provider.supports_thumbnails():
+	if not _provider.supports_thumbnails():
 		return
 	var meta: Dictionary = entry.get("meta", {})
 	var usd_file := String(meta.get("path", entry.get("path", "")))
@@ -917,7 +921,7 @@ func _cmp_mtime_asc(a, b) -> bool:
 ## navigate a tree. Flat providers (server) get a read-only path field and no
 ## back/forward/up buttons.
 func _apply_navigation_support() -> void:
-	var nav: bool = _provider == null or _provider.supports_navigation()
+	var nav: bool = _provider.supports_navigation()
 	if _dir_prev:
 		_dir_prev.visible = nav
 	if _dir_next:
@@ -1046,7 +1050,7 @@ func _on_file_item_activated(index: int) -> void:
 	if bool(e.get("is_dir", false)):
 		# Only navigable providers drill into folders; flat (server) directory
 		# headers are non-selectable and do nothing when double-clicked.
-		if _provider == null or _provider.supports_navigation():
+		if _provider.supports_navigation():
 			var folder_path := String(e.get("path", ""))
 			if folder_path.is_empty():
 				folder_path = _join(_current_dir, String(e.get("name", "")))

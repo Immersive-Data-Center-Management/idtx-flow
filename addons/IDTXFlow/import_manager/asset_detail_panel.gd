@@ -209,7 +209,6 @@ func _build_thumbnail(parent: VBoxContainer) -> void:
 func _add_meta_group(parent: Container, caption: String) -> Label:
 	var group := VBoxContainer.new()
 	group.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	#group.add_theme_constant_override("separation", WizardTheme.px(2))
 	group.add_theme_constant_override("separation", 0)
 	parent.add_child(group)
 	# Caption band: same faint, transparency-based tint used by the collapsible
@@ -288,7 +287,7 @@ func _on_thumb_done(result: Dictionary, usd_file: String) -> void:
 			err = img.load_jpg_from_buffer(bytes)
 
 	if err != OK:
-		print("[IDTXFlow] [AssetDetail] thumbnail: decode failed for '%s' (err=%d) — keeping placeholder" % [usd_file, err])
+		print("[IDTXFlow] [AssetDetail] thumbnail: decode failed for '%s' (content_type='%s', err=%d) — keeping placeholder" % [usd_file, content_type, err])
 		return   # undecodable → keep placeholder
 
 	if _thumb_icon:

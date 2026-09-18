@@ -352,9 +352,7 @@ func _idtx() -> Object:
 ## `_on_stage_loading_finished` handles the outcome when the C++ side emits
 ## `stage_loading_finished(success)` on the main thread.
 ##
-## For the "server" source we first create a collaboration session
-## (POST /api/v1/sessions), then import the stage from the authenticated
-## download URL and open the session WebSocket. Local imports are unchanged.
+## Route imports based on their source: server or local imports 
 func _perform_import() -> void:
 	var file_path: String = _import_state.get("selected_path", "")
 	if file_path.is_empty():

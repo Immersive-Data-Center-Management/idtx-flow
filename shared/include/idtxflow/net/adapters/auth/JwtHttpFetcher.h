@@ -4,12 +4,12 @@
  * @file JwtHttpFetcher.h
  * @brief An HttpFetcherLike that attaches the current JWT as a Bearer header.
  *
- * Installed once into the USD HTTP asset resolver, it is then driven from USD's
- * background worker threads to download protected assets. It is a value functor
- * copied into the resolver, so it holds its transport as a shared_ptr (safe to
- * copy) and reads the current token from the process-wide StaticTokenProvider at
- * fetch time, which also lets token rotation take effect without reconfiguring
- * the resolver.
+ * Installed once into the USD HTTP asset resolver to download protected assets.
+ * Runs synchronously - blocks on the transport until the download completes;
+ * HttpAssetCache provides concurrency by invoking it on a std::thread, so callers
+ * needing async behavior must do the same. Reads the current token from the
+ * process-wide StaticTokenProvider at fetch time, so token rotation takes effect
+ * without reconfiguring the resolver.
  *
  * Engine- and transport-agnostic: it talks only to the IHttpTransport port and
  * names no HTTP library. The concrete transport (and its dependency on a
@@ -45,6 +45,8 @@ namespace adapters
         {
         }
 
+        /// Download `url` to `dest` with the current bearer token; true on success
+        /// Synchronous (see the file @brief for the threading contract)
         bool operator()(const std::string& url, const std::filesystem::path& dest) const
         {
             if (!http)
