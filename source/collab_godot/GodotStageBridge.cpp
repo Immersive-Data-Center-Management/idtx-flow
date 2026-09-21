@@ -10,6 +10,9 @@
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usd/editContext.h>
 #include <pxr/usd/usdGeom/xformable.h>
+#include <pxr/usd/usdGeom/cone.h>
+#include <pxr/usd/usdGeom/cylinder.h>
+#include <pxr/usd/usdGeom/tokens.h>
 
 #include <idtxflow_godot/nodes/IUsdNode3D.h>
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
@@ -192,8 +195,15 @@ void GodotStageBridge::apply_remote_edit(const net::model::PrimEdit& edit)
     // echoed straight back out.
     suppress_broadcast_ = true;
 
-    const Transform3D xform = gxform::prim_edit_to_transform(edit);
-    author_to_usd(edit.prim_path, xform);
+    // The wire/USD value is raw (no spine-axis rotation). Re-apply the
+    // load-time presentation rotation so both the USD author (which strips it back
+    // out) and the live node carry the same node-space transform the importer
+    // produced. No-op for prim types without a baked spine axis.
+    const xform::SpineAxis axis = spine_axis_for(edit.prim_path);
+    Transform3D node_xform = gxform::prim_edit_to_transform(edit);
+    node_xform.basis = gxform::apply_spine_axis(node_xform.basis, axis);
+
+    author_to_usd(edit.prim_path, node_xform);
     if (it != tracked_.end())
     {
         // Resolve the stored ObjectID to a live node. ObjectDB::get_instance()
@@ -202,7 +212,7 @@ void GodotStageBridge::apply_remote_edit(const net::model::PrimEdit& edit)
         if (node)        
         {
             node->set_block_signals(true);
-            node->set_transform(xform);
+            node->set_transform(node_xform);
             node->set_block_signals(false);
         }
     }
@@ -230,7 +240,11 @@ bool GodotStageBridge::author_to_usd(const std::string& prim_path, const Transfo
     bool reset_stack = false;
     std::vector<pxr::UsdGeomXformOp> ops = xformable.GetOrderedXformOps(&reset_stack);
 
-    const pxr::GfMatrix4d m = transform_to_gfmatrix(xform);
+    // Strip the load-time spine-axis presentation rotation (Cone/Cylinder) so USD
+    // stores the raw orientation. No-op for every other prim type.
+    Transform3D raw = xform;
+    raw.basis = gxform::strip_spine_axis(raw.basis, spine_axis_for(prim_path));
+    const pxr::GfMatrix4d m = transform_to_gfmatrix(raw);
 
     pxr::UsdGeomXformOp matrix_op;
     for (const pxr::UsdGeomXformOp& op : ops)
@@ -267,6 +281,48 @@ bool GodotStageBridge::read_prim_transform(const std::string& prim_path, Transfo
         return false;
     out = gfmatrix_to_transform(local);
     return true;
+}
+
+xform::SpineAxis GodotStageBridge::spine_axis_for(const std::string& prim_path) const
+{
+    // Only Cone and Cylinder are imported via toTransform(matrix, axis), with a
+    // baked spine-axis presentation rotation; every other prim type bakes none.
+    // Keep this in sync with StageConverter's Cone/Cylinder branches and with
+    // UsdGodotTypeConverter::toTransform.
+    //
+    // Why the bake exists: USD's Cone/Cylinder store their spine direction in an
+    // `axis` attribute (x/y/z) with no matrix rotation, but Godot's CylinderMesh is
+    // fixed to the Y axis, so the loader rotates the node basis to compensate. This
+    // strip/re-apply is the exact inverse of that, so the two MUST be enabled as a
+    // matched pair, gated on the same prim types.
+    //
+    // Capsule is intentionally not handled here: no UsdGeomCapsule converter
+    // (StageConverter has no Cone/Cylinder-style branch for it) With no loader bake there is nothing
+    // to invert, so adding a branch now would be dead code that becomes a latent +/-90 deg
+    // bug the moment a real UsdGeomCapsule node exists without a matching bake.
+    // TODO: add `IsA<pxr::UsdGeomCapsule>()` here only once StageConverter
+    // converts Capsule via toTransform(matrix, axis) (Godot's CapsuleMesh is Y-fixed too,
+    // so it will need the same rot_z(+90)/rot_x(+90) bake)
+    if (!stage_)
+        return xform::SpineAxis::None;
+    pxr::UsdPrim prim = stage_->GetPrimAtPath(pxr::SdfPath(prim_path));
+    if (!prim)
+        return xform::SpineAxis::None;
+
+    pxr::TfToken axis;
+    if (prim.IsA<pxr::UsdGeomCone>())
+        pxr::UsdGeomCone(prim).GetAxisAttr().Get(&axis);
+    else if (prim.IsA<pxr::UsdGeomCylinder>())
+        pxr::UsdGeomCylinder(prim).GetAxisAttr().Get(&axis);
+    else
+        return xform::SpineAxis::None;
+
+    if (axis == pxr::UsdGeomTokens->x) return xform::SpineAxis::X;
+    if (axis == pxr::UsdGeomTokens->z) return xform::SpineAxis::Z;
+    if (axis == pxr::UsdGeomTokens->y) return xform::SpineAxis::Y;
+    // GetAxisAttr().Get() returns the schema fallback (Z) when unauthored, so for a
+    // Cone/Cylinder axis is always x/y/z; this is only reached if that ever changes.
+    return xform::SpineAxis::None;
 }
 
 } // namespace collab_godot

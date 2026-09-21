@@ -51,6 +51,25 @@ namespace xform
     /// PrimEdit::is_matrix.
     godot::Transform3D prim_edit_to_transform(const net::model::PrimEdit& e);
 
+    /// The spine axis a USD Cone/Cylinder "grows" along. Mirrors the load-time
+    /// bake in UsdGodotTypeConverter::toTransform: the converter post-rotates the
+    /// Godot basis so the prim points up (Godot's Y), because Godot's primitive
+    /// meshes are Y-spined while USD's default is also Y but authored prims may
+    /// pick X or Z. This enum lets the collaboration path invert that same bake.
+    enum class SpineAxis { None, X, Y, Z };
+
+    /// Re-apply the load-time spine-axis rotation to a Godot basis (the presentation
+    /// rotation UsdGodotTypeConverter::toTransform bakes in). Identity for Y/None.
+    /// Used on inbound: the wire/USD basis is raw (unrotated), and the live
+    /// Godot node must carry the presentation rotation to match the imported prim.
+    godot::Basis apply_spine_axis(const godot::Basis& basis, SpineAxis axis);
+
+    /// Strip the load-time spine-axis rotation from a Godot basis (inverse of
+    /// apply_spine_axis). Identity for Y/None. Used on outbound / before authoring
+    /// to USD: the Godot node basis carries the presentation rotation, which must
+    /// be removed so USD stores the raw (unrotated) orientation.
+    godot::Basis strip_spine_axis(const godot::Basis& basis, SpineAxis axis);
+
 } // namespace xform
 } // namespace collab_godot
 } // namespace idtxflow

@@ -63,6 +63,43 @@ namespace xform
         return e.is_matrix ? mat4_to_transform(e.matrix) : separate_to_transform(e.separate);
     }
 
+    namespace
+    {
+        // The presentation rotation UsdGodotTypeConverter::toTransform bakes for a
+        // given spine axis: X -> rot_z(+90), Z -> rot_x(+90), Y/None -> identity.
+        // Kept byte-identical to the converter so load and collaboration agree.
+        Basis spine_axis_rotation(SpineAxis axis)
+        {
+            switch (axis)
+            {
+            case SpineAxis::X:
+                return Basis(Vector3(0, 0, 1), (real_t)Math::deg_to_rad(90.0));
+            case SpineAxis::Z:
+                return Basis(Vector3(1, 0, 0), (real_t)Math::deg_to_rad(90.0));
+            case SpineAxis::Y:
+            case SpineAxis::None:
+            default:
+                return Basis();
+            }
+        }
+    } // namespace
+
+    Basis apply_spine_axis(const Basis& basis, SpineAxis axis)
+    {
+        if (axis == SpineAxis::Y || axis == SpineAxis::None)
+            return basis;
+        // Matches the converter: basis = basis * rot.
+        return basis * spine_axis_rotation(axis);
+    }
+
+    Basis strip_spine_axis(const Basis& basis, SpineAxis axis)
+    {
+        if (axis == SpineAxis::Y || axis == SpineAxis::None)
+            return basis;
+        // Inverse of apply_spine_axis: basis * rot^-1 (transpose of the orthonormal rotation).
+        return basis * spine_axis_rotation(axis).transposed();
+    }
+
 } // namespace xform
 } // namespace collab_godot
 } // namespace idtxflow

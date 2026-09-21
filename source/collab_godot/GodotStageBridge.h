@@ -28,6 +28,8 @@
 #include <idtxflow/net/ports/IStageBridge.h>
 #include <idtxflow/utils/Logger.h>
 
+#include "GodotTransformCodec.h"
+
 class UsdStageNode3D;
 
 namespace idtxflow
@@ -63,6 +65,12 @@ namespace collab_godot
 
         bool author_to_usd(const std::string& prim_path, const godot::Transform3D& xform);
         bool read_prim_transform(const std::string& prim_path, godot::Transform3D& out) const;
+
+        // The spine axis baked into the Godot basis at load time for this prim, or
+        // SpineAxis::None when the prim type bakes none
+        // Only UsdGeomCylinder / UsdGeomCone are loaded via toTransform(matrix, axis).
+        // Keep the type set in sync with StageConverter's Cylinder/Cone branches.
+        xform::SpineAxis spine_axis_for(const std::string& prim_path) const;
 
         UsdStageNode3D*     stage_node_ = nullptr;   // non-owning
         pxr::UsdStageRefPtr stage_;
