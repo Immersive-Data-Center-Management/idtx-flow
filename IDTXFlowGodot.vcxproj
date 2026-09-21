@@ -121,6 +121,7 @@
     <ClInclude Include="source\collab_godot\GodotDispatcher.h" />
     <ClInclude Include="source\collab_godot\GodotTicker.h" />
     <ClInclude Include="source\collab_godot\GodotStageBridge.h" />
+    <ClInclude Include="source\collab_godot\GodotTransformCodec.h" />
     <ClInclude Include="source\collab_godot\SystemClock.h" />
     <ClInclude Include="shared\include\idtxflow\net\CollabEngine.h" />
     <ClInclude Include="shared\include\idtxflow\net\CollabObserver.h" />
@@ -169,6 +170,7 @@
     <ClCompile Include="source\converter\PrimConverterRegistryGodot.cpp" />
     <ClCompile Include="source\collab_godot\IdtxClient.cpp" />
     <ClCompile Include="source\collab_godot\GodotStageBridge.cpp" />
+    <ClCompile Include="source\collab_godot\GodotTransformCodec.cpp" />
     <ClCompile Include="shared\src\idtxflow\net\CollabEngine.cpp" />
     <ClCompile Include="shared\src\idtxflow\net\wire\Codec.cpp" />
     <ClCompile Include="shared\src\idtxflow\net\net\RestClient.cpp" />

@@ -15,6 +15,10 @@
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
 #include <idtxflow/net/model/ConventionMath.h>
 
+#include "GodotTransformCodec.h"
+
+namespace gxform = idtxflow::collab_godot::xform;
+
 using namespace godot;
 
 namespace idtxflow
@@ -26,20 +30,14 @@ namespace
     // Godot Transform3D -> USD GfMatrix4d.
     //
     // The engine transform is first laid out as a wire matrix (row-major: Godot
-    // Basis row i -> wire row i, translation in the last row), then converted to
-    // the USD convention by the single-sourced transpose helper, and finally
-    // copied into GfMatrix4d. This keeps the wire<->USD relationship in one place.
+    // Basis row i -> wire row i, translation in the last row) via the shared
+    // transform codec, then converted to the USD convention by the single-sourced
+    // transpose helper, and finally copied into GfMatrix4d
     pxr::GfMatrix4d transform_to_gfmatrix(const Transform3D& t)
     {
-        const Basis& b = t.basis;
-        const double basis_rows[9] = {
-            b.rows[0][0], b.rows[0][1], b.rows[0][2],
-            b.rows[1][0], b.rows[1][1], b.rows[1][2],
-            b.rows[2][0], b.rows[2][1], b.rows[2][2],
-        };
-        const double origin[3] = {t.origin.x, t.origin.y, t.origin.z};
-        const net::model::Mat4 usd =
-            net::model::usd_from_wire(net::model::wire_from_basis_origin(basis_rows, origin));
+        net::model::PrimEdit e;
+        gxform::transform_to_prim_edit(std::string(), t, e);
+        const net::model::Mat4 usd = net::model::usd_from_wire(e.matrix);
         const auto& u = usd.m;
         pxr::GfMatrix4d m(1.0);
         m[0][0] = u[0];  m[0][1] = u[1];  m[0][2] = u[2];  m[0][3] = u[3];
@@ -49,9 +47,9 @@ namespace
         return m;
     }
 
-    // USD GfMatrix4d -> Godot Transform3D (Y-up). This mirrors the original
-    // read path exactly: USD rows map directly onto the Godot Basis rows (the
-    // engine consumes USD's stored orientation as-is on read).
+    // USD GfMatrix4d -> Godot Transform3D (Y-up).
+    // 
+    // USD rows map directly onto the Godot Basis rows (the engine consumes USD's stored orientation as-is on read).
     Transform3D gfmatrix_to_transform(const pxr::GfMatrix4d& m)
     {
         Basis basis(
@@ -60,38 +58,6 @@ namespace
             Vector3((real_t)m[2][0], (real_t)m[2][1], (real_t)m[2][2]));
         Vector3 origin((real_t)m[3][0], (real_t)m[3][1], (real_t)m[3][2]);
         return Transform3D(basis, origin);
-    }
-
-    // model::PrimEdit (row-major matrix, the wire convention) -> Godot Transform3D.
-    // Basis row i comes from wire row i; the translation is read from the bottom
-    // row (m30..m32), the cell the backend authors into USD.
-    Transform3D primedit_to_transform(const net::model::PrimEdit& edit)
-    {
-        double basis_rows[9];
-        double origin[3];
-        net::model::basis_origin_from_wire(edit.matrix, basis_rows, origin);
-        Basis basis;
-        basis.rows[0] = Vector3((real_t)basis_rows[0], (real_t)basis_rows[1], (real_t)basis_rows[2]);
-        basis.rows[1] = Vector3((real_t)basis_rows[3], (real_t)basis_rows[4], (real_t)basis_rows[5]);
-        basis.rows[2] = Vector3((real_t)basis_rows[6], (real_t)basis_rows[7], (real_t)basis_rows[8]);
-        return Transform3D(basis, Vector3((real_t)origin[0], (real_t)origin[1], (real_t)origin[2]));
-    }
-
-    // Godot Transform3D -> model::PrimEdit matrix (row-major), inverse of the above.
-    void transform_to_primedit(const std::string& prim_path, const Transform3D& t,
-                               net::model::PrimEdit& out)
-    {
-        out.kind = net::model::PrimEdit::Kind::Transform;
-        out.prim_path = prim_path;
-        out.is_matrix = true;
-        const Basis& b = t.basis;
-        const double basis_rows[9] = {
-            b.rows[0][0], b.rows[0][1], b.rows[0][2],
-            b.rows[1][0], b.rows[1][1], b.rows[1][2],
-            b.rows[2][0], b.rows[2][1], b.rows[2][2],
-        };
-        const double origin[3] = {t.origin.x, t.origin.y, t.origin.z};
-        out.matrix = net::model::wire_from_basis_origin(basis_rows, origin);
     }
 } // namespace
 
@@ -205,7 +171,7 @@ bool GodotStageBridge::read_prim(const std::string& prim_path, net::model::PrimE
     Transform3D xform;
     if (!read_prim_transform(prim_path, xform))
         return false;
-    transform_to_primedit(prim_path, xform, out);
+    gxform::transform_to_prim_edit(prim_path, xform, out);
     return true;
 }
 
@@ -215,7 +181,7 @@ void GodotStageBridge::author_local_edit(const net::model::PrimEdit& edit)
     // trips the TfNotice listener, which reports it back through on_changed_.
     if (suppress_broadcast_)
         return;
-    author_to_usd(edit.prim_path, primedit_to_transform(edit));
+    author_to_usd(edit.prim_path, gxform::prim_edit_to_transform(edit));
 }
 
 void GodotStageBridge::apply_remote_edit(const net::model::PrimEdit& edit)
@@ -226,7 +192,7 @@ void GodotStageBridge::apply_remote_edit(const net::model::PrimEdit& edit)
     // echoed straight back out.
     suppress_broadcast_ = true;
 
-    const Transform3D xform = primedit_to_transform(edit);
+    const Transform3D xform = gxform::prim_edit_to_transform(edit);
     author_to_usd(edit.prim_path, xform);
     if (it != tracked_.end())
     {

@@ -5,70 +5,17 @@
 
 #include <idtxflow_godot/nodes/IUsdNode3D.h>
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
-#include <idtxflow/net/model/ConventionMath.h>
 
 #include "GodotStageBridge.h"
+#include "GodotTransformCodec.h"
 #include "SystemClock.h"
 #include <idtxflow/net/adapters/auth/StaticTokenProvider.h>
 
 using namespace godot;
 
-using idtxflow::net::model::Mat4;
-using idtxflow::net::model::PrimEdit;
+namespace gxform = idtxflow::collab_godot::xform;
 
 IdtxClient* IdtxClient::singleton_ = nullptr;
-
-namespace
-{
-    // Godot Transform3D -> row-major wire matrix (PrimEdit). Godot Basis row i ->
-    // wire row i; translation on the bottom row. Inverse of mat4_to_transform.
-    PrimEdit transform_to_prim_edit(const std::string& prim_path, const Transform3D& t)
-    {
-        PrimEdit e;
-        e.kind = PrimEdit::Kind::Transform;
-        e.prim_path = prim_path;
-        e.is_matrix = true;
-        const Basis& b = t.basis;
-        const double basis_rows[9] = {
-            b.rows[0][0], b.rows[0][1], b.rows[0][2],
-            b.rows[1][0], b.rows[1][1], b.rows[1][2],
-            b.rows[2][0], b.rows[2][1], b.rows[2][2],
-        };
-        const double origin[3] = {t.origin.x, t.origin.y, t.origin.z};
-        e.matrix = idtxflow::net::model::wire_from_basis_origin(basis_rows, origin);
-        return e;
-    }
-
-    Transform3D mat4_to_transform(const Mat4& mm)
-    {
-        double basis_rows[9];
-        double origin[3];
-        idtxflow::net::model::basis_origin_from_wire(mm, basis_rows, origin);
-        Basis basis;
-        basis.rows[0] = Vector3((real_t)basis_rows[0], (real_t)basis_rows[1], (real_t)basis_rows[2]);
-        basis.rows[1] = Vector3((real_t)basis_rows[3], (real_t)basis_rows[4], (real_t)basis_rows[5]);
-        basis.rows[2] = Vector3((real_t)basis_rows[6], (real_t)basis_rows[7], (real_t)basis_rows[8]);
-        return Transform3D(basis, Vector3((real_t)origin[0], (real_t)origin[1], (real_t)origin[2]));
-    }
-
-    Transform3D separate_to_transform(const idtxflow::net::model::SeparateXform& s)
-    {
-        Transform3D t;
-        t.origin = Vector3((real_t)s.translation[0], (real_t)s.translation[1], (real_t)s.translation[2]);
-        Basis b = Basis::from_euler(Vector3(
-            Math::deg_to_rad((real_t)s.rotation[0]),
-            Math::deg_to_rad((real_t)s.rotation[1]),
-            Math::deg_to_rad((real_t)s.rotation[2])));
-        b.scale(Vector3((real_t)s.scale[0], (real_t)s.scale[1], (real_t)s.scale[2]));
-        t.basis = b;
-        return t;
-    }
-
-    Transform3D prim_edit_to_transform(const PrimEdit& e)
-    {
-        return e.is_matrix ? mat4_to_transform(e.matrix) : separate_to_transform(e.separate);
-    }
-}
 
 IdtxClient::IdtxClient() = default;
 
@@ -268,7 +215,7 @@ bool IdtxClient::is_socket_open() const
 
 void IdtxClient::send_transform(const String& prim_path, const Transform3D& xform)
 {
-    engine_.notify_local_edit(transform_to_prim_edit(std::string(prim_path.utf8().get_data()), xform));
+    engine_.notify_local_edit(gxform::transform_to_prim_edit(std::string(prim_path.utf8().get_data()), xform));
 }
 
 // ---------------------------------------------------------------------------
@@ -323,7 +270,7 @@ void IdtxClient::notify_local_transform_changed(Node* node)
     IDTX_LOG(IDTX_DEBUG, "[trace] A notify_local_transform_changed prim='{}'",
              std::string(prim_path.utf8().get_data()));
     engine_.notify_local_edit(
-        transform_to_prim_edit(std::string(prim_path.utf8().get_data()), n3d->get_transform()));
+        gxform::transform_to_prim_edit(std::string(prim_path.utf8().get_data()), n3d->get_transform()));
 }
 
 // ---------------------------------------------------------------------------
@@ -467,7 +414,7 @@ void IdtxClient::on_remote_edit(const idtxflow::net::model::PrimEdit& edit, cons
 {
     // The engine already applied the edit to the stage; surface it for any UI.
     emit_signal("transform_broadcast_received",
-                String(edit.prim_path.c_str()), prim_edit_to_transform(edit), String(from.c_str()));
+                String(edit.prim_path.c_str()), gxform::prim_edit_to_transform(edit), String(from.c_str()));
 }
 
 void IdtxClient::on_ack(bool ok, const std::string& error)
