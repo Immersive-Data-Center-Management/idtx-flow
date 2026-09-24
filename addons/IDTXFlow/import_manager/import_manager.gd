@@ -489,7 +489,8 @@ func _perform_import_into_new_scene(file_path: String) -> void:
 	# Parent under the wizard control so the node enters the editor's
 	# SceneTree; UsdStageNode3D only starts loading once it is inside a tree.
 	add_child(stage_node)
-	stage_node.owner = stage_node
+	# This node becomes the packed-scene root in _finalize_new_scene_import, so itmust have no owner
+	stage_node.owner = null
 
 	stage_node.stage_loading_finished.connect(
 		_on_stage_loading_finished.bind(stage_node, file_path, true),
