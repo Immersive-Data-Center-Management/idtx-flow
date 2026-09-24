@@ -4,6 +4,7 @@
 
 #include <ixwebsocket/IXWebSocket.h>
 #include <ixwebsocket/IXWebSocketSendData.h>
+#include <ixwebsocket/IXSocketTLSOptions.h>
 
 namespace idtxflow
 {
@@ -49,6 +50,7 @@ void IxWebSocketTransport::connect(std::string url)
         switch (msg->type)
         {
         case ix::WebSocketMessageType::Open:
+            IDTX_LOG(IDTX_INFO, "[trace] WS Open uri='{}'", msg->openInfo.uri);
             is_open_ = true;
             if (on_state_) on_state_(State::Connected, 0, std::string());
             break;
@@ -61,6 +63,8 @@ void IxWebSocketTransport::connect(std::string url)
             break;
 
         case ix::WebSocketMessageType::Close:
+            IDTX_LOG(IDTX_INFO, "[trace] WS Close code={} reason='{}'",
+                     static_cast<int>(msg->closeInfo.code), msg->closeInfo.reason);
             is_open_ = false;
             if (on_state_)
             {
@@ -71,6 +75,9 @@ void IxWebSocketTransport::connect(std::string url)
             break;
 
         case ix::WebSocketMessageType::Error:
+            IDTX_LOG(IDTX_ERROR,
+                     "[trace] WS Error reason='{}' http_status={} retries={}",
+                     msg->errorInfo.reason, msg->errorInfo.http_status, msg->errorInfo.retries);
             if (on_state_)
             {
                 on_state_(State::Error, 0, msg->errorInfo.reason);
@@ -82,6 +89,23 @@ void IxWebSocketTransport::connect(std::string url)
         }
     });
 
+    // TLS is selected by the URL scheme (wss:// uses TLS, ws:// is plain); these
+    // options are consulted only for a wss:// connection and ignored otherwise.
+    // caFile "SYSTEM" verifies the server certificate against the OS trust store.
+    ix::SocketTLSOptions tls;
+    tls.caFile = "SYSTEM";
+    ws_->setTLSOptions(tls);
+
+    // Ping periodically so an idle connection stays open through intermediaries
+    ws_->setPingInterval(30);
+
+    // Reconnect automatically with bounded backoff so transient drops recover;
+    // each reconnect re-fires Open. close()/stop() cancels any pending retry.
+    ws_->enableAutomaticReconnection();
+    ws_->setMinWaitBetweenReconnectionRetries(1000);
+    ws_->setMaxWaitBetweenReconnectionRetries(10000);
+
+    IDTX_LOG(IDTX_INFO, "[trace] WS connecting url='{}'", url);
     if (on_state_) on_state_(State::Connecting, 0, std::string());
     ws_->start();
 }
