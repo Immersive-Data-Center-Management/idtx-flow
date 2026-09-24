@@ -27,6 +27,7 @@
 #include <godot_cpp/variant/transform3d.hpp>
 
 #include <idtxflow/net/CollabEngine.h>
+#include <idtxflow/net/CollabComposition.h>
 #include <idtxflow/net/CollabObserver.h>
 #include <idtxflow/net/protocol/RestClient.h>
 #include <idtxflow/net/protocol/SessionSocket.h>
@@ -169,8 +170,7 @@ private:
     std::unique_ptr<idtxflow::collab::Dispatcher>                 dispatcher_;
     std::unique_ptr<idtxflow::collab::Ticker>                     ticker_;
     std::unique_ptr<idtxflow::net::ports::ITransportFactory>      transport_factory_;
-    std::unique_ptr<idtxflow::net::ports::IHttpTransport>         http_;
-    std::unique_ptr<idtxflow::net::ports::IWebSocketTransport>    ws_;
+    idtxflow::net::AgnosticTransports                             transports_;
     std::unique_ptr<idtxflow::collab::StageBridge>                stage_;
 
     idtxflow::net::CollabEngine engine_;

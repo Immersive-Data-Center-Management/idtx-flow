@@ -12,9 +12,11 @@
 
 namespace idtxflow
 {
-namespace collab
+namespace net
 {
-    class SystemClock : public net::ports::IClock
+namespace adapters
+{
+    class SystemClock : public ports::IClock
     {
     public:
         int64_t now_millis() const override
@@ -31,5 +33,6 @@ namespace collab
         }
     };
 
-} // namespace collab
+} // namespace adapters
+} // namespace net
 } // namespace idtxflow

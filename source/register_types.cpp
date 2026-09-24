@@ -9,7 +9,7 @@
 #include <idtxflow/resolver/HttpResolver.h>
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
 #include <idtxflow/exec/ExecBridgeManager.h>
-#include <idtxflow/net/adapters/auth/JwtHttpFetcher.h>
+#include <idtxflow/net/CollabComposition.h>
 #include <idtxflow/net/adapters/transport/ix/IxTransportFactory.h>
 
 #include <godot_cpp/classes/engine.hpp>
@@ -112,14 +112,12 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
 #endif
     
     // Configure the HTTP asset resolver with a JWT-injecting fetcher so protected
-    // /api/v1/download/<usd_file> assets can be fetched. The fetcher talks only to
-    // the IHttpTransport port; the transport factory (the single place naming the
-    // HTTP library) creates the concrete transport here. It reads the current token
-    // from the process-wide token provider at fetch time, so token rotation needs no reconfiguration.
+    // /api/v1/download/<usd_file> assets can be fetched. The shared composition
+    // helper builds the fetcher (a transport from the factory + the shared token, read at fetch time)
     idtxflow::net::adapters::IxTransportFactory asset_transport_factory;
     pxr::UsdHttpAssetResolver::ConfigureWithFetcher(
         ProjectSettings::get_singleton()->globalize_path("user://usd_cache").utf8().get_data(),
-        idtxflow::net::adapters::JwtHttpFetcher{asset_transport_factory.make_http()});
+        idtxflow::net::make_jwt_fetcher(asset_transport_factory));
 
     // Register the host-side environment providers with the USD library's registry BEFORE the
     // exec worker thread starts, so the Compute_Environment node can resolve values from the

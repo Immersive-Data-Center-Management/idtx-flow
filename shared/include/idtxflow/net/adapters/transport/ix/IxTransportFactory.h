@@ -9,6 +9,13 @@
  * selects this factory and injects it through ITransportFactory, so no other
  * code depends on IX. To switch libraries, rewrite the make_* bodies here or add
  * a sibling factory implementing ITransportFactory and select that instead.
+ *
+ * Separation of concerns: this factory is the policy (which transport library),
+ * while CollabComposition is the library-neutral *mechanism* (how the agnostic
+ * adapters are assembled into ports). Keep them apart — CollabComposition depends
+ * only on the ITransportFactory port, never on IX, so it and any engine binding
+ * stay swappable/testable. The composition root (e.g. register_types.cpp) is what
+ * chooses this concrete factory.
  */
 
 #include <memory>

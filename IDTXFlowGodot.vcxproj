@@ -92,6 +92,7 @@
     <ClInclude Include="shared\include\idtxflow\exec\ExecBridgeHandler.h" />
     <ClInclude Include="shared\include\idtxflow\exec\ExecBridgeManager.h" />
     <ClInclude Include="shared\include\idtxflow\exec\ExecComputeResult.h" />
+    <ClInclude Include="shared\include\idtxflow\net\CollabComposition.h" />
     <ClInclude Include="shared\include\idtxflow\net\model\ConventionMath.h" />
     <ClInclude Include="shared\include\idtxflow\resolver\detail\Sha256.h" />
     <ClInclude Include="shared\include\idtxflow\resolver\HttpAssetCache.h" />
@@ -122,8 +123,8 @@
     <ClInclude Include="source\collab\Ticker.h" />
     <ClInclude Include="source\collab\StageBridge.h" />
     <ClInclude Include="source\collab\TransformCodec.h" />
-    <ClInclude Include="source\collab\SystemClock.h" />
     <ClInclude Include="shared\include\idtxflow\net\CollabEngine.h" />
+    <ClInclude Include="shared\include\idtxflow\net\CollabComposition.h" />
     <ClInclude Include="shared\include\idtxflow\net\CollabObserver.h" />
     <ClInclude Include="shared\include\idtxflow\net\model\Types.h" />
     <ClInclude Include="shared\include\idtxflow\net\model\CloseReason.h" />
@@ -144,6 +145,7 @@
     <ClInclude Include="shared\include\idtxflow\net\adapters\transport\ix\IxWebSocketTransport.h" />
     <ClInclude Include="shared\include\idtxflow\net\adapters\transport\ix\IxTransportFactory.h" />
     <ClInclude Include="shared\include\idtxflow\net\adapters\auth\StaticTokenProvider.h" />
+    <ClInclude Include="shared\include\idtxflow\net\adapters\clock\SystemClock.h" />
     <ClInclude Include="shared\include\idtxflow\net\adapters\auth\JwtHttpFetcher.h" />
     <ClInclude Include="shared\include\idtxflow\utils\ThreadPool.h" />
     <ClInclude Include="source\exec\GodotEnvironmentProviders.h" />

@@ -18,6 +18,7 @@
 #include <string>
 #include <utility>
 
+#include <idtxflow/idtxflow_api.h>
 #include <idtxflow/net/ports/ITokenProvider.h>
 
 namespace idtxflow

@@ -8,8 +8,7 @@
 
 #include "StageBridge.h"
 #include "TransformCodec.h"
-#include "SystemClock.h"
-#include <idtxflow/net/adapters/auth/StaticTokenProvider.h>
+#include <idtxflow/net/CollabComposition.h>
 
 using namespace godot;
 
@@ -31,20 +30,23 @@ void IdtxClient::initialize(std::unique_ptr<idtxflow::net::ports::ITransportFact
         return;
     }
 
+    if (!transport_factory)
+    {
+        IDTX_LOG(IDTX_ERROR, "initialize: null transport factory; client not initialized");
+        return;
+    }
+
     transport_factory_ = std::move(transport_factory);
 
     dispatcher_ = std::make_unique<idtxflow::collab::Dispatcher>(this, "_drain_dispatch");
     ticker_     = std::make_unique<idtxflow::collab::Ticker>(this, "_on_process_frame");
-    http_       = transport_factory_->make_http();
-    ws_         = transport_factory_->make_websocket();
 
+    // Engine-agnostic ports (transports + token + clock) are assembled by the shared composition helper
+    // Godot only provides the engine-specific ports below (dispatcher, ticker, stage).
     idtxflow::net::CollabPorts ports;
-    ports.http       = http_.get();
-    ports.ws         = ws_.get();
+    transports_      = idtxflow::net::make_agnostic_ports(*transport_factory_, ports);
     ports.dispatcher = dispatcher_.get();
-    ports.token      = &idtxflow::net::adapters::StaticTokenProvider::instance();
     ports.stage      = nullptr;   // attached on stage load
-    ports.clock      = &idtxflow::collab::SystemClock::instance();
     ports.ticker     = ticker_.get();
 
     engine_.initialize(ports, this);
@@ -74,8 +76,7 @@ void IdtxClient::shutdown()
     if (dispatcher_) dispatcher_->shutdown();
     engine_.shutdown();
     detach_transform_sync();
-    ws_.reset();
-    http_.reset();
+    transports_ = {};
     transport_factory_.reset();
     ticker_.reset();
     dispatcher_.reset();
