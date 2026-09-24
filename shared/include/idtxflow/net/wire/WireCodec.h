@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * @file Codec.h
+ * @file WireCodec.h
  * @brief Translates the on-the-wire protobuf BaseMessage to and from the domain
  *        model. This is the only place the protobuf dependency lives; callers
  *        speak model types and never see a generated message.
@@ -69,11 +69,6 @@ namespace wire
     /// Serialize a TransformUpdate BaseMessage for one prim edit. The matrix is
     /// written row-major (m00..m33); the separate form fills the T/R/S fields.
     std::string encode_transform_update(const std::string& session_id, const model::PrimEdit& edit);
-
-    /// Assert at startup that the linked protobuf runtime matches the headers the
-    /// generated messages were compiled against, failing fast on a version skew
-    /// instead of corrupting memory later. A no-op when versions agree.
-    void verify_protobuf_version();
 
     /// Assert at startup that the linked protobuf runtime matches the headers the
     /// generated messages were compiled against, failing fast on a version skew

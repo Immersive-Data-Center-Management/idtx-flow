@@ -1,6 +1,6 @@
 #include "UsdXFormNode3D.h"
 
-#include "../collab_godot/IdtxClient.h"
+#include "../collab/IdtxClient.h"
 
 using namespace godot;
 

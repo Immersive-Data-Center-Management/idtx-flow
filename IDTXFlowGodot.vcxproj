@@ -117,12 +117,12 @@
     <ClInclude Include="shared\include\idtx\restDatasource.h" />
     <ClInclude Include="shared\include\idtx\tokens.h" />
     <ClInclude Include="source\converter\UsdGodotStageConverter.h" />
-    <ClInclude Include="source\collab_godot\IdtxClient.h" />
-    <ClInclude Include="source\collab_godot\GodotDispatcher.h" />
-    <ClInclude Include="source\collab_godot\GodotTicker.h" />
-    <ClInclude Include="source\collab_godot\GodotStageBridge.h" />
-    <ClInclude Include="source\collab_godot\GodotTransformCodec.h" />
-    <ClInclude Include="source\collab_godot\SystemClock.h" />
+    <ClInclude Include="source\collab\IdtxClient.h" />
+    <ClInclude Include="source\collab\Dispatcher.h" />
+    <ClInclude Include="source\collab\Ticker.h" />
+    <ClInclude Include="source\collab\StageBridge.h" />
+    <ClInclude Include="source\collab\TransformCodec.h" />
+    <ClInclude Include="source\collab\SystemClock.h" />
     <ClInclude Include="shared\include\idtxflow\net\CollabEngine.h" />
     <ClInclude Include="shared\include\idtxflow\net\CollabObserver.h" />
     <ClInclude Include="shared\include\idtxflow\net\model\Types.h" />
@@ -135,9 +135,9 @@
     <ClInclude Include="shared\include\idtxflow\net\ports\IStageBridge.h" />
     <ClInclude Include="shared\include\idtxflow\net\ports\IClock.h" />
     <ClInclude Include="shared\include\idtxflow\net\ports\IFrameTicker.h" />
-    <ClInclude Include="shared\include\idtxflow\net\wire\Codec.h" />
-    <ClInclude Include="shared\include\idtxflow\net\net\RestClient.h" />
-    <ClInclude Include="shared\include\idtxflow\net\net\SessionSocket.h" />
+    <ClInclude Include="shared\include\idtxflow\net\wire\WireCodec.h" />
+    <ClInclude Include="shared\include\idtxflow\net\protocol\RestClient.h" />
+    <ClInclude Include="shared\include\idtxflow\net\protocol\SessionSocket.h" />
     <ClInclude Include="shared\include\idtxflow\net\adapters\rest\RestCodec.h" />
     <ClInclude Include="shared\include\idtxflow\net\adapters\transport\ix\IxHttpTransport.h" />
     <ClInclude Include="shared\include\idtxflow\net\adapters\transport\ix\IxWebSocketTransport.h" />
@@ -168,13 +168,13 @@
 
   <ItemGroup>
     <ClCompile Include="source\converter\PrimConverterRegistryGodot.cpp" />
-    <ClCompile Include="source\collab_godot\IdtxClient.cpp" />
-    <ClCompile Include="source\collab_godot\GodotStageBridge.cpp" />
-    <ClCompile Include="source\collab_godot\GodotTransformCodec.cpp" />
+    <ClCompile Include="source\collab\IdtxClient.cpp" />
+    <ClCompile Include="source\collab\StageBridge.cpp" />
+    <ClCompile Include="source\collab\TransformCodec.cpp" />
     <ClCompile Include="shared\src\idtxflow\net\CollabEngine.cpp" />
-    <ClCompile Include="shared\src\idtxflow\net\wire\Codec.cpp" />
-    <ClCompile Include="shared\src\idtxflow\net\net\RestClient.cpp" />
-    <ClCompile Include="shared\src\idtxflow\net\net\SessionSocket.cpp" />
+    <ClCompile Include="shared\src\idtxflow\net\wire\WireCodec.cpp" />
+    <ClCompile Include="shared\src\idtxflow\net\protocol\RestClient.cpp" />
+    <ClCompile Include="shared\src\idtxflow\net\protocol\SessionSocket.cpp" />
     <ClCompile Include="shared\src\idtxflow\net\adapters\rest\RestCodec.cpp" />
     <ClCompile Include="shared\src\idtxflow\net\adapters\transport\ix\IxHttpTransport.cpp" />
     <ClCompile Include="shared\src\idtxflow\net\adapters\transport\ix\IxWebSocketTransport.cpp" />

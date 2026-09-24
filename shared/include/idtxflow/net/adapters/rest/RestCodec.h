@@ -5,7 +5,7 @@
  * @brief Translates REST response/request bytes to and from the domain model.
  *
  * This is the only place the JSON dependency lives for the REST path (mirroring
- * how wire/Codec isolates protobuf for the socket path). Orchestration code
+ * how wire/WireCodec isolates protobuf for the socket path). Orchestration code
  * hands raw bodies here and gets back model types, and asks here to build
  * request bodies — it never sees a JSON type.
  */

@@ -6,7 +6,7 @@
 #include <pxr/usd/usdGeom/tokens.h>
 
 #include "idtxflow_godot//converter/UsdGodotTypeConverter.h"
-#include "../collab_godot/IdtxClient.h"
+#include "../collab/IdtxClient.h"
 
 using namespace godot;
 

@@ -1,4 +1,4 @@
-#include <idtxflow/net/net/RestClient.h>
+#include <idtxflow/net/protocol/RestClient.h>
 
 #include <cctype>
 

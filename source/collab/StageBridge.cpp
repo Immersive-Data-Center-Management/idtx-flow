@@ -1,4 +1,4 @@
-#include "GodotStageBridge.h"
+#include "StageBridge.h"
 
 #include <vector>
 
@@ -18,15 +18,15 @@
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
 #include <idtxflow/net/model/ConventionMath.h>
 
-#include "GodotTransformCodec.h"
+#include "TransformCodec.h"
 
-namespace gxform = idtxflow::collab_godot::xform;
+namespace gxform = idtxflow::collab::xform;
 
 using namespace godot;
 
 namespace idtxflow
 {
-namespace collab_godot
+namespace collab
 {
 namespace
 {
@@ -64,17 +64,17 @@ namespace
     }
 } // namespace
 
-GodotStageBridge::GodotStageBridge(UsdStageNode3D* stage_node, pxr::UsdStageRefPtr stage)
+StageBridge::StageBridge(UsdStageNode3D* stage_node, pxr::UsdStageRefPtr stage)
     : stage_node_(stage_node), stage_(std::move(stage))
 {
 }
 
-GodotStageBridge::~GodotStageBridge()
+StageBridge::~StageBridge()
 {
     revoke_listener();
 }
 
-void GodotStageBridge::build_index()
+void StageBridge::build_index()
 {
     tracked_.clear();
     if (!stage_node_)
@@ -114,19 +114,19 @@ void GodotStageBridge::build_index()
     register_listener();
 }
 
-void GodotStageBridge::register_listener()
+void StageBridge::register_listener()
 {
     if (listening_ || !stage_)
         return;
     notice_key_ = pxr::TfNotice::Register(
         pxr::TfCreateWeakPtr(this),
-        &GodotStageBridge::_on_objects_changed,
+        &StageBridge::_on_objects_changed,
         pxr::UsdStageWeakPtr(stage_));
     listening_ = true;
     IDTX_LOG(IDTX_INFO, "TfNotice listener registered on stage");
 }
 
-void GodotStageBridge::revoke_listener()
+void StageBridge::revoke_listener()
 {
     if (!listening_)
         return;
@@ -134,7 +134,7 @@ void GodotStageBridge::revoke_listener()
     listening_ = false;
 }
 
-void GodotStageBridge::_on_objects_changed(const pxr::UsdNotice::ObjectsChanged& notice,
+void StageBridge::_on_objects_changed(const pxr::UsdNotice::ObjectsChanged& notice,
                                            const pxr::UsdStageWeakPtr& /*sender*/)
 {
     // Ignore changes we are authoring ourselves (loopback suppression). The
@@ -169,7 +169,7 @@ void GodotStageBridge::_on_objects_changed(const pxr::UsdNotice::ObjectsChanged&
         consider(p);
 }
 
-bool GodotStageBridge::read_prim(const std::string& prim_path, net::model::PrimEdit& out) const
+bool StageBridge::read_prim(const std::string& prim_path, net::model::PrimEdit& out) const
 {
     Transform3D xform;
     if (!read_prim_transform(prim_path, xform))
@@ -178,7 +178,7 @@ bool GodotStageBridge::read_prim(const std::string& prim_path, net::model::PrimE
     return true;
 }
 
-void GodotStageBridge::author_local_edit(const net::model::PrimEdit& edit)
+void StageBridge::author_local_edit(const net::model::PrimEdit& edit)
 {
     // This IS the local change we want to broadcast, so do not suppress: authoring
     // trips the TfNotice listener, which reports it back through on_changed_.
@@ -187,7 +187,7 @@ void GodotStageBridge::author_local_edit(const net::model::PrimEdit& edit)
     author_to_usd(edit.prim_path, gxform::prim_edit_to_transform(edit));
 }
 
-void GodotStageBridge::apply_remote_edit(const net::model::PrimEdit& edit)
+void StageBridge::apply_remote_edit(const net::model::PrimEdit& edit)
 {
     auto it = tracked_.find(edit.prim_path);
 
@@ -220,7 +220,7 @@ void GodotStageBridge::apply_remote_edit(const net::model::PrimEdit& edit)
     suppress_broadcast_ = false;
 }
 
-bool GodotStageBridge::author_to_usd(const std::string& prim_path, const Transform3D& xform)
+bool StageBridge::author_to_usd(const std::string& prim_path, const Transform3D& xform)
 {
     if (!stage_)
         return false;
@@ -264,7 +264,7 @@ bool GodotStageBridge::author_to_usd(const std::string& prim_path, const Transfo
     return true;
 }
 
-bool GodotStageBridge::read_prim_transform(const std::string& prim_path, Transform3D& out) const
+bool StageBridge::read_prim_transform(const std::string& prim_path, Transform3D& out) const
 {
     if (!stage_)
         return false;
@@ -283,7 +283,7 @@ bool GodotStageBridge::read_prim_transform(const std::string& prim_path, Transfo
     return true;
 }
 
-xform::SpineAxis GodotStageBridge::spine_axis_for(const std::string& prim_path) const
+xform::SpineAxis StageBridge::spine_axis_for(const std::string& prim_path) const
 {
     // Only Cone and Cylinder are imported via toTransform(matrix, axis), with a
     // baked spine-axis presentation rotation; every other prim type bakes none.
@@ -325,5 +325,5 @@ xform::SpineAxis GodotStageBridge::spine_axis_for(const std::string& prim_path) 
     return xform::SpineAxis::None;
 }
 
-} // namespace collab_godot
+} // namespace collab
 } // namespace idtxflow

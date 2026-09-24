@@ -1,4 +1,4 @@
-#include "GodotTransformCodec.h"
+#include "TransformCodec.h"
 
 #include <idtxflow/net/model/ConventionMath.h>
 
@@ -6,7 +6,7 @@ using namespace godot;
 
 namespace idtxflow
 {
-namespace collab_godot
+namespace collab
 {
 namespace xform
 {
@@ -101,5 +101,5 @@ namespace xform
     }
 
 } // namespace xform
-} // namespace collab_godot
+} // namespace collab
 } // namespace idtxflow

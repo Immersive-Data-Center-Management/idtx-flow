@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * @file GodotTransformCodec.h
+ * @file TransformCodec.h
  * @brief Godot-side adapter between godot::Transform3D and the engine-agnostic
  *        wire model (model::PrimEdit / model::Mat4).
  *
@@ -14,7 +14,7 @@
  * being folded in here.
  *
  * Boundary: Godot types are allowed here, but this must stay free of OpenUSD (pxr). The only 
- * place Godot and pxr meet is GodotStageBridge, which builds its GfMatrix4d on top of these helpers.
+ * place Godot and pxr meet is StageBridge, which builds its GfMatrix4d on top of these helpers.
  */
 
 #include <string>
@@ -25,7 +25,7 @@
 
 namespace idtxflow
 {
-namespace collab_godot
+namespace collab
 {
 namespace xform
 {
@@ -71,5 +71,5 @@ namespace xform
     godot::Basis strip_spine_axis(const godot::Basis& basis, SpineAxis axis);
 
 } // namespace xform
-} // namespace collab_godot
+} // namespace collab
 } // namespace idtxflow

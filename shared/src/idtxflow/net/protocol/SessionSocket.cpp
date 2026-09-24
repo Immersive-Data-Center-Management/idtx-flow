@@ -1,9 +1,9 @@
-#include <idtxflow/net/net/SessionSocket.h>
+#include <idtxflow/net/protocol/SessionSocket.h>
 
 #include <map>
 #include <utility>
 
-#include <idtxflow/net/wire/Codec.h>
+#include <idtxflow/net/wire/WireCodec.h>
 
 namespace idtxflow
 {

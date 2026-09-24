@@ -2,9 +2,9 @@
 
 #include <utility>
 
-#include <idtxflow/net/net/RestClient.h>
-#include <idtxflow/net/net/SessionSocket.h>
-#include <idtxflow/net/wire/Codec.h>
+#include <idtxflow/net/protocol/RestClient.h>
+#include <idtxflow/net/protocol/SessionSocket.h>
+#include <idtxflow/net/wire/WireCodec.h>
 
 namespace idtxflow
 {

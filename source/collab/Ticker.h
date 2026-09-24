@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * @file GodotTicker.h
+ * @file Ticker.h
  * @brief IFrameTicker driven by SceneTree::process_frame.
  *
  * The tick exists only to drain outbound coalescing once per frame. The host
@@ -32,12 +32,12 @@
 
 namespace idtxflow
 {
-namespace collab_godot
+namespace collab
 {
-    class GodotTicker : public net::ports::IFrameTicker
+    class Ticker : public net::ports::IFrameTicker
     {
     public:
-        GodotTicker(godot::Object* host, godot::StringName frame_method)
+        Ticker(godot::Object* host, godot::StringName frame_method)
             : host_(host), frame_method_(std::move(frame_method)) {}
 
         void set_tick(Tick fn) override
@@ -115,5 +115,5 @@ namespace collab_godot
         bool              connected_ = false;
     };
 
-} // namespace collab_godot
+} // namespace collab
 } // namespace idtxflow

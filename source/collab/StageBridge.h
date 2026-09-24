@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * @file GodotStageBridge.h
+ * @file StageBridge.h
  * @brief IStageBridge over a live USD stage and its converted Godot nodes.
  *
  * This is the only place Godot and OpenUSD types meet. It authors edits onto USD
@@ -28,22 +28,22 @@
 #include <idtxflow/net/ports/IStageBridge.h>
 #include <idtxflow/utils/Logger.h>
 
-#include "GodotTransformCodec.h"
+#include "TransformCodec.h"
 
 class UsdStageNode3D;
 
 namespace idtxflow
 {
-namespace collab_godot
+namespace collab
 {
-    class GodotStageBridge : public net::ports::IStageBridge, public pxr::TfWeakBase
+    class StageBridge : public net::ports::IStageBridge, public pxr::TfWeakBase
     {
     public:
-        GodotStageBridge(UsdStageNode3D* stage_node, pxr::UsdStageRefPtr stage);
-        ~GodotStageBridge() override;
+        StageBridge(UsdStageNode3D* stage_node, pxr::UsdStageRefPtr stage);
+        ~StageBridge() override;
 
-        GodotStageBridge(const GodotStageBridge&) = delete;
-        GodotStageBridge& operator=(const GodotStageBridge&) = delete;
+        StageBridge(const StageBridge&) = delete;
+        StageBridge& operator=(const StageBridge&) = delete;
 
         // IStageBridge
         void build_index() override;
@@ -53,7 +53,7 @@ namespace collab_godot
         void set_on_changed(OnChanged sink) override { on_changed_ = std::move(sink); }
 
     private:
-        IDTX_LOG_CATEGORY("GodotStageBridge")
+        IDTX_LOG_CATEGORY("StageBridge")
 
         // Store the node's Godot ObjectID (a stable POD), not a raw pointer.
         struct Tracked { uint64_t node_id = 0; };   // Godot ObjectID; 0 == none
@@ -86,5 +86,5 @@ namespace collab_godot
         OnChanged                                on_changed_;
     };
 
-} // namespace collab_godot
+} // namespace collab
 } // namespace idtxflow

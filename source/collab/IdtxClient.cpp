@@ -6,14 +6,14 @@
 #include <idtxflow_godot/nodes/IUsdNode3D.h>
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
 
-#include "GodotStageBridge.h"
-#include "GodotTransformCodec.h"
+#include "StageBridge.h"
+#include "TransformCodec.h"
 #include "SystemClock.h"
 #include <idtxflow/net/adapters/auth/StaticTokenProvider.h>
 
 using namespace godot;
 
-namespace gxform = idtxflow::collab_godot::xform;
+namespace gxform = idtxflow::collab::xform;
 
 IdtxClient* IdtxClient::singleton_ = nullptr;
 
@@ -31,8 +31,8 @@ void IdtxClient::initialize()
         return;
     }
 
-    dispatcher_ = std::make_unique<idtxflow::collab_godot::GodotDispatcher>(this, "_drain_dispatch");
-    ticker_     = std::make_unique<idtxflow::collab_godot::GodotTicker>(this, "_on_process_frame");
+    dispatcher_ = std::make_unique<idtxflow::collab::Dispatcher>(this, "_drain_dispatch");
+    ticker_     = std::make_unique<idtxflow::collab::Ticker>(this, "_on_process_frame");
     http_       = std::make_unique<idtxflow::net::adapters::IxHttpTransport>();
     ws_         = std::make_unique<idtxflow::net::adapters::IxWebSocketTransport>();
 
@@ -42,7 +42,7 @@ void IdtxClient::initialize()
     ports.dispatcher = dispatcher_.get();
     ports.token      = &idtxflow::net::adapters::StaticTokenProvider::instance();
     ports.stage      = nullptr;   // attached on stage load
-    ports.clock      = &idtxflow::collab_godot::SystemClock::instance();
+    ports.clock      = &idtxflow::collab::SystemClock::instance();
     ports.ticker     = ticker_.get();
 
     engine_.initialize(ports, this);
@@ -233,7 +233,7 @@ void IdtxClient::attach_transform_sync(Node* stage_node, bool remote)
         return;
     }
 
-    stage_ = std::make_unique<idtxflow::collab_godot::GodotStageBridge>(usd_stage, usd_stage->get_stage());
+    stage_ = std::make_unique<idtxflow::collab::StageBridge>(usd_stage, usd_stage->get_stage());
     engine_.attach_stage(stage_.get(), remote);
     IDTX_LOG(IDTX_INFO, "attach_transform_sync: remote={}", remote ? "true" : "false");
 }

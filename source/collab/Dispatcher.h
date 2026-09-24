@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * @file GodotDispatcher.h
+ * @file Dispatcher.h
  * @brief IMainThreadDispatcher that runs work on Godot's main thread.
  *
  * Background results are queued and a drain is scheduled via call_deferred on a
@@ -25,12 +25,12 @@
 
 namespace idtxflow
 {
-namespace collab_godot
+namespace collab
 {
-    class GodotDispatcher : public net::ports::IMainThreadDispatcher
+    class Dispatcher : public net::ports::IMainThreadDispatcher
     {
     public:
-        GodotDispatcher(godot::Object* host, godot::StringName drain_method)
+        Dispatcher(godot::Object* host, godot::StringName drain_method)
             : host_(host), drain_method_(std::move(drain_method)) {}
 
         void post(std::function<void()> fn) override
@@ -84,5 +84,5 @@ namespace collab_godot
         bool               active_ = true;
     };
 
-} // namespace collab_godot
+} // namespace collab
 } // namespace idtxflow

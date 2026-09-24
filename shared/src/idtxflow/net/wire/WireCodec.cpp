@@ -1,4 +1,4 @@
-#include <idtxflow/net/wire/Codec.h>
+#include <idtxflow/net/wire/WireCodec.h>
 
 #include "base.pb.h"
 #include "transform.pb.h"

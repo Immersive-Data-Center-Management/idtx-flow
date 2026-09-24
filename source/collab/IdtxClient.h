@@ -28,15 +28,15 @@
 
 #include <idtxflow/net/CollabEngine.h>
 #include <idtxflow/net/CollabObserver.h>
-#include <idtxflow/net/net/RestClient.h>
-#include <idtxflow/net/net/SessionSocket.h>
+#include <idtxflow/net/protocol/RestClient.h>
+#include <idtxflow/net/protocol/SessionSocket.h>
 #include <idtxflow/net/adapters/transport/ix/IxHttpTransport.h>
 #include <idtxflow/net/adapters/transport/ix/IxWebSocketTransport.h>
 
-#include "GodotDispatcher.h"
-#include "GodotTicker.h"
+#include "Dispatcher.h"
+#include "Ticker.h"
 
-namespace idtxflow { namespace collab_godot { class GodotStageBridge; } }
+namespace idtxflow { namespace collab { class StageBridge; } }
 
 class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
 {
@@ -166,11 +166,11 @@ private:
 
     bool initialized_ = false;
 
-    std::unique_ptr<idtxflow::collab_godot::GodotDispatcher>       dispatcher_;
-    std::unique_ptr<idtxflow::collab_godot::GodotTicker>           ticker_;
+    std::unique_ptr<idtxflow::collab::Dispatcher>                 dispatcher_;
+    std::unique_ptr<idtxflow::collab::Ticker>                     ticker_;
     std::unique_ptr<idtxflow::net::adapters::IxHttpTransport>      http_;
     std::unique_ptr<idtxflow::net::adapters::IxWebSocketTransport> ws_;
-    std::unique_ptr<idtxflow::collab_godot::GodotStageBridge>      stage_;
+    std::unique_ptr<idtxflow::collab::StageBridge>                stage_;
 
     idtxflow::net::CollabEngine engine_;
 };

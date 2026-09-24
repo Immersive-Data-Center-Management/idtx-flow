@@ -22,7 +22,7 @@
 #include "nodes/UsdMultiMeshInstanceNode3D.h"
 #include "nodes/UsdRestDatasourceNode3D.h"
 #include "nodes/UsdXFormNode3D.h"
-#include "collab_godot/IdtxClient.h"
+#include "collab/IdtxClient.h"
 #include "utils/IDTXFlowGodotLogger.h"
 #include "exec/GodotEnvironmentProviders.h"
 

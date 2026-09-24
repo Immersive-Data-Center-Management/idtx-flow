@@ -12,7 +12,7 @@
 
 namespace idtxflow
 {
-namespace collab_godot
+namespace collab
 {
     class SystemClock : public net::ports::IClock
     {
@@ -31,5 +31,5 @@ namespace collab_godot
         }
     };
 
-} // namespace collab_godot
+} // namespace collab
 } // namespace idtxflow
