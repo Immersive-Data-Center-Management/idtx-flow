@@ -24,17 +24,19 @@ IdtxClient::~IdtxClient()
     shutdown();
 }
 
-void IdtxClient::initialize()
+void IdtxClient::initialize(std::unique_ptr<idtxflow::net::ports::ITransportFactory> transport_factory)
 {
     if (initialized_)
     {
         return;
     }
 
+    transport_factory_ = std::move(transport_factory);
+
     dispatcher_ = std::make_unique<idtxflow::collab::Dispatcher>(this, "_drain_dispatch");
     ticker_     = std::make_unique<idtxflow::collab::Ticker>(this, "_on_process_frame");
-    http_       = std::make_unique<idtxflow::net::adapters::IxHttpTransport>();
-    ws_         = std::make_unique<idtxflow::net::adapters::IxWebSocketTransport>();
+    http_       = transport_factory_->make_http();
+    ws_         = transport_factory_->make_websocket();
 
     idtxflow::net::CollabPorts ports;
     ports.http       = http_.get();
@@ -74,6 +76,7 @@ void IdtxClient::shutdown()
     detach_transform_sync();
     ws_.reset();
     http_.reset();
+    transport_factory_.reset();
     ticker_.reset();
     dispatcher_.reset();
 

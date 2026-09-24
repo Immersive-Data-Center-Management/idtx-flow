@@ -30,8 +30,7 @@
 #include <idtxflow/net/CollabObserver.h>
 #include <idtxflow/net/protocol/RestClient.h>
 #include <idtxflow/net/protocol/SessionSocket.h>
-#include <idtxflow/net/adapters/transport/ix/IxHttpTransport.h>
-#include <idtxflow/net/adapters/transport/ix/IxWebSocketTransport.h>
+#include <idtxflow/net/ports/ITransportFactory.h>
 
 #include "Dispatcher.h"
 #include "Ticker.h"
@@ -49,8 +48,9 @@ public:
     static IdtxClient* get_singleton() { return singleton_; }
     static void set_singleton(IdtxClient* s) { singleton_ = s; }
 
-    /// Construct the adapters and start the engine. Idempotent.
-    void initialize();
+    /// Construct the adapters and start the engine. Idempotent. The transport factory
+    /// (injected by the composition root) creates the concrete HTTP / WebSocket transports
+    void initialize(std::unique_ptr<idtxflow::net::ports::ITransportFactory> transport_factory);
     /// Stop the engine, drop adapters, and detach the singleton. Idempotent.
     void shutdown();
 
@@ -168,8 +168,9 @@ private:
 
     std::unique_ptr<idtxflow::collab::Dispatcher>                 dispatcher_;
     std::unique_ptr<idtxflow::collab::Ticker>                     ticker_;
-    std::unique_ptr<idtxflow::net::adapters::IxHttpTransport>      http_;
-    std::unique_ptr<idtxflow::net::adapters::IxWebSocketTransport> ws_;
+    std::unique_ptr<idtxflow::net::ports::ITransportFactory>      transport_factory_;
+    std::unique_ptr<idtxflow::net::ports::IHttpTransport>         http_;
+    std::unique_ptr<idtxflow::net::ports::IWebSocketTransport>    ws_;
     std::unique_ptr<idtxflow::collab::StageBridge>                stage_;
 
     idtxflow::net::CollabEngine engine_;

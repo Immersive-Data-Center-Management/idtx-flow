@@ -135,12 +135,14 @@
     <ClInclude Include="shared\include\idtxflow\net\ports\IStageBridge.h" />
     <ClInclude Include="shared\include\idtxflow\net\ports\IClock.h" />
     <ClInclude Include="shared\include\idtxflow\net\ports\IFrameTicker.h" />
+    <ClInclude Include="shared\include\idtxflow\net\ports\ITransportFactory.h" />
     <ClInclude Include="shared\include\idtxflow\net\wire\WireCodec.h" />
     <ClInclude Include="shared\include\idtxflow\net\protocol\RestClient.h" />
     <ClInclude Include="shared\include\idtxflow\net\protocol\SessionSocket.h" />
     <ClInclude Include="shared\include\idtxflow\net\adapters\rest\RestCodec.h" />
     <ClInclude Include="shared\include\idtxflow\net\adapters\transport\ix\IxHttpTransport.h" />
     <ClInclude Include="shared\include\idtxflow\net\adapters\transport\ix\IxWebSocketTransport.h" />
+    <ClInclude Include="shared\include\idtxflow\net\adapters\transport\ix\IxTransportFactory.h" />
     <ClInclude Include="shared\include\idtxflow\net\adapters\auth\StaticTokenProvider.h" />
     <ClInclude Include="shared\include\idtxflow\net\adapters\auth\JwtHttpFetcher.h" />
     <ClInclude Include="shared\include\idtxflow\utils\ThreadPool.h" />

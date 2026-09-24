@@ -10,7 +10,7 @@
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
 #include <idtxflow/exec/ExecBridgeManager.h>
 #include <idtxflow/net/adapters/auth/JwtHttpFetcher.h>
-#include <idtxflow/net/adapters/transport/ix/IxHttpTransport.h>
+#include <idtxflow/net/adapters/transport/ix/IxTransportFactory.h>
 
 #include <godot_cpp/classes/engine.hpp>
 
@@ -96,7 +96,7 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     IdtxClient* idtx_client = memnew(IdtxClient);
     IdtxClient::set_singleton(idtx_client);
     Engine::get_singleton()->register_singleton("IdtxClient", idtx_client);
-    idtx_client->initialize();
+    idtx_client->initialize(std::make_unique<idtxflow::net::adapters::IxTransportFactory>());
     
 #ifdef IDTXFLOW_MDL_ENABLED
     // activate the mdl material conversion
@@ -113,15 +113,13 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     
     // Configure the HTTP asset resolver with a JWT-injecting fetcher so protected
     // /api/v1/download/<usd_file> assets can be fetched. The fetcher talks only to
-    // the IHttpTransport port; we inject a concrete transport here (the composition
-    // root is the only place that names the HTTP library). It reads the current
-    // token from the process-wide token provider at fetch time, so token rotation
-    // needs no reconfiguration.
-    auto asset_http = std::make_shared<idtxflow::net::adapters::IxHttpTransport>();
-    asset_http->set_base_url(""); // the fetcher supplies absolute URLs
+    // the IHttpTransport port; the transport factory (the single place naming the
+    // HTTP library) creates the concrete transport here. It reads the current token
+    // from the process-wide token provider at fetch time, so token rotation needs no reconfiguration.
+    idtxflow::net::adapters::IxTransportFactory asset_transport_factory;
     pxr::UsdHttpAssetResolver::ConfigureWithFetcher(
         ProjectSettings::get_singleton()->globalize_path("user://usd_cache").utf8().get_data(),
-        idtxflow::net::adapters::JwtHttpFetcher{asset_http});
+        idtxflow::net::adapters::JwtHttpFetcher{asset_transport_factory.make_http()});
 
     // Register the host-side environment providers with the USD library's registry BEFORE the
     // exec worker thread starts, so the Compute_Environment node can resolve values from the
