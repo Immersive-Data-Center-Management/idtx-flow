@@ -233,7 +233,6 @@
     <Content Include="addons\IDTXFlow\import_manager\step_browse_files.gd" />
     <Content Include="addons\IDTXFlow\import_manager\step_browse_server.gd" />
     <Content Include="addons\IDTXFlow\import_manager\step_configure.gd" />
-    <Content Include="addons\IDTXFlow\import_manager\step_confirm.gd" />
     <Content Include="addons\IDTXFlow\import_manager\step_select_source.gd" />
     <Content Include="addons\IDTXFlow\import_manager\usd_file_vec.png" />
     <Content Include="addons\IDTXFlow\import_manager\wizard_file_browser.gd" />

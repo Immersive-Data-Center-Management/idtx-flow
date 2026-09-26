@@ -89,6 +89,11 @@ namespace
         {
             resp = client.Delete(url, args);
         }
+        else if (request.method == "HEAD")
+        {
+            // Existence probes (download/thumbnail): status only, empty body.
+            resp = client.head(url, args);
+        }
         else
         {
             // Reject unsupported/unknown methods

@@ -11,7 +11,7 @@
  *     base_url + Request.endpoint. If neither yields a URL (empty base_url and
  *     no absolute url), fail with a transport error (Response.status = 0) rather
  *     than guessing a default host.
- *   - Support the methods -- GET, POST, DELETE. Reject any other method with a transport error
+ *   - Support the methods -- GET, POST, DELETE, HEAD. Reject any other method with a transport error
  *   - On transport failure (no HTTP round-trip: unreachable, timeout, bad
  *     method, unconfigured base url) set Response.status = 0 and put a message
  *     in Response.error. On success set the real HTTP status / body / headers.
@@ -48,7 +48,7 @@ namespace ports
 
         struct Request
         {
-            std::string method;     ///< "GET", "POST", or "DELETE"
+            std::string method;     ///< "GET", "POST", "DELETE", or "HEAD"
             std::string endpoint;   ///< path appended to the base url
             std::string body;       ///< request body (used by POST; empty otherwise)
             std::map<std::string, std::string> headers;   ///< extra request headers (e.g. Authorization)
