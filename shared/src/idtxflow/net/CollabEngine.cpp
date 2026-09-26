@@ -144,6 +144,46 @@ void CollabEngine::create_session(const std::string& usd_file, const std::string
         [this](const model::RestError& e) { if (observer_) observer_->on_request_failed(Op::CreateSession, e); });
 }
 
+void CollabEngine::list_sessions()
+{
+    if (!rest_) return;
+    rest_->list_sessions(
+        [this](const std::vector<model::SessionInfo>& sessions) { if (observer_) observer_->on_sessions(sessions); },
+        [this](const model::RestError& e) { if (observer_) observer_->on_request_failed(Op::ListSessions, e); });
+}
+
+void CollabEngine::get_session(const std::string& session_id)
+{
+    if (!rest_) return;
+    rest_->get_session(session_id,
+        [this](const model::SessionInfo& si) { if (observer_) observer_->on_session_details(si); },
+        [this](const model::RestError& e) { if (observer_) observer_->on_request_failed(Op::GetSession, e); });
+}
+
+void CollabEngine::commit_session(const std::string& session_id)
+{
+    if (!rest_) return;
+    rest_->commit_session(session_id,
+        [this](const model::CommitResult& cr) { if (observer_) observer_->on_session_committed(cr); },
+        [this](const model::RestError& e) { if (observer_) observer_->on_request_failed(Op::CommitSession, e); });
+}
+
+void CollabEngine::check_download_exists(const std::string& usd_file)
+{
+    if (!rest_) return;
+    rest_->check_download_exists(usd_file,
+        [this, usd_file](bool exists) { if (observer_) observer_->on_download_exists(usd_file, exists); },
+        [this](const model::RestError& e) { if (observer_) observer_->on_request_failed(Op::CheckDownload, e); });
+}
+
+void CollabEngine::check_thumbnail_exists(const std::string& usd_file)
+{
+    if (!rest_) return;
+    rest_->check_thumbnail_exists(usd_file,
+        [this, usd_file](bool exists) { if (observer_) observer_->on_thumbnail_exists(usd_file, exists); },
+        [this](const model::RestError& e) { if (observer_) observer_->on_request_failed(Op::CheckThumbnail, e); });
+}
+
 void CollabEngine::delete_session(const std::string& session_id)
 {
     if (!rest_) return;

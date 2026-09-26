@@ -191,6 +191,36 @@ void IdtxClient::delete_session(const String& session_id)
     engine_.delete_session(session_id.utf8().get_data());
 }
 
+void IdtxClient::list_sessions(const Callable& on_done)
+{
+    if (on_done.is_valid()) sessions_cbs_.push_back(on_done);
+    engine_.list_sessions();
+}
+
+void IdtxClient::get_session(const String& session_id, const Callable& on_done)
+{
+    if (on_done.is_valid()) session_details_cbs_.push_back(on_done);
+    engine_.get_session(session_id.utf8().get_data());
+}
+
+void IdtxClient::commit_session(const String& session_id, const Callable& on_done)
+{
+    if (on_done.is_valid()) commit_cbs_.push_back(on_done);
+    engine_.commit_session(session_id.utf8().get_data());
+}
+
+void IdtxClient::check_download_exists(const String& usd_file, const Callable& on_done)
+{
+    if (on_done.is_valid()) download_exists_cbs_.push_back(on_done);
+    engine_.check_download_exists(usd_file.utf8().get_data());
+}
+
+void IdtxClient::check_thumbnail_exists(const String& usd_file, const Callable& on_done)
+{
+    if (on_done.is_valid()) thumbnail_exists_cbs_.push_back(on_done);
+    engine_.check_thumbnail_exists(usd_file.utf8().get_data());
+}
+
 void IdtxClient::begin_server_import(const String& usd_file, const String& mode, const Callable& on_done)
 {
     if (on_done.is_valid()) create_cbs_.push_back(on_done);
@@ -366,6 +396,76 @@ void IdtxClient::on_session_created(const idtxflow::net::model::SessionInfo&)
     // notification is emitted here.
 }
 
+namespace
+{
+    // Build the { session_id, usd_file, mode, client_count, created_at, ws_url,
+    // protocol } Dictionary the binding surfaces for a session.
+    godot::Dictionary session_to_dict(const idtxflow::net::model::SessionInfo& s)
+    {
+        godot::Dictionary d;
+        d["session_id"]   = godot::String(s.session_id.c_str());
+        d["usd_file"]     = godot::String(s.usd_file.c_str());
+        d["mode"]         = godot::String(s.mode.c_str());
+        d["client_count"] = (int64_t)s.client_count;
+        d["created_at"]   = (int64_t)s.created_at;
+        d["ws_url"]       = godot::String(s.ws_url.c_str());
+        d["protocol"]     = godot::String(s.protocol.c_str());
+        return d;
+    }
+} // namespace
+
+void IdtxClient::on_sessions(const std::vector<idtxflow::net::model::SessionInfo>& sessions)
+{
+    Array arr;
+    for (const auto& s : sessions)
+    {
+        arr.push_back(session_to_dict(s));
+    }
+    Dictionary ok;
+    ok["ok"]     = true;
+    ok["result"] = arr;
+    resolve_next(sessions_cbs_, ok);
+}
+
+void IdtxClient::on_session_details(const idtxflow::net::model::SessionInfo& session)
+{
+    Dictionary ok;
+    ok["ok"]     = true;
+    ok["result"] = session_to_dict(session);
+    resolve_next(session_details_cbs_, ok);
+}
+
+void IdtxClient::on_session_committed(const idtxflow::net::model::CommitResult& result)
+{
+    Dictionary r;
+    r["session_id"] = String(result.session_id.c_str());
+    r["committed"]  = result.committed;
+    Dictionary ok;
+    ok["ok"]     = true;
+    ok["result"] = r;
+    resolve_next(commit_cbs_, ok);
+}
+
+void IdtxClient::on_download_exists(const std::string&, bool exists)
+{
+    Dictionary r;
+    r["exists"] = exists;
+    Dictionary ok;
+    ok["ok"]     = true;
+    ok["result"] = r;
+    resolve_next(download_exists_cbs_, ok);
+}
+
+void IdtxClient::on_thumbnail_exists(const std::string&, bool exists)
+{
+    Dictionary r;
+    r["exists"] = exists;
+    Dictionary ok;
+    ok["ok"]     = true;
+    ok["result"] = r;
+    resolve_next(thumbnail_exists_cbs_, ok);
+}
+
 void IdtxClient::on_session_ready(const idtxflow::net::model::SessionInfo& s,
                                   const std::string& stage_url, const std::string& ws_url)
 {
@@ -402,6 +502,11 @@ void IdtxClient::on_request_failed(idtxflow::net::Op op, const idtxflow::net::mo
     else if (op == idtxflow::net::Op::FetchThumbnail) resolve_next(thumbnail_cbs_, err);
     else if (op == idtxflow::net::Op::ListFiles)     resolve_next(list_cbs_, err);
     else if (op == idtxflow::net::Op::CreateSession) resolve_next(create_cbs_, err);
+    else if (op == idtxflow::net::Op::ListSessions)  resolve_next(sessions_cbs_, err);
+    else if (op == idtxflow::net::Op::GetSession)    resolve_next(session_details_cbs_, err);
+    else if (op == idtxflow::net::Op::CommitSession) resolve_next(commit_cbs_, err);
+    else if (op == idtxflow::net::Op::CheckDownload) resolve_next(download_exists_cbs_, err);
+    else if (op == idtxflow::net::Op::CheckThumbnail) resolve_next(thumbnail_exists_cbs_, err);
 }
 
 void IdtxClient::on_socket_opened()
@@ -459,6 +564,16 @@ void IdtxClient::_bind_methods()
     ClassDB::bind_method(D_METHOD("create_session", "usd_file", "mode"), &IdtxClient::create_session,
                          DEFVAL("single_edit"));
     ClassDB::bind_method(D_METHOD("delete_session", "session_id"), &IdtxClient::delete_session);
+    ClassDB::bind_method(D_METHOD("list_sessions", "on_done"), &IdtxClient::list_sessions,
+                         DEFVAL(Callable()));
+    ClassDB::bind_method(D_METHOD("get_session", "session_id", "on_done"), &IdtxClient::get_session,
+                         DEFVAL(Callable()));
+    ClassDB::bind_method(D_METHOD("commit_session", "session_id", "on_done"), &IdtxClient::commit_session,
+                         DEFVAL(Callable()));
+    ClassDB::bind_method(D_METHOD("check_download_exists", "usd_file", "on_done"),
+                         &IdtxClient::check_download_exists, DEFVAL(Callable()));
+    ClassDB::bind_method(D_METHOD("check_thumbnail_exists", "usd_file", "on_done"),
+                         &IdtxClient::check_thumbnail_exists, DEFVAL(Callable()));
 
     ClassDB::bind_method(D_METHOD("begin_server_import", "usd_file", "mode", "on_done"),
                          &IdtxClient::begin_server_import, DEFVAL("single_edit"), DEFVAL(Callable()));

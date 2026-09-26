@@ -60,9 +60,14 @@ singleton.
 - **Config / auth:** `set_base_url`, `get_base_url`, `is_authenticated`,
   `get_access_token`, `clear_credentials`.
 - **REST (async):** `login`, `health`, `fetch_thumbnail`, `list_files`,
-  `create_session`, `delete_session`. Each optionally takes an `on_done` Callable
-  that receives a result Dictionary — `{ "ok": true, "result": <payload> }` on
-  success, or `{ "ok": false, "http_code", "error_code", "message" }` on failure.
+  `create_session`, `delete_session`, `list_sessions`, `get_session`,
+  `commit_session`, `check_download_exists`, `check_thumbnail_exists`. Each
+  optionally takes an `on_done` Callable that receives a result Dictionary —
+  `{ "ok": true, "result": <payload> }` on success, or
+  `{ "ok": false, "http_code", "error_code", "message" }` on failure. `result` is
+  an Array of session dicts for `list_sessions`, a session dict for `get_session`,
+  `{ session_id, committed }` for `commit_session`, and `{ exists: bool }` for the
+  two `check_*_exists` probes (a 404 resolves as `exists: false`, not an error).
 - **Session flow:** `begin_server_import(usd_file, mode, on_done)` runs the whole
   create → open-socket → ready sequence in the core; `end_session()` tears it down.
 - **URL helpers:** `download_url`, `ws_base_url`.

@@ -56,10 +56,12 @@ public:
     void shutdown();
 
     // --- Configuration ---
+    
     void set_base_url(const godot::String& url);
     godot::String get_base_url() const;
 
     // --- Auth state ---
+    
     bool is_authenticated() const;
     godot::String get_access_token() const;
     void clear_credentials();
@@ -68,40 +70,69 @@ public:
     // Each request delivers its single result to the optional `on_done` Callable:
     // a Dictionary { "ok": true, "result": <payload> } on success, or
     // { "ok": false, "http_code": int, "error_code": String, "message": String }
-    // on failure. `result` is the token dict for login and the files Array for
-    // list_files. The matching broadcast signals still fire and are deprecated.
+    // on failure.
+    
+    // Authenticate a username/password and store the returned token for later
+    // authenticated calls. result: { access_token: String, expires_in: int }
     void login(const godot::String& username, const godot::String& password,
                const godot::Callable& on_done = godot::Callable());
-    // Reachability probe: GET /health (unauthenticated). `on_done` receives
-    // { "ok": true } on a healthy response, or the error dict on failure.
+    // Probe backend reachability. result: { http_code: int } on a healthy
+    // response; error dict otherwise.
     void health(const godot::Callable& on_done = godot::Callable());
-    // Fetch a server thumbnail image (authenticated, cached in the core by
-    // usd_file). `on_done` receives { ok:true, result:{ bytes:PackedByteArray,
-    // content_type:String } } or the error dict (incl. 404 when not generated).
+    // Fetch a server thumbnail image for a USD file (cached in the core by
+    // usd_file). result: { bytes: PackedByteArray, content_type: String };
+    // error dict incl. 404 when not generated yet.
     void fetch_thumbnail(const godot::String& usd_file, const godot::Callable& on_done = godot::Callable());
+    // List available server USD files, optionally filtered by name/extension.
+    // result: Array of file dicts { filepath, filename, directory, size,
+    // modified, modified_epoch }.
     void list_files(const godot::String& name_contains = "", const godot::String& extension = "",
                     const godot::Callable& on_done = godot::Callable());
+    // Create a collaboration session for a USD file. Fire-and-forget: the result
+    // is surfaced through the session-flow signals, not an on_done Callable.
     void create_session(const godot::String& usd_file, const godot::String& mode = "single_edit");
+    // Tear down a session on the backend. Fire-and-forget: failures are surfaced
+    // through the session-flow signals, not an on_done Callable.
     void delete_session(const godot::String& session_id);
+    // List currently active collaboration sessions. result: Array of session
+    // dicts { session_id, usd_file, mode, client_count, created_at, ws_url,
+    // protocol }.
+    void list_sessions(const godot::Callable& on_done = godot::Callable());
+    // Retrieve details for one session. result: a single session dict (same
+    // fields as list_sessions); error dict incl. 404 not_found.
+    void get_session(const godot::String& session_id, const godot::Callable& on_done = godot::Callable());
+    // Commit a session's overrides back into the original USD file. result:
+    // { session_id: String, committed: bool }; error dict incl. 409
+    // nothing_to_commit.
+    void commit_session(const godot::String& session_id, const godot::Callable& on_done = godot::Callable());
+    // Check whether a USD file exists on the backend (a lightweight probe, no
+    // download). result: { exists: bool } (a definitive "no" resolves as
+    // exists:false, not an error).
+    void check_download_exists(const godot::String& usd_file, const godot::Callable& on_done = godot::Callable());
+    // Check whether a thumbnail exists for a USD file (a lightweight probe, no
+    // download). result: { exists: bool } (a definitive "no" resolves as
+    // exists:false, not an error).
+    void check_thumbnail_exists(const godot::String& usd_file, const godot::Callable& on_done = godot::Callable());
 
     // --- high-level session flow ---
-    // Run the whole server-import lifecycle in the core: create the session,
-    // open its socket, and report readiness (emits `session_ready` with the
-    // resolved stage_url so the caller performs the engine-specific stage load
-    // and then calls attach_transform_sync). `end_session` tears the active
-    // session down (detach, close, delete) and emits `session_closed`.
-    // `on_done` (optional) reports only the create result: { "ok": true } once
-    // the session is created and its socket opened, or the failure Dictionary if
-    // creation fails. The ready/loaded lifecycle stays on `session_ready`.
+    
+    // Run the core server-import flow. 
+    // On success emits the `session_ready` signal with the resolved stage_url; the
+    // caller then loads the stage and calls attach_transform_sync. `on_done`
+    // (optional) reports only the create step: { "ok": true } once the session
+    // is created and its socket opened, or the failure dict. `end_session` emits
+    // `session_closed`.
     void begin_server_import(const godot::String& usd_file, const godot::String& mode = "single_edit",
                              const godot::Callable& on_done = godot::Callable());
     void end_session();
 
     // --- URL helpers (sync) ---
+    
     godot::String download_url(const godot::String& usd_file) const;
     godot::String ws_base_url() const;
 
     // --- WebSocket session ---
+    
     void open_session_socket(const godot::String& session_id, const godot::String& ws_url);
     void close_session_socket();
     bool is_socket_open() const;
@@ -110,17 +141,24 @@ public:
     void send_transform(const godot::String& prim_path, const godot::Transform3D& xform);
 
     // --- Transform sync ---
+    
     void attach_transform_sync(godot::Node* stage_node, bool remote);
     void detach_transform_sync();
     void arm_transform_sync();
     void notify_local_transform_changed(godot::Node* node);
 
-    // CollabObserver
+    // --- CollabObserver ---
+    
     void on_login_ok(const idtxflow::net::model::LoginResult& result) override;
     void on_health(const idtxflow::net::model::HealthResult& result) override;
     void on_thumbnail(const idtxflow::net::model::ThumbnailResult& result) override;
     void on_files(const std::vector<idtxflow::net::model::FileEntry>& files) override;
     void on_session_created(const idtxflow::net::model::SessionInfo& session) override;
+    void on_sessions(const std::vector<idtxflow::net::model::SessionInfo>& sessions) override;
+    void on_session_details(const idtxflow::net::model::SessionInfo& session) override;
+    void on_session_committed(const idtxflow::net::model::CommitResult& result) override;
+    void on_download_exists(const std::string& usd_file, bool exists) override;
+    void on_thumbnail_exists(const std::string& usd_file, bool exists) override;
     void on_request_failed(idtxflow::net::Op op, const idtxflow::net::model::RestError& error) override;
     void on_session_ready(const idtxflow::net::model::SessionInfo& session,
                           const std::string& stage_url, const std::string& ws_url) override;
@@ -162,6 +200,11 @@ private:
     std::vector<godot::Callable> thumbnail_cbs_;
     std::vector<godot::Callable> list_cbs_;
     std::vector<godot::Callable> create_cbs_;
+    std::vector<godot::Callable> sessions_cbs_;
+    std::vector<godot::Callable> session_details_cbs_;
+    std::vector<godot::Callable> commit_cbs_;
+    std::vector<godot::Callable> download_exists_cbs_;
+    std::vector<godot::Callable> thumbnail_exists_cbs_;
 
     static IdtxClient* singleton_;
 

@@ -99,7 +99,9 @@ Its public surface, by area:
 - **Config / auth** — `set_base_url`, `base_url`, `ws_base_url`, `download_url`,
   `is_authenticated`, `clear_credentials`.
 - **REST operations** (results delivered to the observer) — `login`, `health`,
-  `fetch_thumbnail`, `list_files`, `create_session`, `delete_session`.
+  `fetch_thumbnail`, `list_files`, `create_session`, `delete_session`,
+  `list_sessions`, `get_session`, `commit_session`, `check_download_exists`,
+  `check_thumbnail_exists`.
 - **High-level session flow** — `begin_session(usd_file, mode)` drives the whole
   server-import sequence (create the session, resolve the authenticated stage
   download URL and the full socket URL, open the socket, then report
@@ -142,14 +144,16 @@ once and turns each callback into engine-native events (e.g. Godot signals).
 background results through the dispatcher first).
 
 - **REST results** — `on_login_ok`, `on_health`, `on_thumbnail`, `on_files`,
-  `on_session_created`, `on_request_failed(Op, RestError)`.
+  `on_session_created`, `on_sessions`, `on_session_details`, `on_session_committed`,
+  `on_download_exists`, `on_thumbnail_exists`, `on_request_failed(Op, RestError)`.
 - **Session flow** — `on_session_ready(session, stage_url, ws_url)`,
   `on_session_closed(session_id)`.
 - **Socket lifecycle** — `on_socket_opened`, `on_handshake`, `on_remote_edit`,
   `on_ack`, `on_socket_error`, `on_disconnected`.
 
 `Op` (`Login`, `ListFiles`, `CreateSession`, `DeleteSession`, `Health`,
-`FetchThumbnail`) tags a failed REST call so the host can route the error.
+`FetchThumbnail`, `ListSessions`, `GetSession`, `CommitSession`, `CheckDownload`,
+`CheckThumbnail`) tags a failed REST call so the host can route the error.
 
 ---
 
@@ -205,15 +209,15 @@ not yet driven from here.
 | `/api/v1/auth/login` | No | POST | Authenticate a username/password against the IDP and return a JWT for authenticated endpoints. | ✅ `login` |
 | `/api/v1/health` | No | GET | Health check. | ✅ `health` |
 | `/api/v1/files` | Yes | GET | List files in the server's uploads folder (JSON). | ✅ `list_files` |
-| `/api/v1/download/<path>` | Yes | HEAD | 200 if a valid file exists at `<path>`. | — |
+| `/api/v1/download/<path>` | Yes | HEAD | 200 if a valid file exists at `<path>`. | ✅ `check_download_exists` |
 | `/api/v1/download/<path>` | Yes | GET | Return the file's contents. | ✅ stage download (JwtHttpFetcher) |
 | `/api/v1/upload` | Yes | POST | Upload a USD file (`.usd`, `.usda`, `.usdc`, `.usdz`). | — |
-| `/api/v1/thumbnail/<path>` | Yes | HEAD | 200 if a thumbnail exists for the USD file at `<path>`. | — |
+| `/api/v1/thumbnail/<path>` | Yes | HEAD | 200 if a thumbnail exists for the USD file at `<path>`. | ✅ `check_thumbnail_exists` |
 | `/api/v1/thumbnail/<path>` | Yes | GET | Return the generated thumbnail (PNG). | ✅ `fetch_thumbnail` |
-| `/api/v1/sessions` | Yes | GET | List active multi-user sessions. | — |
+| `/api/v1/sessions` | Yes | GET | List active multi-user sessions. | ✅ `list_sessions` |
 | `/api/v1/sessions` | Yes | POST | Create a session for a USD file (body `{ "usd_file": "scenes/foo.usda" }`). | ✅ `create_session` |
-| `/api/v1/sessions/<id>` | Yes | GET | Retrieve details for a session. | — |
-| `/api/v1/sessions/<id>/commit` | Yes | POST | Commit session changes to the original USD file. | — |
+| `/api/v1/sessions/<id>` | Yes | GET | Retrieve details for a session. | ✅ `get_session` |
+| `/api/v1/sessions/<id>/commit` | Yes | POST | Commit session changes to the original USD file. | ✅ `commit_session` |
 | `/api/v1/sessions/<id>` | Yes | DELETE | Tear down a session and disconnect all clients. | ✅ `delete_session` |
 | `/ws?sid=<id>` | Yes | WebSocket | Session socket for real-time edits (protobuf binary frames). | ✅ `SessionSocket` |
 

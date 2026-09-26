@@ -37,6 +37,13 @@ namespace adapters
         /// Parse a session response; false if no session id is present.
         static bool parse_session(const std::string& body, model::SessionInfo& out);
 
+        /// Parse the session listing (the "sessions" array); empty if absent.
+        static bool parse_sessions(const std::string& body, std::vector<model::SessionInfo>& out);
+
+        /// Parse a commit response { committed, session_id }; false if the body
+        /// is not a JSON object.
+        static bool parse_commit(const std::string& body, model::CommitResult& out);
+
         /// Map an HTTP status + body (+ transport error text) to a RestError.
         /// http_code 0 denotes a transport failure with no response.
         static model::RestError parse_error(int http_code,

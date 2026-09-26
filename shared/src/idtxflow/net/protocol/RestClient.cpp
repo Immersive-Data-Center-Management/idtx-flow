@@ -280,6 +280,135 @@ void RestClient::create_session(const std::string& usd_file, const std::string& 
     });
 }
 
+void RestClient::list_sessions(SessionsCb on_ok, ErrorCb on_err)
+{
+    ports::IHttpTransport::Request req;
+    req.method = "GET";
+    req.endpoint = "/api/v1/sessions";
+    if (!attach_auth(req, on_err)) return;
+
+    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp)
+    {
+        if (!resp.ok())
+        {
+            model::RestError err = adapters::RestCodec::parse_error(resp.status, resp.body, resp.error);
+            dispatcher_->post([this, err, on_err] { report_error(err, on_err); });
+            return;
+        }
+
+        std::vector<model::SessionInfo> sessions;
+        adapters::RestCodec::parse_sessions(resp.body, sessions);
+        dispatcher_->post([sessions, on_ok] { if (on_ok) on_ok(sessions); });
+    });
+}
+
+void RestClient::get_session(const std::string& session_id, SessionCb on_ok, ErrorCb on_err)
+{
+    ports::IHttpTransport::Request req;
+    req.method = "GET";
+    req.endpoint = "/api/v1/sessions/" + session_id;
+    if (!attach_auth(req, on_err)) return;
+
+    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp)
+    {
+        if (!resp.ok())
+        {
+            model::RestError err = adapters::RestCodec::parse_error(resp.status, resp.body, resp.error);
+            dispatcher_->post([this, err, on_err] { report_error(err, on_err); });
+            return;
+        }
+
+        model::SessionInfo si;
+        const bool parsed = adapters::RestCodec::parse_session(resp.body, si);
+        dispatcher_->post([this, parsed, si, resp, on_ok, on_err]
+        {
+            if (parsed)
+            {
+                if (on_ok) on_ok(si);
+            }
+            else
+            {
+                report_error(adapters::RestCodec::parse_error(resp.status, resp.body,
+                                                              "no session_id in response"),
+                             on_err);
+            }
+        });
+    });
+}
+
+void RestClient::commit_session(const std::string& session_id, CommitCb on_ok, ErrorCb on_err)
+{
+    ports::IHttpTransport::Request req;
+    req.method = "POST";
+    req.endpoint = "/api/v1/sessions/" + session_id + "/commit";
+    if (!attach_auth(req, on_err)) return;
+
+    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp)
+    {
+        if (!resp.ok())
+        {
+            // Includes 409 "nothing_to_commit" — surfaced to the caller as an error.
+            model::RestError err = adapters::RestCodec::parse_error(resp.status, resp.body, resp.error);
+            dispatcher_->post([this, err, on_err] { report_error(err, on_err); });
+            return;
+        }
+
+        model::CommitResult cr;
+        adapters::RestCodec::parse_commit(resp.body, cr);
+        dispatcher_->post([cr, on_ok] { if (on_ok) on_ok(cr); });
+    });
+}
+
+void RestClient::check_download_exists(const std::string& usd_file, ExistsCb on_ok, ErrorCb on_err)
+{
+    ports::IHttpTransport::Request req;
+    req.method = "HEAD";
+    req.endpoint = "/api/v1/download/" + usd_file;
+    if (!attach_auth(req, on_err)) return;
+
+    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp)
+    {
+        // 2xx => exists; 404 => a definitive "no", not an error. Anything else
+        // (405, transport failure, ...) is a genuine error.
+        if (resp.ok())
+        {
+            dispatcher_->post([on_ok] { if (on_ok) on_ok(true); });
+            return;
+        }
+        if (resp.status == 404)
+        {
+            dispatcher_->post([on_ok] { if (on_ok) on_ok(false); });
+            return;
+        }
+        model::RestError err = adapters::RestCodec::parse_error(resp.status, resp.body, resp.error);
+        dispatcher_->post([this, err, on_err] { report_error(err, on_err); });
+    });
+}
+
+void RestClient::check_thumbnail_exists(const std::string& usd_file, ExistsCb on_ok, ErrorCb on_err)
+{
+    ports::IHttpTransport::Request req;
+    req.method = "HEAD";
+    req.endpoint = "/api/v1/thumbnail/" + usd_file;
+    if (!attach_auth(req, on_err)) return;
+
+    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp)
+    {
+        if (resp.ok())
+        {
+            dispatcher_->post([on_ok] { if (on_ok) on_ok(true); });
+            return;
+        }
+        if (resp.status == 404)
+        {
+            dispatcher_->post([on_ok] { if (on_ok) on_ok(false); });
+            return;
+        }
+        model::RestError err = adapters::RestCodec::parse_error(resp.status, resp.body, resp.error);
+        dispatcher_->post([this, err, on_err] { report_error(err, on_err); });
+    });
+}
+
 void RestClient::delete_session(const std::string& session_id,
                                 DeletedCb on_ok, ErrorCb on_err)
 {

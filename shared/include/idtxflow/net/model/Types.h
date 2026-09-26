@@ -75,6 +75,13 @@ namespace model
         std::string protocol;        ///< e.g. "protobuf-binary"
     };
 
+    /// The outcome of committing a session's overrides back to the USD file.
+    struct CommitResult
+    {
+        std::string session_id;
+        bool        committed = false;
+    };
+
     /// The credentials returned by a successful login.
     struct LoginResult
     {

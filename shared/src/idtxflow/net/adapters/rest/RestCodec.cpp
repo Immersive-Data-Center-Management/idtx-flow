@@ -80,6 +80,19 @@ namespace
         }
         return 0;
     }
+
+    // Read the seven session fields from a JSON object into a SessionInfo.
+    // Shared by parse_session (single) and parse_sessions (list)
+    void read_session(const pxr::JsObject& o, model::SessionInfo& out)
+    {
+        out.session_id   = js_get_string(o, "session_id");
+        out.usd_file     = js_get_string(o, "usd_file");
+        out.mode         = js_get_string(o, "mode");
+        out.client_count = js_get_int(o, "client_count");
+        out.created_at   = js_get_int(o, "created_at");
+        out.ws_url       = js_get_string(o, "ws_url");
+        out.protocol     = js_get_string(o, "protocol");
+    }
 } // namespace
 
 bool RestCodec::parse_login(const std::string& body, model::LoginResult& out)
@@ -146,15 +159,63 @@ bool RestCodec::parse_session(const std::string& body, model::SessionInfo& out)
     }
     const pxr::JsObject& o = parsed.GetJsObject();
 
-    out.session_id   = js_get_string(o, "session_id");
-    out.usd_file     = js_get_string(o, "usd_file");
-    out.mode         = js_get_string(o, "mode");
-    out.client_count = js_get_int(o, "client_count");
-    out.created_at   = js_get_int(o, "created_at");
-    out.ws_url       = js_get_string(o, "ws_url");
-    out.protocol     = js_get_string(o, "protocol");
-
+    read_session(o, out);
     return !out.session_id.empty();
+}
+
+bool RestCodec::parse_sessions(const std::string& body, std::vector<model::SessionInfo>& out)
+{
+    pxr::JsParseError perr;
+    pxr::JsValue parsed = pxr::JsParseString(body, &perr);
+
+    // Accept either { "sessions": [ ... ] } (the backend shape) or a bare array,
+    // for robustness against a wrapper-less response.
+    const pxr::JsArray* arr = nullptr;
+    if (parsed.IsObject())
+    {
+        const pxr::JsObject& o = parsed.GetJsObject();
+        auto it = o.find("sessions");
+        if (it == o.end() || !it->second.IsArray())
+        {
+            return true;   // valid response with no sessions
+        }
+        arr = &it->second.GetJsArray();
+    }
+    else if (parsed.IsArray())
+    {
+        arr = &parsed.GetJsArray();
+    }
+    else
+    {
+        IDTX_LOG(IDTX_WARN, "parse_sessions: response body is neither object nor array");
+        return false;
+    }
+
+    for (const pxr::JsValue& entry : *arr)
+    {
+        if (!entry.IsObject()) continue;
+        model::SessionInfo si;
+        read_session(entry.GetJsObject(), si);
+        out.push_back(std::move(si));
+    }
+    return true;
+}
+
+bool RestCodec::parse_commit(const std::string& body, model::CommitResult& out)
+{
+    pxr::JsParseError perr;
+    pxr::JsValue parsed = pxr::JsParseString(body, &perr);
+    if (!parsed.IsObject())
+    {
+        IDTX_LOG(IDTX_WARN, "parse_commit: response body is not a JSON object");
+        return false;
+    }
+    const pxr::JsObject& o = parsed.GetJsObject();
+
+    out.session_id = js_get_string(o, "session_id");
+    auto it = o.find("committed");
+    out.committed = (it != o.end() && it->second.IsBool()) ? it->second.GetBool() : false;
+    return true;
 }
 
 model::RestError RestCodec::parse_error(int http_code,

@@ -35,6 +35,9 @@ namespace net
         using ThumbnailCb = std::function<void(const model::ThumbnailResult&)>;
         using FilesCb   = std::function<void(const std::vector<model::FileEntry>&)>;
         using SessionCb = std::function<void(const model::SessionInfo&)>;
+        using SessionsCb = std::function<void(const std::vector<model::SessionInfo>&)>;
+        using CommitCb = std::function<void(const model::CommitResult&)>;
+        using ExistsCb = std::function<void(bool)>;
         using DeletedCb = std::function<void()>;
         using ErrorCb   = std::function<void(const model::RestError&)>;
 
@@ -72,6 +75,25 @@ namespace net
         /// POST /sessions { usd_file, mode }. Authenticated.
         void create_session(const std::string& usd_file, const std::string& mode,
                             SessionCb on_ok, ErrorCb on_err);
+
+        /// GET /sessions — list all currently active sessions. Authenticated.
+        void list_sessions(SessionsCb on_ok, ErrorCb on_err);
+
+        /// GET /sessions/<id> — details for one session. Authenticated.
+        void get_session(const std::string& session_id, SessionCb on_ok, ErrorCb on_err);
+
+        /// POST /sessions/<id>/commit — merge a session's overrides back into the
+        /// original USD file. Authenticated. A 409 "nothing_to_commit" is reported
+        /// through on_err like any other backend error.
+        void commit_session(const std::string& session_id, CommitCb on_ok, ErrorCb on_err);
+
+        /// HEAD /download/<usd_file> — existence probe. Authenticated. on_ok(true)
+        /// on 2xx, on_ok(false) on 404; any other status is an error.
+        void check_download_exists(const std::string& usd_file, ExistsCb on_ok, ErrorCb on_err);
+
+        /// HEAD /thumbnail/<usd_file> — existence probe. Authenticated. on_ok(true)
+        /// on 2xx, on_ok(false) on 404; any other status is an error.
+        void check_thumbnail_exists(const std::string& usd_file, ExistsCb on_ok, ErrorCb on_err);
 
         /// DELETE /sessions/<id>. 2xx and 404 both count as "gone". Authenticated.
         void delete_session(const std::string& session_id,

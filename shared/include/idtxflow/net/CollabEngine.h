@@ -58,25 +58,51 @@ namespace net
         void initialize(const CollabPorts& ports, CollabObserver* observer);
         /// Tear down: stop the tick, close the socket, detach the stage. Idempotent.
         void shutdown();
+        /// Whether initialize() has run and the engine is wired up.
         bool is_initialized() const { return initialized_; }
 
         // --- configuration / auth ---
+        
+        /// Point the client at a backend base URL (clears any cached thumbnails).
         void set_base_url(const std::string& url);
+        /// The configured backend base URL, or "" if unset.
         std::string base_url() const;
+        /// The WebSocket base derived from the HTTP base (http->ws, https->wss).
         std::string ws_base_url() const;
+        /// Compose the full authenticated USD download URL for a file.
         std::string download_url(const std::string& usd_file) const;
+        /// Whether a bearer token is currently held.
         bool is_authenticated() const;
+        /// Drop the stored token and any cached credentials.
         void clear_credentials();
 
         // --- REST operations (results delivered to the observer) ---
+        
+        /// Authenticate and store the token; result via on_login_ok / on_request_failed.
         void login(const std::string& username, const std::string& password);
+        /// Probe backend reachability; result via on_health / on_request_failed.
         void health();
+        /// Fetch a file's thumbnail image; result via on_thumbnail / on_request_failed.
         void fetch_thumbnail(const std::string& usd_file);
+        /// List server USD files (optional name/extension filters); result via on_files / on_request_failed.
         void list_files(const std::string& name_contains, const std::string& extension);
+        /// Create a session for a file; result via on_session_created / on_request_failed.
         void create_session(const std::string& usd_file, const std::string& mode);
+        /// List active sessions; result via on_sessions / on_request_failed.
+        void list_sessions();
+        /// Retrieve one session's details; result via on_session_details / on_request_failed.
+        void get_session(const std::string& session_id);
+        /// Commit a session's overrides to the USD file; result via on_session_committed / on_request_failed.
+        void commit_session(const std::string& session_id);
+        /// Probe whether a file exists (no download); result via on_download_exists / on_request_failed.
+        void check_download_exists(const std::string& usd_file);
+        /// Probe whether a thumbnail exists (no download); result via on_thumbnail_exists / on_request_failed.
+        void check_thumbnail_exists(const std::string& usd_file);
+        /// Delete a session; failures reported via on_request_failed (no success callback).
         void delete_session(const std::string& session_id);
 
         // --- high-level session flow ---
+        
         // Drive the whole server-import lifecycle: create the session, compute
         // the authenticated stage download URL, open the session socket, then
         // report on_session_ready so the host performs the engine-specific stage
@@ -90,13 +116,20 @@ namespace net
         void end_session();
 
         // --- session socket ---
+        
+        /// Open the collaboration WebSocket for a session; lifecycle via
+        /// on_socket_opened / on_handshake / on_disconnected / on_socket_error.
         void open_session_socket(const std::string& session_id, const std::string& ws_url);
+        /// Close the collaboration WebSocket (reports on_disconnected).
         void close_session_socket();
+        /// Whether the session socket is currently open.
         bool is_socket_open() const;
 
         // --- transform sync (TfNotice-as-source) ---
+        
         // Attach the live stage for a loaded session; `remote` enables broadcasting.
         void attach_stage(ports::IStageBridge* stage, bool remote);
+        /// Detach the current stage (stops applying/broadcasting edits).
         void detach_stage();
         // Enable broadcasting once the stage has settled, so conversion-time writes
         // don't phantom-broadcast.
