@@ -230,7 +230,7 @@ graph TB
   dispatcher/ticker/clock, USD nodes, module registration, and the USD HTTP asset resolver.
 - **[import-manager.md](import-manager.md)** — the editor UI: the plugin/main screen and the import wizard
   (steps, providers, widgets) for local and server imports.
-- **[flows.md](flows.md)** — end-to-end user flows (local import, server download, server collaboration
+- **[flows.md](flows.md)** — end-to-end user flows (local import, server download, create/join collaboration
   session) and the session lifecycle.
 - **[transform-sync-flow.md](transform-sync-flow.md)** — deep dive on how a single transform
   edit travels inbound and outbound between the editor and collaborating peers.
@@ -240,6 +240,6 @@ graph TB
 ## Supported flows at a glance
 
 - **Local import** — pick a USD file from `res://` and import it into the current or a new scene. No backend.
-- **Server download import** — log in to an asset server, browse its files, and import a USD via an authenticated download.
-- **Server collaboration session** — as above, but open a live session: a WebSocket is opened
-  and the loaded stage is wired for real-time transform sync with other peers.
+- **Server download import** — log in to an asset server, browse its files, and import a USD via an authenticated download (into the current or a new scene). No session.
+- **Create collaboration session** — as above, but open a live session for the file (single-edit or collaborative-edit): a WebSocket is opened and the stage is wired for real-time transform sync with other peers. Always a new scene.
+- **Join collaboration session** — join a running collaborative-edit session for the selected file; same live transform sync. Always a new scene.

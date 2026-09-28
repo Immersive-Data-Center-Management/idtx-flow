@@ -26,13 +26,30 @@ func _enter_tree() -> void:
 	# Hidden by default; the editor shows it when the user selects this main screen.
 	_make_visible(false)
 
+	# Prune any stray transient session scenes left by a prior crash / hard close.
+	if _main_screen.has_method("prune_stale_session_scenes"):
+		_main_screen.prune_stale_session_scenes()
+
+	# A session-backed scene tab being closed is an implicit "leave session":
+	# forward scene_closed to the wizard so it can tear the session down and
+	# delete the transient file.
+	scene_closed.connect(_on_scene_closed)
+
 	# Register the custom Inspector row (with "Connect" reload button) for
 	# UsdStageNode3D.stage_uri.
 	_inspector_plugin = UsdStageInspectorPlugin.new()
 	add_inspector_plugin(_inspector_plugin)
 
 
+func _on_scene_closed(filepath: String) -> void:
+	if _main_screen != null and _main_screen.has_method("on_session_scene_closed"):
+		_main_screen.on_session_scene_closed(filepath)
+
+
 func _exit_tree() -> void:
+	if scene_closed.is_connected(_on_scene_closed):
+		scene_closed.disconnect(_on_scene_closed)
+
 	if _inspector_plugin != null:
 		remove_inspector_plugin(_inspector_plugin)
 		_inspector_plugin = null

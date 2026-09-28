@@ -45,12 +45,22 @@ const STEP_CONFIGURE_PATH     := "res://addons/IDTXFlow/import_manager/step_conf
 #   "destination"  : "current" (import under selected/root of current scene)
 #                    or "new" (create a fresh scene with the stage as root).
 #                    Session actions (create/join) always force "new".
+#   "action"        : the step-3 import mode — "current" / "new" /
+#                     "create_session" / "join_session".
+#   "session_id"    : the active session id (session imports only), captured on
+#                     session_ready; used to name/track the transient scene.
 var _import_state: Dictionary = {
 	"source": "",
 	"selected_path": "",
 	"selected_meta": {},
 	"destination": "current",
+	"action": "current",
+	"session_id": "",
 }
+
+# Transient session scenes we created, keyed by session_id -> scene path.
+# See _session_scene_path (storage) and _cleanup_session_scene (teardown).
+var _session_scenes: Dictionary = {}
 
 # Set to true while we've hooked into EditorSelection.selection_changed so the
 # step-3 "Target:" info line updates live. Reset when leaving step 3.
@@ -362,6 +372,64 @@ func _teardown_active_session() -> void:
 	var client := _idtx()
 	if client and client.has_method("end_session"):
 		client.end_session()
+	# Delete any transient session scenes we created 
+	_cleanup_all_session_scenes()
+
+
+## Delete the transient scene file for a tracked session. `session_id` must be a
+## tracked id. The scene may still be open as an editor tab; there is no API to
+## programmatically close a specific tab, so we delete the file and leave any
+## empty tab for the user to close
+func _cleanup_session_scene(session_id: String) -> void:
+	if not _session_scenes.has(session_id):
+		return
+	var path: String = _session_scenes[session_id]
+	_session_scenes.erase(session_id)
+	if FileAccess.file_exists(path):
+		var err := DirAccess.remove_absolute(path)
+		print("[IDTXFlow] [Import Manager] Removed transient session scene '%s' (err=%d)." % [path, err])
+	_remove_session_dir_if_empty()
+
+
+## Delete every tracked transient session scene (teardown / editor close).
+func _cleanup_all_session_scenes() -> void:
+	for sid in _session_scenes.keys().duplicate():
+		_cleanup_session_scene(sid)
+
+
+## A tracked session scene's editor tab was closed by the user (EditorPlugin
+## scene_closed). Treat it as an implicit "leave session": tear the session down
+## and delete the transient file. Ignores non-session paths.
+func on_session_scene_closed(filepath: String) -> void:
+	for sid in _session_scenes.keys().duplicate():
+		if _session_scenes[sid] == filepath:
+			print("[IDTXFlow] [Import Manager] Session scene tab closed; leaving session '%s'." % sid)
+			_teardown_active_session()
+			return
+
+
+## Remove the hidden session-scene directory if it is now empty, so we don't
+## leave an empty folder behind in the project.
+func _remove_session_dir_if_empty() -> void:
+	if not _session_scenes.is_empty():
+		return
+	var dir := DirAccess.open("res://.idtxflow_sessions")
+	if dir == null:
+		return
+	if dir.get_files().is_empty() and dir.get_directories().is_empty():
+		DirAccess.remove_absolute("res://.idtxflow_sessions")
+
+
+## Delete any stray transient session scenes left by a prior crash / hard close
+## where scene_closed / _exit_tree never fired. Called once at plugin startup.
+func prune_stale_session_scenes() -> void:
+	var dir := DirAccess.open("res://.idtxflow_sessions")
+	if dir == null:
+		return
+	for f in dir.get_files():
+		if f.ends_with(".tscn"):
+			DirAccess.remove_absolute("res://.idtxflow_sessions/%s" % f)
+	_remove_session_dir_if_empty()
 
 
 func _reset_and_go_home() -> void:
@@ -400,6 +468,7 @@ func _perform_import() -> void:
 	var action: String = "current"
 	if _step_configure.has_method("get_import_action"):
 		action = _step_configure.get_import_action()
+	_import_state["action"] = action
 
 	# Download-only actions (Options 1/2) carry their own destination; session
 	# actions (Options 3/4) force a new scene.
@@ -527,6 +596,8 @@ func _on_session_ready(session: Dictionary, stage_url: String) -> void:
 	var sid: String = session.get("session_id", "")
 	var ws_url: String = session.get("ws_url", "")
 	print("[IDTXFlow] [Import Manager] Session created: session_id=%s  ws_url=%s" % [sid, ws_url])
+	# Remember the id so the transient scene can be named/tracked and torn down.
+	_import_state["session_id"] = sid
 
 	var destination: String = _import_state.get("destination", "current")
 	if destination == "new":
@@ -643,7 +714,16 @@ func _finalize_new_scene_import(stage_node: Node, file_path: String) -> void:
 		stage_node.queue_free()
 		return
 
-	var target_path := _next_unused_res_scene_path(stage_node.name)
+	# Session imports (create/join) get a transient scene; downloads get a kept
+	# res:// asset. See _session_scene_path / _cleanup_session_scene.
+	var is_session := _is_session_import()
+	var session_id: String = _import_state.get("session_id", "")
+	var target_path: String
+	if is_session:
+		target_path = _session_scene_path(session_id, stage_node.name)
+	else:
+		target_path = _next_unused_res_scene_path(stage_node.name)
+
 	var save_err := ResourceSaver.save(packed, target_path)
 	if save_err != OK:
 		push_error("[IDTXFlow] [Import Manager] Failed to save scene '%s' (err=%d); aborting." % [target_path, save_err])
@@ -667,6 +747,11 @@ func _finalize_new_scene_import(stage_node: Node, file_path: String) -> void:
 
 	print("[IDTXFlow] [Import Manager] Imported '%s' as '%s'." % [file_path, target_path])
 
+	# Track transient session scenes so they can be cleaned up on scene_closed /
+	# teardown / editor close.
+	if is_session and not session_id.is_empty():
+		_session_scenes[session_id] = target_path
+
 	_editor_interface.set_main_screen_editor("3D")
 	var new_stage_node := _find_stage_node(new_scene_root)
 	if new_stage_node:
@@ -684,6 +769,28 @@ func _finalize_new_scene_import(stage_node: Node, file_path: String) -> void:
 				client.attach_transform_sync(new_stage_node, true)
 
 	_reset_and_go_home()
+
+
+## True for a live collaboration session import (create/join). See
+## _session_scene_path for how session scenes are stored and cleaned up.
+func _is_session_import() -> bool:
+	var action: String = _import_state.get("action", "")
+	return action == "create_session" or action == "join_session"
+
+
+## Path for a transient session-backed scene. Lives in a hidden
+## res://.idtxflow_sessions/ folder (dot-prefixed → ignored by the FileSystem
+## dock and the import pipeline) so it is never treated as a project asset; the
+## folder is created on demand and removed when the last session scene is gone.
+func _session_scene_path(session_id: String, basename: String) -> String:
+	var dir := "res://.idtxflow_sessions"
+	DirAccess.make_dir_recursive_absolute(dir)
+	var stem: String = session_id
+	if stem.is_empty():
+		stem = basename if not basename.is_empty() else "UsdSession"
+	# Sanitize the id into a filesystem-safe stem.
+	stem = stem.validate_filename()
+	return "%s/%s.tscn" % [dir, stem]
 
 
 ## Returns the first path of the form `res://<basename>.tscn` (or `_1`, `_2`,
