@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package idtxcore;
+
+message Vector3 {
+    double x = 1;
+    double y = 2;
+    double z = 3;
+}
+
+// Represents a 4x4 transformation matrix
+message Matrix4dTransform {
+    double m00 = 1;
+    double m01 = 2;
+    double m02 = 3;
+    double m03 = 4;
+    double m10 = 5;
+    double m11 = 6;
+    double m12 = 7;
+    double m13 = 8;
+    double m20 = 9;
+    double m21 = 10;
+    double m22 = 11;
+    double m23 = 12;
+    double m30 = 13;
+    double m31 = 14;
+    double m32 = 15;
+    double m33 = 16;
+}
+
+message SeparateTransform {
+    Vector3 translation = 1;
+    Vector3 rotation = 2;
+    Vector3 scale = 3;
+}
+
+message TransformUpdate {
+    string session_id = 1;
+    string usd_file = 2;
+    string prim_path = 3;
+    oneof transform {
+        SeparateTransform seperate = 4;
+        Matrix4dTransform matrix = 5;
+    }
+    int64 timestamp = 7;
+}
+
+message TransformBroadcast {
+    string client_id = 1;
+    TransformUpdate update = 2;
+}

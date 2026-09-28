@@ -58,6 +58,14 @@ def _build_extension(env):
     
     extension_env = env.Clone()
 
+    # Protobuf: runtime include dir + the generated idtxcore.* sources directory.
+    # BuildProtobuf() (scons/protobuf.py) publishes these on the env; GenerateProtoSources()
+    # writes the *.pb.{cc,h} into proto_gen_dir.
+    protobuf_include_dir = env.get("protobuf_include_dir", "")
+    protobuf_lib_dir = env.get("protobuf_lib_dir", "")
+    protobuf_lib_name = env.get("protobuf_lib_name", "")
+    proto_gen_dir = os.path.join("shared", "src", "idtxflow", "net", "proto_gen")
+
     # Include paths
     extension_env.Append(CPPPATH=[
         "source",
@@ -70,7 +78,10 @@ def _build_extension(env):
         f"{shared_include_path}",
         f"{ixws_path}",
         f"{usd_extension_path}/include",
+        proto_gen_dir,  # generated *.pb.h live alongside the *.pb.cc
     ])
+    if protobuf_include_dir:
+        extension_env.Append(CPPPATH=[protobuf_include_dir])
 
     # Library paths
     extension_env.Append(LIBPATH=[
@@ -80,6 +91,8 @@ def _build_extension(env):
         f"{ixws_build_dir}/Release" if platform_name == "windows" else f"{ixws_build_dir}",
         f"{shared_lib_path}/{platform_name}",
     ])
+    if protobuf_lib_dir:
+        extension_env.Append(LIBPATH=[protobuf_lib_dir])
 
     # OpenSSL library/include paths (platform-specific)
     # prefer system/Homebrew OpenSSL, fall back to vcpkg install
@@ -128,6 +141,10 @@ def _build_extension(env):
         "ixwebsocket",
         "libidtx_usd",  # USD extension library
     ]
+
+    # protobuf runtime (static) for the idtxcore.* generated messages
+    if protobuf_lib_name:
+        libs.append(protobuf_lib_name)
 
     # OpenSSL static libs (all platforms)
     if platform_name == "windows":
@@ -198,6 +215,21 @@ def _build_extension(env):
     except ValueError:
         # Handle case where paths are on different drives - just exclude by simple path check
         sources = [s for s in sources if exclude_dir not in s.get_dir().get_path()]
+
+    # Generated protobuf sources (idtxcore.* wire messages). These live under shared/
+    # (engine-agnostic contract) rather than source/, so add them explicitly — the
+    # glob above only covers source/**.
+    proto_sources = extension_env.Glob(os.path.join(proto_gen_dir, "*.pb.cc"))
+    sources += proto_sources
+
+    # Engine-agnostic collaboration sources under shared/.../net/ (net/, wire/,
+    # net/, adapters/**). SCons Glob does not recurse through '**', so use Python's
+    # recursive glob and hand the explicit files to the build. The generated
+    # *.pb.cc are added separately above (this matches only *.cpp, so proto sources
+    # are not double-added), and the set()-dedup on `sources` guards any overlap.
+    net_glob = os.path.join("shared", "src", "idtxflow", "net", "**", "*.cpp")
+    net_sources = [extension_env.File(p) for p in glob.glob(net_glob, recursive=True)]
+    sources += net_sources
     
     if build_target in ["editor", "template_debug"]:
         print("Generating doc data..")
@@ -305,6 +337,7 @@ def _copy_third_party_licenses(target, source, env):
     license_files = [
         ("thirdparty/godot-cpp/LICENSE.md", "godot-cpp-LICENSE.md"),
         ("thirdparty/ixwebsocket/LICENSE.txt", "ixwebsocket-LICENSE.txt"),
+        ("thirdparty/protobuf/LICENSE", "protobuf-LICENSE.txt"),
         ("thirdparty/mdl_sdk/LICENSE.md", "mdl-sdk-LICENSE.md"),
         ("thirdparty/mdl_sdk/LICENSE_THIRDPARTY.md", "mdl-sdk-LICENSE_THIRDPARTY.md"),
         (f"{open_usd_src_path}/LICENSE.txt", "openusd-LICENSE.txt"),

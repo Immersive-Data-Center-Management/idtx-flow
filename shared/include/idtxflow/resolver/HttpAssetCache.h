@@ -287,11 +287,12 @@ namespace resolver
             // Fast path: already cached
             if (entry->state == FetchState::Cached)
             {
-                return entry->local_path;
+                // check if cached file really exists, if so return the path to it
+                if (std::filesystem::exists(entry->local_path)) return entry->local_path;
             }
 
-            // If idle, kick off the fetch
-            if (entry->state == FetchState::Idle)
+            // If idle or failed, kick off the fetch
+            if (entry->state == FetchState::Idle || entry->state == FetchState::Failed)
             {
                 entry->state = FetchState::Fetching;
                 entry->local_path = UrlToCachePath(url);
@@ -299,6 +300,9 @@ namespace resolver
                 // Launch fetch on a detached worker — entry lifetime is managed by shared_ptr
                 std::string url_copy = url;
                 auto entry_ref = entry;
+                // ensure a previous running fetch-thread for this entry is joined, otherwise, reassignment will
+                // abort the thread and throw
+                if (entry->fetch_thread.joinable()) entry->fetch_thread.join();
                 entry->fetch_thread = std::thread([this, url_copy, entry_ref]()
                 {
                     bool success = fetcher_(url_copy, entry_ref->local_path);

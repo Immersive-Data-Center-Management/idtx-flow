@@ -9,6 +9,8 @@
 /__pycache__
 */**/__pycache__
 /source/gen
+# protoc-generated idtxcore.* C++ sources (regenerated from shared/proto/idtxcore/*.proto)
+/shared/src/idtxflow/net/proto_gen
 /templates/extension_template/thirdparty
 /templates/extension_template/build
 /templates/extension_template/addons/*/**/bin

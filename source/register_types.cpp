@@ -9,6 +9,10 @@
 #include <idtxflow/resolver/HttpResolver.h>
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
 #include <idtxflow/exec/ExecBridgeManager.h>
+#include <idtxflow/net/CollabComposition.h>
+#include <idtxflow/net/adapters/transport/ix/IxTransportFactory.h>
+
+#include <godot_cpp/classes/engine.hpp>
 
 #include <idtx/EnvironmentProvider.h>
 
@@ -18,6 +22,7 @@
 #include "nodes/UsdMultiMeshInstanceNode3D.h"
 #include "nodes/UsdRestDatasourceNode3D.h"
 #include "nodes/UsdXFormNode3D.h"
+#include "collab/IdtxClient.h"
 #include "utils/IDTXFlowGodotLogger.h"
 #include "exec/GodotEnvironmentProviders.h"
 
@@ -82,6 +87,16 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     GDREGISTER_CLASS(UsdMockDatasourceFloatNode3D)
     GDREGISTER_CLASS(UsdRestDatasourceNode3D)
     GDREGISTER_CLASS(UsdStaticBodyNode3D)
+    GDREGISTER_CLASS(IdtxClient)
+
+    // Create and register the collaboration client as the engine singleton
+    // "IdtxClient" from module init (before any script runs), then start it, so
+    // it is reachable via Engine.get_singleton("IdtxClient") and its poll() is
+    // driven by the frame ticker.
+    IdtxClient* idtx_client = memnew(IdtxClient);
+    IdtxClient::set_singleton(idtx_client);
+    Engine::get_singleton()->register_singleton("IdtxClient", idtx_client);
+    idtx_client->initialize(std::make_unique<idtxflow::net::adapters::IxTransportFactory>());
     
 #ifdef IDTXFLOW_MDL_ENABLED
     // activate the mdl material conversion
@@ -96,9 +111,13 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     idtxflow::converter::StartupMdlMaterialConverter(extension_dir, additionalModulPaths);
 #endif
     
-    // Configure the HTTP asset resolver with the default IXWebSocket-based fetcher
-    pxr::UsdHttpAssetResolver::Configure(
-        ProjectSettings::get_singleton()->globalize_path("user://usd_cache").utf8().get_data());
+    // Configure the HTTP asset resolver with a JWT-injecting fetcher so protected
+    // /api/v1/download/<usd_file> assets can be fetched. The shared composition
+    // helper builds the fetcher (a transport from the factory + the shared token, read at fetch time)
+    idtxflow::net::adapters::IxTransportFactory asset_transport_factory;
+    pxr::UsdHttpAssetResolver::ConfigureWithFetcher(
+        ProjectSettings::get_singleton()->globalize_path("user://usd_cache").utf8().get_data(),
+        idtxflow::net::make_jwt_fetcher(asset_transport_factory));
 
     // Register the host-side environment providers with the USD library's registry BEFORE the
     // exec worker thread starts, so the Compute_Environment node can resolve values from the
@@ -125,6 +144,14 @@ void uninitialize_idtxflow_module(ModuleInitializationLevel p_level) {
     
     // Stop the openExec computation bridge
     idtxflow::exec::ExecBridgeManager::Instance().Cancel();
+
+    // Tear down and free the collaboration singleton created at init.
+    if (IdtxClient* idtx_client = IdtxClient::get_singleton())
+    {
+        idtx_client->shutdown();
+        memdelete(idtx_client);
+    }
+
     // Unregister the host-side environment providers only AFTER the exec worker thread has
     // been cancelled above. This guarantees no in-flight computation can dereference a
     // provider pointer while / after it is being removed. The provider objects are host-owned;

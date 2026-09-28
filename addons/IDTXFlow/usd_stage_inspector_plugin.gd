@@ -1,15 +1,25 @@
 @tool
 extends EditorInspectorPlugin
 
-## Custom Inspector plugin for UsdStageNode3D.
+## Custom Inspector plugin for UsdStageNode3D (experimental).
 ##
-## Purpose: give the user an explicit "Connect" button next to the
-## `stage_uri` property. Setting `stage_uri` is what triggers the actual
-## USD import, but Godot's default Inspector only re-calls the setter
-## when the value *changes*. Users who want to retry / reload with the
-## same URI (server was offline, credentials just fixed, etc.) currently
-## have no way to force that. The Connect button re-applies the current
-## text so the setter fires again.
+## Adds a "Connect" button next to the `stage_uri` property. Setting `stage_uri`
+## is what triggers the USD import, and Godot's Inspector only re-runs the setter
+## when the value changes, so this button re-applies the current URI to (re)load.
+##
+## Known limitation: when the URI is unchanged the button is a no-op —
+## UsdStageNode3D::set_stage_uri early-returns on an equal value, so there is no
+## forced reload/retry. A true reload/retry for a server stage would also need
+## the authenticated login + session context that the Import wizard sets up
+## (bearer token / collaboration session), which this standalone inspector does
+## not have, so it is intentionally left out here.
+##
+## Possible future direction: expose an explicit reload entry point on the native
+## node — a bound reload() (or reopen_stage()) that re-runs the open/convert path
+## regardless of the current value — and have "Connect" call object.call("reload")
+## instead of re-setting stage_uri (relaxing the setter's equality guard is worse,
+## as it would also reload on redundant editor writes). For a server stage this
+## reload path would still need the importer's auth + session context.
 
 
 func _can_handle(object) -> bool:
@@ -32,11 +42,12 @@ func _parse_property(object, type, name, hint_type, hint_string, usage_flags, wi
 	)
 	hbox.add_child(line_edit)
 
-	# "Connect" button: re-applies the current URI to force the setter
-	# to run again (equivalent to a Reload / Retry action).
+	# "Connect" re-applies the current URI. No-op while the URI is unchanged
+	# (set_stage_uri ignores an equal value); see the header for why a forced
+	# server reload is out of scope here.
 	var connect_btn := Button.new()
 	connect_btn.text = "Connect"
-	connect_btn.tooltip_text = "Re-apply the current URI to reload the stage."
+	connect_btn.tooltip_text = "Re-applies the URI; reloads only when it changed."
 	connect_btn.pressed.connect(func() -> void:
 		object.set("stage_uri", line_edit.text)
 	)

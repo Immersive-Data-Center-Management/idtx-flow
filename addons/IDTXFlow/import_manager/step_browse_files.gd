@@ -13,7 +13,7 @@ extends VBoxContainer
 signal file_selected(path: String)
 signal back_requested
 signal cancel_requested
-signal next_requested
+signal confirm_requested
 
 const WizardTheme       := preload("res://addons/IDTXFlow/import_manager/wizard_theme.gd")
 const WizardHeader      := preload("res://addons/IDTXFlow/import_manager/wizard_header.gd")
@@ -43,7 +43,7 @@ func _ready() -> void:
 func _build() -> void:
 	var header := WizardHeader.new()
 	add_child(header)
-	header.setup(2, 4, "Browse:", "Select file to import")
+	header.setup(2, 3, "Browse:", "Select file to import")
 
 	_browser = WizardFileBrowser.new()
 	_browser.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -68,13 +68,16 @@ func _build() -> void:
 	_browser.set_side_panel(_detail_panel)
 
 	_browser.file_selected.connect(_on_browser_file_selected)
+	_browser.file_activated.connect(_on_browser_file_activated)
+	# Local browse doesn't surface async listing status, but connecting keeps
+	# the contract explicit and harmless.
 
 	_footer = WizardFooter.new()
 	add_child(_footer)
 	_footer.setup(true, "Next", false)
 	_footer.back_pressed.connect(func(): back_requested.emit())
 	_footer.cancel_pressed.connect(func(): cancel_requested.emit())
-	_footer.primary_pressed.connect(_on_next_pressed)
+	_footer.primary_pressed.connect(_on_confirm)
 	_footer.set_primary_enabled(false)
 
 
@@ -82,7 +85,8 @@ func _build() -> void:
 # Browser events
 # ---------------------------------------------------------------------------
 
-func _on_browser_file_selected(path: String) -> void:
+## Populate the detail panel from `path` (read off disk); local `meta` is empty and ignored
+func _on_browser_file_selected(path: String, _meta: Dictionary) -> void:
 	_selected_file = path
 	if _detail_panel and _detail_panel.has_method("populate"):
 		_detail_panel.populate(path)
@@ -91,22 +95,33 @@ func _on_browser_file_selected(path: String) -> void:
 	file_selected.emit(path)
 
 
-func _on_next_pressed() -> void:
+## Double-click / Enter on a file: apply the selection then commit
+func _on_browser_file_activated(path: String, meta: Dictionary) -> void:
+	_on_browser_file_selected(path, meta)
+	_on_confirm()
+
+
+func _on_confirm() -> void:
 	if _selected_file.is_empty():
 		return
-	next_requested.emit()
+	confirm_requested.emit()
 
 
 # ---------------------------------------------------------------------------
 # Public API (kept for import_manager.gd compatibility)
 # ---------------------------------------------------------------------------
 
+## Clear selection state and re-list from the server root
 func reset() -> void:
-	_selected_file = ""
+	clear_selection()
 	if _browser:
 		_browser.set_current_dir(ROOT_PATH)
-	# Reset the detail card back to its empty state on step re-entry (the
-	# panel is always visible on step 2 — we don't hide it).
+
+
+## Clear selection state only (no re-list). Used when leaving the wizard (cancel/
+## home) so we don't repopulate a view the user is leaving
+func clear_selection() -> void:
+	_selected_file = ""
 	if _detail_panel and _detail_panel.has_method("populate"):
 		_detail_panel.populate("")
 	if _footer:
