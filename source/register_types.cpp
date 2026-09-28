@@ -73,6 +73,26 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
 
     // Initialize logger
     idtxflow::utils::Log::set_logger(&g_logger);
+
+#ifdef _WIN32
+    // Pin this DLL so it outlives OpenUSD's static teardown. Ar keeps our resolver
+    // instances (res://, user://, http) in a static inside usd_ms.dll and destroys
+    // them at process exit, but their vtables live here; Godot unloads the extension
+    // first, so exit crashes with 0xC0000005 once any of those schemes was resolved.
+    // Ar has no API to unregister a resolver. Trade-off: GDExtension hot-reload no
+    // longer works for this library. Cleaner long-term fix: move the resolvers into
+    // libidtx_usd.dll, whose lifetime already matches Ar's registry.
+    {
+        HMODULE self = nullptr;
+        if (!GetModuleHandleExW(
+                GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+                reinterpret_cast<LPCWSTR>(&initialize_idtxflow_module),
+                &self))
+        {
+            IDTX_LOGF(IDTX_WARN, "could not pin module; expect a crash on shutdown after res:// or user:// use");
+        }
+    }
+#endif
     
     GDREGISTER_CLASS(UsdStageNode3D)
     GDREGISTER_CLASS(UsdXformNode3D)
