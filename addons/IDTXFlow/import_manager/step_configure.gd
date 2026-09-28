@@ -1,7 +1,7 @@
 @tool
 extends VBoxContainer
 
-## Import options step: destination + settings in one place.
+## Import options step: a single 4-way "Import mode" choice + selected-asset preview.
 ##
 ## Presents the import options on a single screen. Layout:
 ##
@@ -9,46 +9,85 @@ extends VBoxContainer
 ##   HSplit (same 2-panel layout/separation as the browse step)
 ##     LEFT  (options):  Label "Import Options:"  (OUTSIDE the card)
 ##                       Filled card (ItemListSecondary bg + scroll overlay):
-##                         Import destination → Collaboration (server only)
+##                         "Import mode" section — one radio group of four options
 ##     RIGHT (preview):  AssetDetailPanel (SELECTED_ASSET style)
 ##   Footer: [Back] … [Cancel] [Import]
+##
+## The four mutually-exclusive options are:
+##
+##   1. Import into current scene   — download only (no session), into the current scene
+##   2. Import into new scene       — download only (no session), into a fresh scene
+##   3. Create collaboration session — create + open a live session (mode: single_edit
+##                                     / collaborative_edit); always a new scene
+##   4. Join collaboration session   — join a running collaborative_edit session for the
+##                                     selected USD path; always a new scene
+##
+## Options 3 and 4 are server-only (hidden for local imports via
+## set_server_options_visible). Option 4 shows a read-only list of active
+## collaborative sessions for the selected path (set_join_sessions); when the list
+## is empty the option is disabled with an inline hint.
 ##
 ## The layout mirrors `asset_detail_panel.gd`: a HeaderSmall label sits *above*
 ## the filled content card (rather than inside it), and the sections read like
 ## the editor inspector — native `FoldableContainer` categories with two-column
 ## property rows, driven by the editor theme with minimal overrides.
 ##
-## The footer primary button says "Import" and emits `confirm_requested`.
+## The footer primary button says "Import" and emits `confirm_requested`. Import is
+## disabled whenever the selected action is not currently executable (Join selected
+## with no valid session), surfaced via `can_import()` / `import_ready_changed`.
 
 signal confirm_requested
 signal back_requested
 signal cancel_requested
-signal destination_changed(destination: String)
+## Emitted whenever the executability of the current selection changes, so the
+## host/footer can enable or disable the Import button. `ready` == can_import().
+signal import_ready_changed(ready: bool)
+## Emitted when the user presses the Join "Refresh" button; the host re-queries
+## the active sessions and calls set_join_sessions() with the fresh list.
+signal refresh_sessions_requested
 
 const WizardTheme  := preload("res://addons/IDTXFlow/import_manager/wizard_theme.gd")
 const WizardHeader := preload("res://addons/IDTXFlow/import_manager/wizard_header.gd")
 const WizardFooter := preload("res://addons/IDTXFlow/import_manager/wizard_footer.gd")
 const AssetPanel   := preload("res://addons/IDTXFlow/import_manager/asset_detail_panel.gd")
 
-# Destination string identifiers.
-const DEST_CURRENT := "current"
-const DEST_NEW     := "new"
+# Import action identifiers (returned by get_import_action()).
+const ACTION_CURRENT        := "current"
+const ACTION_NEW            := "new"
+const ACTION_CREATE_SESSION := "create_session"
+const ACTION_JOIN_SESSION   := "join_session"
 
-# Collaboration session mode identifiers (server imports only).
+# Collaboration session mode identifiers (create-session only).
 const MODE_SINGLE := "single_edit"
 const MODE_COLLAB := "collaborative_edit"
 
 var _asset_panel: Node
+var _footer: Node
 
+# Import-mode radio group (4 mutually-exclusive options).
 var _radio_current: CheckBox
 var _radio_new: CheckBox
+var _radio_create: CheckBox
+var _radio_join: CheckBox
 var _target_info_label: Label
 
-# Collaboration (server-only) opt-in: when off, a server import just downloads
-# the file (like a local import); when on, it opens a live session over WebSocket.
-var _collab_section: Control
-var _collab_checkbox: CheckBox
-var _collab_mode_option: OptionButton
+# Create-session controls (enabled only when "Create session" is selected).
+var _create_mode_option: OptionButton
+
+# Join-session controls (enabled only when "Join session" is selected).
+var _join_list: ItemList
+# Static description shown directly under the Join radio (always visible).
+var _join_desc_label: Label
+# Empty-state message shown only when no sessions are available.
+var _join_empty_label: Label
+# Re-query button for the session list.
+var _join_refresh_btn: Button
+# Session id per join_list row index, populated by set_join_sessions().
+var _join_session_ids: PackedStringArray = PackedStringArray()
+# Whether the "current scene" option is allowed (a scene is open).
+var _current_enabled: bool = true
+# Whether server-only options (Create / Join) are shown.
+var _server_options_visible: bool = false
 
 # Re-entrancy guard: `add_theme_stylebox_override` / `remove_theme_stylebox_override`
 # emit `theme_changed`, which we listen to for re-applying the section tint.
@@ -132,13 +171,8 @@ func _build() -> void:
 	content.add_theme_constant_override("separation", 0)
 	margin.add_child(content)
 
-	# Import destination — same collapsible-section rhythm as the others.
-	content.add_child(_build_destination_section())
-
-	# Collaboration section (server imports only; hidden for local). Shown/hidden
-	# by the manager via set_collaboration_option_visible().
-	_collab_section = _build_collaboration_section()
-	content.add_child(_collab_section)
+	# Import mode — one radio group of four options in a single section.
+	content.add_child(_build_import_mode_section())
 
 	# RIGHT: selected-asset preview -------------------------------------
 	var right := VBoxContainer.new()
@@ -154,16 +188,19 @@ func _build() -> void:
 		_asset_panel.set_header_style(1)  # SELECTED_ASSET
 
 	# Footer — primary action is "Import"
-	var footer := WizardFooter.new()
-	add_child(footer)
-	footer.setup(true, "Import", true)
-	footer.back_pressed.connect(func(): back_requested.emit())
-	footer.cancel_pressed.connect(func(): cancel_requested.emit())
-	footer.primary_pressed.connect(func(): confirm_requested.emit())
+	_footer = WizardFooter.new()
+	add_child(_footer)
+	_footer.setup(true, "Import", true)
+	_footer.back_pressed.connect(func(): back_requested.emit())
+	_footer.cancel_pressed.connect(func(): cancel_requested.emit())
+	_footer.primary_pressed.connect(_on_import_pressed)
+
+	# Reflect the initial selection's executability on the Import button.
+	_notify_import_ready()
 
 
 # ---------------------------------------------------------------------------
-# Public API (kept for import_manager.gd compatibility)
+# Public API (called by import_manager.gd)
 # ---------------------------------------------------------------------------
 
 func set_selected_path(file_path: String) -> void:
@@ -177,9 +214,10 @@ func set_selected_meta(meta: Dictionary) -> void:
 
 
 ## Updates the "Target:" info line beneath the "Import into current scene"
-## radio. When `enabled` is false the current-scene option is greyed out and
-## the "new scene" option is auto-selected.
+## radio. When `enabled` is false the current-scene option is greyed out and a
+## still-enabled option is auto-selected.
 func set_current_target_info(display_name: String, sub_text: String, enabled: bool) -> void:
+	_current_enabled = enabled
 	if _target_info_label:
 		if enabled:
 			_target_info_label.text = "Target: %s  (%s)" % [display_name, sub_text]
@@ -193,72 +231,215 @@ func set_current_target_info(display_name: String, sub_text: String, enabled: bo
 			_radio_new.button_pressed = true
 
 
-func get_destination() -> String:
+## The selected import action: one of ACTION_CURRENT / ACTION_NEW /
+## ACTION_CREATE_SESSION / ACTION_JOIN_SESSION.
+func get_import_action() -> String:
 	if _radio_new and _radio_new.button_pressed:
-		return DEST_NEW
-	return DEST_CURRENT
-
-
-## True when the operator opted into a live collaboration session (server only).
-func get_session_based() -> bool:
-	return _collab_checkbox != null and _collab_checkbox.button_pressed
+		return ACTION_NEW
+	if _radio_create and _radio_create.button_pressed:
+		return ACTION_CREATE_SESSION
+	if _radio_join and _radio_join.button_pressed:
+		return ACTION_JOIN_SESSION
+	return ACTION_CURRENT
 
 
 ## The selected session mode string ("single_edit" / "collaborative_edit").
-## Only meaningful when get_session_based() is true.
+## Only meaningful when get_import_action() == ACTION_CREATE_SESSION.
 func get_session_mode() -> String:
-	if _collab_mode_option and _collab_mode_option.selected == 1:
+	if _create_mode_option and _create_mode_option.selected == 1:
 		return MODE_COLLAB
 	return MODE_SINGLE
 
 
-## Show the collaboration section (server imports) or hide it (local imports).
-## When hidden, the checkbox is forced off so a local import can never be
-## session-based.
-func set_collaboration_option_visible(show_it: bool) -> void:
-	if _collab_section:
-		_collab_section.visible = show_it
-	if not show_it and _collab_checkbox:
-		_collab_checkbox.button_pressed = false
-		if _collab_mode_option:
-			_collab_mode_option.disabled = true
+## The session id of the currently selected join-list row, or "" if none.
+## Only meaningful when get_import_action() == ACTION_JOIN_SESSION.
+func get_selected_session_id() -> String:
+	if _join_list == null:
+		return ""
+	var sel := _join_list.get_selected_items()
+	if sel.is_empty():
+		return ""
+	var idx: int = sel[0]
+	if idx < 0 or idx >= _join_session_ids.size():
+		return ""
+	return _join_session_ids[idx]
+
+
+## Whether the currently selected action can be executed right now. Actions
+## 1/2/3 are always executable; Join (action 4) requires a valid selected
+## session. Drives the Import button's enabled state.
+func can_import() -> bool:
+	if get_import_action() == ACTION_JOIN_SESSION:
+		return not get_selected_session_id().is_empty()
+	return true
+
+
+## Show the server-only options (Create / Join sessions) or hide them (local
+## imports). When hidden, a hidden-but-selected option falls back to "new scene"
+## so a local import can never be session-based.
+func set_server_options_visible(show_it: bool) -> void:
+	_server_options_visible = show_it
+	if _radio_create:
+		_radio_create.get_parent().visible = show_it
+	if _radio_join:
+		_radio_join.get_parent().visible = show_it
+	if not show_it:
+		if (_radio_create and _radio_create.button_pressed) \
+				or (_radio_join and _radio_join.button_pressed):
+			# A server-only option was selected; fall back to a valid one.
+			if _current_enabled and _radio_current:
+				_radio_current.button_pressed = true
+			elif _radio_new:
+				_radio_new.button_pressed = true
+	_refresh_join_enabled()
+	_notify_import_ready()
+
+
+## Populate the join list with active collaborative sessions for the selected
+## path. `sessions` is an Array of session dicts { session_id, usd_file, mode,
+## client_count, ... }. An empty array disables the Join option with a hint. Also
+## re-enables the Refresh button (a pending re-query has now completed).
+func set_join_sessions(sessions: Array) -> void:
+	_join_session_ids = PackedStringArray()
+	if _join_list:
+		_join_list.clear()
+		for s in sessions:
+			var sid := String(s.get("session_id", ""))
+			if sid.is_empty():
+				continue
+			var count := int(s.get("client_count", 0))
+			var label := "%s  •  %d client(s)" % [sid, count]
+			_join_list.add_item(label)
+			_join_session_ids.append(sid)
+		# Default-select the first row so a non-empty list is immediately usable.
+		if _join_list.item_count > 0:
+			_join_list.select(0)
+	if _join_refresh_btn:
+		_join_refresh_btn.disabled = false
+	_refresh_join_enabled()
+	_notify_import_ready()
 
 
 # ---------------------------------------------------------------------------
-# Import destination section (native FoldableContainer, matching the others)
+# Import mode section — one radio group of four options
 # ---------------------------------------------------------------------------
 
-func _build_destination_section() -> Control:
-	var fc := _make_section("Import destination")
+## Builds the single "Import mode" FoldableContainer holding all four mutually
+## exclusive options. Options 3 (Create) and 4 (Join) are wrapped in containers
+## kept hidden for local imports (toggled by set_server_options_visible).
+func _build_import_mode_section() -> Control:
+	var fc := _make_section("Import mode")
 	var body := _get_section_content(fc)
 
 	# CheckBox controls in a shared ButtonGroup behave as mutually exclusive
 	# radio buttons.
 	var group := ButtonGroup.new()
 
-	# --- Option 1: current scene ---------------------------------------
+	# --- Option 1: current scene (download only) -----------------------
 	_radio_current = CheckBox.new()
 	_radio_current.text = "Import into current scene"
 	_radio_current.button_group = group
 	_radio_current.button_pressed = true
-	_radio_current.toggled.connect(_on_radio_current_toggled)
+	_radio_current.toggled.connect(_on_action_toggled)
 	body.add_child(_radio_current)
 
 	# Muted description under the current-scene radio (native Label styling).
 	_target_info_label = _make_inline_caption("Target: -")
 	body.add_child(_make_caption_indent(_target_info_label))
 
-	# --- Option 2: new scene -------------------------------------------
+	# --- Option 2: new scene (download only) ---------------------------
 	_radio_new = CheckBox.new()
 	_radio_new.text = "Import into new scene"
 	_radio_new.button_group = group
-	_radio_new.toggled.connect(_on_radio_new_toggled)
+	_radio_new.toggled.connect(_on_action_toggled)
 	body.add_child(_radio_new)
 
-	# Muted description under the new-scene radio (same plain style).
 	body.add_child(_make_caption_indent(_make_inline_caption(
 		"A new scene will be created with the imported USD stage as its root."
 	)))
+
+	# --- Option 3: create collaboration session (server only) ----------
+	# Wrapped in a VBox so set_server_options_visible() can hide the whole
+	# option (radio + its mode dropdown + hint) in one shot for local imports.
+	var create_box := VBoxContainer.new()
+	create_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	create_box.add_theme_constant_override("separation", 0)
+	body.add_child(create_box)
+
+	_radio_create = CheckBox.new()
+	_radio_create.text = "Create collaboration session"
+	_radio_create.button_group = group
+	_radio_create.toggled.connect(_on_action_toggled)
+	create_box.add_child(_radio_create)
+
+	# Session mode: enabled only when "Create session" is selected.
+	_create_mode_option = OptionButton.new()
+	_create_mode_option.add_item("Single edit (only you)")               # index 0 -> single_edit
+	_create_mode_option.add_item("Collaborative edit (others can join)")  # index 1 -> collaborative_edit
+	_create_mode_option.selected = 0
+	_create_mode_option.disabled = true
+	create_box.add_child(_make_caption_indent(_create_mode_option))
+
+	create_box.add_child(_make_caption_indent(_make_inline_caption(
+		"Creates a live editing session (WebSocket) and imports into a new scene."
+		+ " Single-edit locks the file to you; collaborative lets other clients join."
+	)))
+
+	# --- Option 4: join collaboration session (server only) ------------
+	var join_box := VBoxContainer.new()
+	join_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	join_box.add_theme_constant_override("separation", 0)
+	body.add_child(join_box)
+
+	_radio_join = CheckBox.new()
+	_radio_join.text = "Join collaboration session"
+	_radio_join.button_group = group
+	_radio_join.toggled.connect(_on_action_toggled)
+	join_box.add_child(_radio_join)
+
+	# Static description - directly under the radio (stays on top whether
+	# or not the list is shown).
+	_join_desc_label = _make_inline_caption(
+		"Joins a running collaborative session and imports into a new scene."
+	)
+	join_box.add_child(_make_caption_indent(_join_desc_label))
+
+	# "Active sessions" header row + Refresh button, so the list can be re-queried
+	# without leaving/re-entering the step.
+	var refresh_row := HBoxContainer.new()
+	refresh_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	refresh_row.add_theme_constant_override("separation", WizardTheme.px(6))
+	var sessions_label := _make_inline_caption("Active sessions")
+	sessions_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	refresh_row.add_child(sessions_label)
+	_join_refresh_btn = Button.new()
+	_join_refresh_btn.text = "Refresh"
+	_join_refresh_btn.tooltip_text = "Re-query active collaborative sessions for this file."
+	var reload_icon := WizardTheme.get_editor_icon(self, "Reload", "Reload")
+	if reload_icon:
+		_join_refresh_btn.icon = reload_icon
+	_join_refresh_btn.pressed.connect(_on_join_refresh_pressed)
+	refresh_row.add_child(_join_refresh_btn)
+	join_box.add_child(_make_caption_indent(refresh_row))
+
+	# Session list: the active collaborative sessions for the selected path.
+	_join_list = ItemList.new()
+	_join_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_join_list.custom_minimum_size = Vector2(0, WizardTheme.px(96))
+	_join_list.select_mode = ItemList.SELECT_SINGLE
+	_join_list.item_selected.connect(_on_join_item_selected)
+	join_box.add_child(_make_caption_indent(_join_list))
+
+	# Empty-state message — shown ONLY when the list is empty (below the list slot).
+	_join_empty_label = _make_inline_caption(
+		"No active collaborative sessions for this file. Try Refresh."
+	)
+	join_box.add_child(_make_caption_indent(_join_empty_label))
+
+	# Server-only options start hidden; the manager reveals them for server
+	# imports via set_server_options_visible().
+	create_box.visible = false
+	join_box.visible = false
 
 	return fc
 
@@ -293,58 +474,73 @@ func _make_caption_indent(child: Control) -> HBoxContainer:
 
 
 # ---------------------------------------------------------------------------
-# Radio handlers
+# Selection handlers + Import-readiness
 # ---------------------------------------------------------------------------
 
-func _on_radio_current_toggled(pressed: bool) -> void:
-	if pressed:
-		destination_changed.emit(DEST_CURRENT)
+## Any of the four radios toggled. Update the per-option enabled sub-controls
+## (create mode dropdown, join list) and the Import button's readiness.
+func _on_action_toggled(_pressed: bool) -> void:
+	var action := get_import_action()
+	if _create_mode_option:
+		_create_mode_option.disabled = action != ACTION_CREATE_SESSION
+	_refresh_join_enabled()
+	_notify_import_ready()
 
 
-func _on_radio_new_toggled(pressed: bool) -> void:
-	if pressed:
-		destination_changed.emit(DEST_NEW)
+func _on_join_item_selected(_index: int) -> void:
+	# A join row was picked; readiness may have changed (Join now executable).
+	_notify_import_ready()
 
 
-# ---------------------------------------------------------------------------
-# Collaboration section (server imports only)
-# ---------------------------------------------------------------------------
-
-## A server import defaults to a plain authenticated download (like a local
-## import). Turning on "Import as collaboration session" instead opens a live
-## editing session over WebSocket; the mode dropdown then selects single- vs
-## collaborative-edit. The dropdown is enabled only while the checkbox is on.
-func _build_collaboration_section() -> Control:
-	var fc := _make_section("Collaboration")
-	var body := _get_section_content(fc)
-
-	_collab_checkbox = CheckBox.new()
-	_collab_checkbox.text = "Import as collaboration session"
-	_collab_checkbox.button_pressed = false
-	_collab_checkbox.toggled.connect(_on_collab_toggled)
-	body.add_child(_collab_checkbox)
-
-	# Session mode: enabled only when the checkbox is on.
-	_collab_mode_option = OptionButton.new()
-	_collab_mode_option.add_item("Single edit (only you)")       # index 0 -> single_edit
-	_collab_mode_option.add_item("Collaborative edit (others can join)")  # index 1 -> collaborative_edit
-	_collab_mode_option.selected = 0
-	_collab_mode_option.disabled = true
-	body.add_child(_make_caption_indent(_collab_mode_option))
-
-	var hint := _make_inline_caption(
-		"Opens a live editing session (WebSocket). Single-edit locks the file to you;"
-		+ " collaborative lets other clients join the same session. Leave off to just"
-		+ " download the file."
-	)
-	body.add_child(_make_caption_indent(hint))
-
-	return fc
+## Pressed the Join "Refresh" button. Disable it to avoid a double-fire while the
+## request is in flight (re-enabled by set_join_sessions when results arrive) and
+## ask the host to re-query.
+func _on_join_refresh_pressed() -> void:
+	if _join_refresh_btn:
+		_join_refresh_btn.disabled = true
+	refresh_sessions_requested.emit()
 
 
-func _on_collab_toggled(pressed: bool) -> void:
-	if _collab_mode_option:
-		_collab_mode_option.disabled = not pressed
+## Enable/disable the Join option based on whether any sessions are available.
+## The static description stays visible on top at all times; the list is shown
+## only when populated, and the empty-state message only when empty. When empty
+## and Join is selected, selection falls back to a still-valid option.
+func _refresh_join_enabled() -> void:
+	if _radio_join == null or _join_list == null:
+		return
+
+	var has_sessions := _join_list.item_count > 0
+	_radio_join.disabled = not has_sessions
+	_join_list.visible = has_sessions
+
+	if _join_desc_label:
+		_join_desc_label.visible = true
+	if _join_empty_label:
+		_join_empty_label.visible = not has_sessions
+
+	# Don't leave a disabled radio selected.
+	if not has_sessions and _radio_join.button_pressed:
+		if _current_enabled and _radio_current:
+			_radio_current.button_pressed = true
+		elif _radio_new:
+			_radio_new.button_pressed = true
+
+
+## Recompute can_import() and reflect it on the footer's Import button, emitting
+## import_ready_changed so external listeners can mirror the state.
+func _notify_import_ready() -> void:
+	var ready := can_import()
+	if _footer and _footer.has_method("set_primary_enabled"):
+		_footer.set_primary_enabled(ready)
+	import_ready_changed.emit(ready)
+
+
+## Import pressed: guard against a stale/invalid selection (belt-and-suspenders
+## on top of the disabled button) before forwarding the confirm.
+func _on_import_pressed() -> void:
+	if not can_import():
+		return
+	confirm_requested.emit()
 
 
 # ---------------------------------------------------------------------------

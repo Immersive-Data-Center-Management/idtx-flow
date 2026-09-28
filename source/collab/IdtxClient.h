@@ -116,14 +116,21 @@ public:
 
     // --- high-level session flow ---
     
-    // Run the core server-import flow. 
-    // On success emits the `session_ready` signal with the resolved stage_url; the
-    // caller then loads the stage and calls attach_transform_sync. `on_done`
-    // (optional) reports only the create step: { "ok": true } once the session
-    // is created and its socket opened, or the failure dict. `end_session` emits
-    // `session_closed`.
-    void begin_server_import(const godot::String& usd_file, const godot::String& mode = "single_edit",
-                             const godot::Callable& on_done = godot::Callable());
+    // Create a new collaboration session for a file, then enter it.
+    // On success emits the `session_ready` signal with the
+    // resolved stage_url; the caller then loads the stage and calls
+    // attach_transform_sync. `on_done` (optional) reports { "ok": true } once the
+    // session is created and its socket opened, or the failure dict. `end_session`
+    // emits `session_closed`.
+    void open_new_session(const godot::String& usd_file, const godot::String& mode = "single_edit",
+                          const godot::Callable& on_done = godot::Callable());
+    // Join an existing collaboration session by id, then enter it.
+    // Same success path as open_new_session (`session_ready`
+    // signal + stage load), but performs a session lookup instead of a
+    // create. `on_done` (optional) reports { "ok": true } once the socket
+    // is opened, or the failure dict.
+    void open_existing_session(const godot::String& session_id,
+                               const godot::Callable& on_done = godot::Callable());
     void end_session();
 
     // --- URL helpers (sync) ---
@@ -200,6 +207,7 @@ private:
     std::vector<godot::Callable> thumbnail_cbs_;
     std::vector<godot::Callable> list_cbs_;
     std::vector<godot::Callable> create_cbs_;
+    std::vector<godot::Callable> join_cbs_;
     std::vector<godot::Callable> sessions_cbs_;
     std::vector<godot::Callable> session_details_cbs_;
     std::vector<godot::Callable> commit_cbs_;

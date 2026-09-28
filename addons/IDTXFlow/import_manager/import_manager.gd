@@ -11,18 +11,21 @@ extends PanelContainer
 ##   Local (res://)
 ##     1. step_select_source  - choose source
 ##     2. step_browse_files   - browse res:// for USD files (usd/usda/usdc/usdz)
-##     3. step_configure      - import options: destination + settings + selected-asset
-##                              preview; the "Import" button triggers the import
+##     3. step_configure      - import options: a 4-way "Import mode" choice +
+##                              selected-asset preview; the "Import" button triggers
+##                              the import
 ##
 ##   Asset Server
 ##     1. step_select_source   - enter server URL and log in (demo/demo for the mock backend)
 ##     2. step_browse_server   - browse the asset server file list (thin wrapper around
 ##                               the shared WizardFileBrowser + a ServerFileProvider that
 ##                               talks to the real IDTX backend via IdtxClient)
-##     3. step_configure       - same merged import-options step. A server import defaults
-##                               to a plain authenticated download (like the local import);
-##                               the "Import as collaboration session" option opts into a
-##                               live session (WebSocket) with a single/collaborative mode.
+##     3. step_configure       - two download-only options (current/new scene), server imports
+##                               expose "Create collaboration session" (single/collaborative
+##                               mode) and "Join collaboration session" (pick a running
+##                               collaborative session for the selected file). Both session
+##                               options open a live WebSocket session and import into a new
+##                               scene.
 
 const WizardTheme := preload("res://addons/IDTXFlow/import_manager/wizard_theme.gd")
 const IdtxAccess := preload("res://addons/IDTXFlow/import_manager/idtx_client_access.gd")
@@ -40,7 +43,8 @@ const STEP_CONFIGURE_PATH     := "res://addons/IDTXFlow/import_manager/step_conf
 #   "selected_path" : res:// URI for local, or server-side "/..." path
 #   "selected_meta" : server metadata dict (empty for local imports)
 #   "destination"  : "current" (import under selected/root of current scene)
-#                    or "new" (create a fresh scene with the stage as root)
+#                    or "new" (create a fresh scene with the stage as root).
+#                    Session actions (create/join) always force "new".
 var _import_state: Dictionary = {
 	"source": "",
 	"selected_path": "",
@@ -64,7 +68,8 @@ var _step_configure: Node       # merged import-options step (destination + sett
 var _active_browse_step: Node = null
 
 # Active collaboration session id and lifecycle are owned by the engine
-# (begin_server_import / end_session), so the wizard tracks no session state.
+# (open_new_session / open_existing_session / end_session), so the wizard tracks
+# no session state.
 
 
 func set_editor_interface(editor_interface: EditorInterface) -> void:
@@ -125,7 +130,7 @@ func _build_ui() -> void:
 	_step_browse_server.cancel_requested.connect(_on_cancel)
 	_step_browse_server.confirm_requested.connect(_on_step2_next)
 
-	# Step 3 is the merged import-options step (destination + settings + preview).
+	# Step 3 is the 4-way import mode + preview.
 	# Its "Import" button emits `confirm_requested`, which triggers the import.
 	_step_configure = (load(STEP_CONFIGURE_PATH) as GDScript).new()
 	_step_container.add_child(_step_configure)
@@ -133,7 +138,7 @@ func _build_ui() -> void:
 	_step_configure.confirm_requested.connect(_on_step3_confirmed)
 	_step_configure.back_requested.connect(_on_step3_back)
 	_step_configure.cancel_requested.connect(_on_cancel)
-	_step_configure.destination_changed.connect(_on_destination_changed)
+	_step_configure.refresh_sessions_requested.connect(_refresh_join_sessions)
 
 
 func _build_title_bar() -> Control:
@@ -171,25 +176,62 @@ func _show_step(index: int) -> void:
 	_step_browse_server.visible = index == 2 and use_server
 	_active_browse_step = _step_browse_server if use_server else _step_browse
 
-	# Step 3 is the merged import-options step (destination + settings + preview).
+	# Step 3 is the merged import-options step (4-way import mode + preview).
 	_step_configure.visible = index == 3
 
 	if index == 3:
+		var is_server: bool = _import_state.get("source", "") == "server"
 		# Populate the selected-asset preview from the current selection.
 		var meta: Dictionary = _import_state.get("selected_meta", {})
 		if not meta.is_empty() and _step_configure.has_method("set_selected_meta"):
 			_step_configure.set_selected_meta(meta)
 		elif _step_configure.has_method("set_selected_path"):
 			_step_configure.set_selected_path(_import_state.get("selected_path", ""))
-		# Collaboration option is server-only; hide it for local imports.
-		if _step_configure.has_method("set_collaboration_option_visible"):
-			_step_configure.set_collaboration_option_visible(
-				_import_state.get("source", "") == "server")
+		# Create/Join session options are server-only; hide them for local imports.
+		if _step_configure.has_method("set_server_options_visible"):
+			_step_configure.set_server_options_visible(is_server)
+		# For server imports, fetch active collaborative sessions for this file so
+		# the "Join" option can list them.
+		if is_server:
+			_refresh_join_sessions()
 		# Keep the "Target:" line live while on step 3.
 		_hook_selection_listener()
 		_update_target_info()
 	else:
 		_unhook_selection_listener()
+
+
+# --------------------------------------------------------------------------
+# Step 3 join-session list
+# --------------------------------------------------------------------------
+
+## Fetch active sessions and hand the "Join" option only the collaborative_edit
+## ones for the currently selected USD path.
+func _refresh_join_sessions() -> void:
+	var client := _idtx()
+	if client == null or not client.has_method("list_sessions"):
+		if _step_configure.has_method("set_join_sessions"):
+			_step_configure.set_join_sessions([])
+		return
+	client.list_sessions(_on_join_sessions_listed)
+
+
+func _on_join_sessions_listed(result: Dictionary) -> void:
+	var sessions: Array = []
+	if bool(result.get("ok", false)):
+		var selected_path: String = _import_state.get("selected_path", "")
+		for s in result.get("result", []):
+			if String(s.get("mode", "")) != "collaborative_edit":
+				continue
+			# Only sessions for the file the operator selected.
+			if String(s.get("usd_file", "")) != selected_path:
+				continue
+			sessions.append(s)
+	else:
+		push_warning("[IDTXFlow] [Import Manager] Could not list sessions: %s"
+			% String(result.get("message", "")))
+	if _step_configure.has_method("set_join_sessions"):
+		_step_configure.set_join_sessions(sessions)
 
 
 # --------------------------------------------------------------------------
@@ -241,10 +283,6 @@ func _update_target_info() -> void:
 	else:
 		sub = String(scene_root.get_path_to(target))
 	_step_configure.set_current_target_info(target.name, sub, true)
-
-
-func _on_destination_changed(destination: String) -> void:
-	_import_state["destination"] = destination
 
 
 # --------------------------------------------------------------------------
@@ -301,8 +339,7 @@ func _on_step2_back() -> void:
 	_show_step(1)
 
 
-## Step 3 "Import" pressed → run the import (destination is already tracked via
-## `_on_destination_changed`).
+## Step 3 "Import" pressed → run the import for the selected action.
 func _on_step3_confirmed() -> void:
 	_perform_import()
 
@@ -352,18 +389,40 @@ func _idtx() -> Object:
 ## `_on_stage_loading_finished` handles the outcome when the C++ side emits
 ## `stage_loading_finished(success)` on the main thread.
 ##
-## Route imports based on their source: server or local imports 
+## Resolves the 4-way import action chosen in step 3 and routes accordingly.
+## Session actions (create/join) always import into a NEW scene.
 func _perform_import() -> void:
 	var file_path: String = _import_state.get("selected_path", "")
 	if file_path.is_empty():
 		push_warning("[IDTXFlow] [Import Manager] No file selected; aborting import.")
 		return
 
+	var action: String = "current"
+	if _step_configure.has_method("get_import_action"):
+		action = _step_configure.get_import_action()
+
+	# Download-only actions (Options 1/2) carry their own destination; session
+	# actions (Options 3/4) force a new scene.
+	match action:
+		"new":
+			_import_state["destination"] = "new"
+		"create_session", "join_session":
+			_import_state["destination"] = "new"
+		_:
+			_import_state["destination"] = "current"
+
 	var source: String = _import_state.get("source", "")
-	if source == "server":
-		_perform_server_import(file_path)
-	else:
-		_perform_local_import(file_path)
+	match action:
+		"create_session":
+			_perform_server_session_import(file_path)
+		"join_session":
+			_perform_server_join_import()
+		_:
+			# Plain download (current/new), server or local.
+			if source == "server":
+				_perform_server_download_import(file_path)
+			else:
+				_perform_local_import(file_path)
 
 
 ## Local (res://) import path — unchanged behavior.
@@ -373,17 +432,6 @@ func _perform_local_import(file_path: String) -> void:
 		_perform_import_into_new_scene(file_path)
 	else:
 		_perform_import_into_current_scene(file_path)
-
-
-## Server import path. Defaults to a plain authenticated download (like a local
-## import); only opens a live session (create session + WebSocket) when the
-## operator opted into collaboration in step 3. `file_path` is the server-side
-## `filepath` (e.g. "scenes/foo.usda").
-func _perform_server_import(file_path: String) -> void:
-	if _step_configure.get_session_based():
-		_perform_server_session_import(file_path)
-	else:
-		_perform_server_download_import(file_path)
 
 
 ## Default server import: fetch the file over the authenticated download URL and
@@ -411,9 +459,9 @@ func _perform_server_download_import(file_path: String) -> void:
 		_perform_import_into_current_scene(url)
 
 
-## Collaboration server import: create a session, then import from the
-## authenticated download URL and open the session WebSocket. The session mode
-## (single_edit / collaborative_edit) is chosen in step 3.
+## Collaboration server import (Option 3: Create). Create a new session, then
+## import from the authenticated download URL and open the session WebSocket. The
+## session mode (single_edit / collaborative_edit) is chosen in step 3.
 func _perform_server_session_import(file_path: String) -> void:
 	var client := _idtx()
 	if client == null:
@@ -426,7 +474,7 @@ func _perform_server_session_import(file_path: String) -> void:
 	# The engine owns the create → open-socket sequence: the create result comes
 	# back through the completion; the resolved stage download URL then arrives on
 	# `session_ready`.
-	client.begin_server_import(file_path, mode, _on_import_create_done)
+	client.open_new_session(file_path, mode, _on_import_create_done)
 
 
 func _on_import_create_done(result: Dictionary) -> void:
@@ -436,6 +484,39 @@ func _on_import_create_done(result: Dictionary) -> void:
 	if client and client.session_ready.is_connected(_on_session_ready):
 		client.session_ready.disconnect(_on_session_ready)
 	push_error("[IDTXFlow] [Import Manager] Session create failed (%d %s): %s"
+		% [int(result.get("http_code", 0)), String(result.get("error_code", "")), String(result.get("message", ""))])
+
+
+## Collaboration server import (Option 4: Join). Join a running session picked in
+## step 3, then import from the authenticated download URL the engine resolves
+## and open the session WebSocket. Shares the `session_ready` handler with Create.
+func _perform_server_join_import() -> void:
+	var client := _idtx()
+	if client == null:
+		push_error("[IDTXFlow] [Import Manager] IDTX client not available; cannot join session.")
+		return
+
+	var session_id: String = ""
+	if _step_configure.has_method("get_selected_session_id"):
+		session_id = _step_configure.get_selected_session_id()
+	if session_id.is_empty():
+		push_warning("[IDTXFlow] [Import Manager] No session selected to join; aborting.")
+		return
+
+	client.session_ready.connect(_on_session_ready, CONNECT_ONE_SHOT)
+	print("[IDTXFlow] [Import Manager] Joining session '%s'." % session_id)
+	# The engine owns the lookup → open-socket sequence (GET /sessions/<id>); the
+	# resolved stage download URL then arrives on `session_ready`.
+	client.open_existing_session(session_id, _on_import_join_done)
+
+
+func _on_import_join_done(result: Dictionary) -> void:
+	if bool(result.get("ok", false)):
+		return
+	var client := _idtx()
+	if client and client.session_ready.is_connected(_on_session_ready):
+		client.session_ready.disconnect(_on_session_ready)
+	push_error("[IDTXFlow] [Import Manager] Session join failed (%d %s): %s"
 		% [int(result.get("http_code", 0)), String(result.get("error_code", "")), String(result.get("message", ""))])
 
 
