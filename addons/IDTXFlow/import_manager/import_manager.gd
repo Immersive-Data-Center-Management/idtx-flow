@@ -524,13 +524,9 @@ func _on_session_ready(session: Dictionary, stage_url: String) -> void:
 	# The engine already created the session and opened its socket; the id/ws_url
 	# are owned by the engine (torn down via end_session). Import the stage from
 	# the authenticated download URL the engine resolved.
-	# Surface the session id / ws_url so it can be copied into the E2E workflow.
-	# The watch hint needs only the id; send-xform's prim path + transform are the
-	# operator's choice for the stage that was loaded.
 	var sid: String = session.get("session_id", "")
 	var ws_url: String = session.get("ws_url", "")
 	print("[IDTXFlow] [Import Manager] Session created: session_id=%s  ws_url=%s" % [sid, ws_url])
-	print("[IDTXFlow] [Import Manager]   E2E: python idtx_e2e.py watch --sid %s" % sid)
 
 	var destination: String = _import_state.get("destination", "current")
 	if destination == "new":
