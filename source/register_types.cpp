@@ -5,6 +5,11 @@
 #include <godot_cpp/godot.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 
+#include <filesystem>
+#ifndef _WIN32
+#include <dlfcn.h>
+#endif
+
 #include <idtxflow/converter/MdlMaterialConverter.h>
 #include <idtxflow/resolver/HttpResolver.h>
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
@@ -38,10 +43,12 @@ static idtxflow::exec::GodotProjectSettingProvider* g_project_setting_provider =
 
 #ifdef IDTXFLOW_MDL_ENABLED
 #include <idtxflow/converter/MdlMaterialConverter.h>
+#endif
 
+// Directory containing this GDExtension binary.
 inline std::string get_gdextension_dir()
 {
-#ifdef MI_PLATFORM_WINDOWS
+#ifdef _WIN32
     char buffer[MAX_PATH];
     HMODULE hm = nullptr;
     // Get handle of the current DLL (this GDExtension)
@@ -64,7 +71,6 @@ inline std::string get_gdextension_dir()
     return path.substr(0, path.find_last_of("/"));
 #endif
 }
-#endif
 
 void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
@@ -102,7 +108,35 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     GDREGISTER_CLASS(UsdMockDatasourceFloatNode3D)
     GDREGISTER_CLASS(UsdRestDatasourceNode3D)
     GDREGISTER_CLASS(UsdStaticBodyNode3D)
-    
+
+    // Diagnostic only: OpenUSD finds its resolver, file-format and schema plugins
+    // through plugInfo.json files laid out relative to the binaries
+    // (addons/IDTXFlow/bin/<os>/usd/ and bin/plugin/usd/). If an export or a manual
+    // install drops that tree, PlugRegistry fails fatally inside the first stage
+    // open with no actionable message, so name every missing file up front.
+    // Keep this list in sync with the addon's bin/ layout.
+    {
+        const std::string extension_dir = get_gdextension_dir();
+        const char* required_plugin_files[] = {
+            "usd/plugInfo.json",
+            "../plugin/usd/idtx/resources/plugInfo.json",
+            "../plugin/usd/godot/resources/plugInfo.json",
+            "../plugin/usd/usdShaders/resources/plugInfo.json",
+        };
+        for (const char* rel : required_plugin_files)
+        {
+            const std::filesystem::path full = (std::filesystem::path(extension_dir) / rel).lexically_normal();
+            std::error_code ec;
+            if (!extension_dir.empty() && (!std::filesystem::exists(full, ec) || ec))
+            {
+                IDTX_LOGF(IDTX_ERROR,
+                    "USD plugin file missing: {} - stage conversion will fail "
+                    "(the addon's bin/ tree must sit next to the loaded binaries)",
+                    full.string());
+            }
+        }
+    }
+
 #ifdef IDTXFLOW_MDL_ENABLED
     // activate the mdl material conversion
     std::string extension_dir = get_gdextension_dir();
