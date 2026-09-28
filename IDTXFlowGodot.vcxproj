@@ -242,6 +242,9 @@
     <Content Include="addons\IDTXFlow\main_screen.gd" />
     <Content Include="addons\IDTXFlow\plugin.cfg" />
     <Content Include="addons\IDTXFlow\plugin.gd" />
+    <Content Include="addons\IDTXFlow\session\session_indicators.gd" />
+    <Content Include="addons\IDTXFlow\session\session_tab_marker.gd" />
+    <Content Include="addons\IDTXFlow\session\session_viewport_overlay.gd" />
     <Content Include="addons\IDTXFlow\usd_stage_inspector_plugin.gd" />
     <Content Include="docs\DATAFLOW_ARCHITECTURE.md" />
     <Content Include="docs\PLUGIN_ARCHITECTURE.md" />

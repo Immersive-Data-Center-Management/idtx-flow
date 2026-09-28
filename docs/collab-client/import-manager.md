@@ -197,3 +197,29 @@ The empty hidden folder is removed once the last session scene is gone. There is
 Godot API to programmatically close a specific scene tab, so on Cancel / session end
 the file is deleted but an (empty) tab may remain until the user closes it.
 
+---
+
+## Live session indicators
+
+While a session scene is open the plugin shows it is a **live collaboration session**
+(not an ordinary local scene) through three indicators, coordinated by
+`session/session_indicators.gd` (which detects the active scene, resolves the session
+id, and creates/toggles the visuals) and refreshed on `scene_changed` and whenever the
+tracked session set changes (`session_scenes_changed`):
+
+- **Top banner** — a centered, mostly-solid green bar at the top of the 3D viewport
+  reading "● LIVE SESSION" with the session id. Click-through so it never blocks the viewport.
+- **Green viewport border** — an unfilled green rectangle around the 3D view. The banner
+  and the border are the same viewport overlay `Control` — `session_viewport_overlay.gd`
+  owns both — parented onto the 3D editor's internal `Node3DEditorViewportContainer`.
+- **Tab title prefix + dot** — the scene tab is retitled `[remote scene] <name>` with a
+  green dot icon and a tooltip (`session_tab_marker.gd`).
+
+All three reach editor internals by class name (`Node3DEditorViewportContainer` for the
+overlay, the `EditorSceneTabs` `TabBar` for the tab marker), so they are **best-effort
+and version-sensitive**: if a future Godot layout change hides those nodes, each
+silently no-ops (a warning is logged once) — nothing crashes, and every edit is
+reversible (the overlay is freed; tab titles/icons are restored on refresh and on plugin
+exit). The tab marker uses the supported `TabBar.set_tab_title` / `set_tab_icon` /
+`set_tab_tooltip`. These files live under `addons/IDTXFlow/session/`.
+

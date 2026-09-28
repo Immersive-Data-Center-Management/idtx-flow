@@ -62,6 +62,11 @@ var _import_state: Dictionary = {
 # See _session_scene_path (storage) and _cleanup_session_scene (teardown).
 var _session_scenes: Dictionary = {}
 
+## Emitted whenever the set of tracked session scenes changes (create / join /
+## close / teardown), so the editor plugin can refresh the "live session"
+## indicators (viewport border + tab marker).
+signal session_scenes_changed
+
 # Set to true while we've hooked into EditorSelection.selection_changed so the
 # step-3 "Target:" info line updates live. Reset when leaving step 3.
 var _selection_listener_connected: bool = false
@@ -385,6 +390,7 @@ func _cleanup_session_scene(session_id: String) -> void:
 		return
 	var path: String = _session_scenes[session_id]
 	_session_scenes.erase(session_id)
+	session_scenes_changed.emit()
 	if FileAccess.file_exists(path):
 		var err := DirAccess.remove_absolute(path)
 		print("[IDTXFlow] [Import Manager] Removed transient session scene '%s' (err=%d)." % [path, err])
@@ -395,6 +401,20 @@ func _cleanup_session_scene(session_id: String) -> void:
 func _cleanup_all_session_scenes() -> void:
 	for sid in _session_scenes.keys().duplicate():
 		_cleanup_session_scene(sid)
+
+
+## True when `path` is one of the transient session scenes we created (used by the
+## editor plugin to decide whether to show the "live session" indicators).
+func is_session_scene_path(path: String) -> bool:
+	return _session_scenes.values().has(path)
+
+
+## The session id backing the transient scene at `path`, or "" if none.
+func active_session_id_for_path(path: String) -> String:
+	for sid in _session_scenes:
+		if _session_scenes[sid] == path:
+			return sid
+	return ""
 
 
 ## A tracked session scene's editor tab was closed by the user (EditorPlugin
@@ -751,6 +771,7 @@ func _finalize_new_scene_import(stage_node: Node, file_path: String) -> void:
 	# teardown / editor close.
 	if is_session and not session_id.is_empty():
 		_session_scenes[session_id] = target_path
+		session_scenes_changed.emit()
 
 	_editor_interface.set_main_screen_editor("3D")
 	var new_stage_node := _find_stage_node(new_scene_root)
