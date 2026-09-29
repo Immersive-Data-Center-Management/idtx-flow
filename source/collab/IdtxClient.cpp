@@ -41,12 +41,13 @@ void IdtxClient::initialize(std::unique_ptr<idtxflow::net::ports::ITransportFact
     dispatcher_ = std::make_unique<idtxflow::collab::Dispatcher>(this, "_drain_dispatch");
     ticker_     = std::make_unique<idtxflow::collab::Ticker>(this, "_on_process_frame");
 
-    // Engine-agnostic ports (transports + token + clock) are assembled by the shared composition helper
-    // Godot only provides the engine-specific ports below (dispatcher, ticker, stage).
+    // Engine-agnostic ports (HTTP transport + token + clock + ws_factory) are assembled by the
+    // shared composition helper. Godot only provides the engine-specific ports below (dispatcher, ticker).
+    // The engine mints a WebSocket per session via the factory, so the factory (transport_factory_)
+    // must outlive the engine — it is held as a member.
     idtxflow::net::CollabPorts ports;
     transports_      = idtxflow::net::make_agnostic_ports(*transport_factory_, ports);
     ports.dispatcher = dispatcher_.get();
-    ports.stage      = nullptr;   // attached on stage load
     ports.ticker     = ticker_.get();
 
     engine_.initialize(ports, this);
@@ -75,7 +76,7 @@ void IdtxClient::shutdown()
     // finally unregister the singleton.
     if (dispatcher_) dispatcher_->shutdown();
     engine_.shutdown();
-    detach_transform_sync();
+    stages_.clear();
     transports_ = {};
     transport_factory_.reset();
     ticker_.reset();
@@ -233,38 +234,35 @@ void IdtxClient::open_existing_session(const String& session_id, const Callable&
     engine_.open_existing_session(session_id.utf8().get_data());
 }
 
-void IdtxClient::end_session()
+void IdtxClient::end_session(const String& session_id)
 {
-    engine_.end_session();
+    // Drop this session's stage bridge, then leave the session in the engine.
+    stages_.erase(std::string(session_id.utf8().get_data()));
+    engine_.end_session(session_id.utf8().get_data());
 }
 
-void IdtxClient::open_session_socket(const String& session_id, const String& ws_url)
+bool IdtxClient::is_socket_open(const String& session_id) const
 {
-    engine_.open_session_socket(session_id.utf8().get_data(), ws_url.utf8().get_data());
+    return engine_.is_socket_open(session_id.utf8().get_data());
 }
 
-void IdtxClient::close_session_socket()
+void IdtxClient::send_transform(const String& session_id, const String& prim_path, const Transform3D& xform)
 {
-    engine_.close_session_socket();
-}
-
-bool IdtxClient::is_socket_open() const
-{
-    return engine_.is_socket_open();
-}
-
-void IdtxClient::send_transform(const String& prim_path, const Transform3D& xform)
-{
-    engine_.notify_local_edit(gxform::transform_to_prim_edit(std::string(prim_path.utf8().get_data()), xform));
+    engine_.notify_local_edit(
+        session_id.utf8().get_data(),
+        gxform::transform_to_prim_edit(std::string(prim_path.utf8().get_data()), xform));
 }
 
 // ---------------------------------------------------------------------------
-// Transform sync
+// Transform sync (per session)
 // ---------------------------------------------------------------------------
 
-void IdtxClient::attach_transform_sync(Node* stage_node, bool remote)
+void IdtxClient::attach_transform_sync(const String& session_id, Node* stage_node, bool remote)
 {
-    detach_transform_sync();
+    const std::string sid = session_id.utf8().get_data();
+
+    // Replace any prior bridge for this session.
+    detach_transform_sync(session_id);
 
     UsdStageNode3D* usd_stage = Object::cast_to<UsdStageNode3D>(stage_node);
     if (usd_stage == nullptr)
@@ -273,20 +271,22 @@ void IdtxClient::attach_transform_sync(Node* stage_node, bool remote)
         return;
     }
 
-    stage_ = std::make_unique<idtxflow::collab::StageBridge>(usd_stage, usd_stage->get_stage());
-    engine_.attach_stage(stage_.get(), remote);
-    IDTX_LOG(IDTX_INFO, "attach_transform_sync: remote={}", remote ? "true" : "false");
+    auto bridge = std::make_unique<idtxflow::collab::StageBridge>(usd_stage, usd_stage->get_stage());
+    engine_.attach_stage(sid, bridge.get(), remote);
+    stages_[sid] = std::move(bridge);
+    IDTX_LOG(IDTX_INFO, "attach_transform_sync: session='{}' remote={}", sid, remote ? "true" : "false");
 }
 
-void IdtxClient::detach_transform_sync()
+void IdtxClient::detach_transform_sync(const String& session_id)
 {
-    engine_.detach_stage();
-    stage_.reset();
+    const std::string sid = session_id.utf8().get_data();
+    engine_.detach_stage(sid);
+    stages_.erase(sid);
 }
 
-void IdtxClient::arm_transform_sync()
+void IdtxClient::arm_transform_sync(const String& session_id)
 {
-    engine_.arm_sync();
+    engine_.arm_sync(session_id.utf8().get_data());
 }
 
 void IdtxClient::notify_local_transform_changed(Node* node)
@@ -307,9 +307,29 @@ void IdtxClient::notify_local_transform_changed(Node* node)
         IDTX_LOG(IDTX_DEBUG, "[trace] A notify_local_transform_changed: EMPTY prim_path, ignored");
         return;
     }
-    IDTX_LOG(IDTX_DEBUG, "[trace] A notify_local_transform_changed prim='{}'",
-             std::string(prim_path.utf8().get_data()));
+
+    // Route to the session whose stage bridge wraps this node's stage node. If
+    // the node isn't part of a live session's stage, there is nothing to sync.
+    UsdStageNode3D* owning_stage = usd->get_stage_node();
+    std::string sid;
+    for (const auto& [id, bridge] : stages_)
+    {
+        if (bridge && bridge->stage_node() == owning_stage)
+        {
+            sid = id;
+            break;
+        }
+    }
+    if (sid.empty())
+    {
+        IDTX_LOG(IDTX_DEBUG, "[trace] A notify_local_transform_changed: no live session for node's stage, ignored");
+        return;
+    }
+
+    IDTX_LOG(IDTX_DEBUG, "[trace] A notify_local_transform_changed session='{}' prim='{}'",
+             sid, std::string(prim_path.utf8().get_data()));
     engine_.notify_local_edit(
+        sid,
         gxform::transform_to_prim_edit(std::string(prim_path.utf8().get_data()), n3d->get_transform()));
 }
 
@@ -525,9 +545,9 @@ void IdtxClient::on_request_failed(idtxflow::net::Op op, const idtxflow::net::mo
     else if (op == idtxflow::net::Op::CheckThumbnail) resolve_next(thumbnail_exists_cbs_, err);
 }
 
-void IdtxClient::on_socket_opened()
+void IdtxClient::on_socket_opened(const std::string& session_id)
 {
-    emit_signal("socket_opened");
+    emit_signal("socket_opened", String(session_id.c_str()));
 }
 
 void IdtxClient::on_handshake(const std::string& sid, const std::string& path, const std::string& uri)
@@ -535,26 +555,29 @@ void IdtxClient::on_handshake(const std::string& sid, const std::string& path, c
     emit_signal("handshake_received", String(sid.c_str()), String(path.c_str()), String(uri.c_str()));
 }
 
-void IdtxClient::on_remote_edit(const idtxflow::net::model::PrimEdit& edit, const std::string& from)
+void IdtxClient::on_remote_edit(const std::string& session_id, const idtxflow::net::model::PrimEdit& edit,
+                                const std::string& from)
 {
-    // The engine already applied the edit to the stage; surface it for any UI.
-    emit_signal("transform_broadcast_received",
+    // The engine already applied the edit to the session's stage; surface it for any UI.
+    emit_signal("transform_broadcast_received", String(session_id.c_str()),
                 String(edit.prim_path.c_str()), gxform::prim_edit_to_transform(edit), String(from.c_str()));
 }
 
-void IdtxClient::on_ack(bool ok, const std::string& error)
+void IdtxClient::on_ack(const std::string& session_id, bool ok, const std::string& error)
 {
-    emit_signal("ack_received", ok, String(error.c_str()));
+    emit_signal("ack_received", String(session_id.c_str()), ok, String(error.c_str()));
 }
 
-void IdtxClient::on_socket_error(const std::string& code, const std::string& message)
+void IdtxClient::on_socket_error(const std::string& session_id,
+                                 const std::string& code, const std::string& message)
 {
-    emit_signal("socket_error", String(code.c_str()), String(message.c_str()));
+    emit_signal("socket_error", String(session_id.c_str()), String(code.c_str()), String(message.c_str()));
 }
 
-void IdtxClient::on_disconnected(idtxflow::net::model::CloseReason reason, int code, const std::string& text)
+void IdtxClient::on_disconnected(const std::string& session_id,
+                                 idtxflow::net::model::CloseReason reason, int code, const std::string& text)
 {
-    emit_signal("socket_disconnected", (int)reason, code, String(text.c_str()));
+    emit_signal("socket_disconnected", String(session_id.c_str()), (int)reason, code, String(text.c_str()));
 }
 
 
@@ -595,21 +618,20 @@ void IdtxClient::_bind_methods()
                          &IdtxClient::open_new_session, DEFVAL("single_edit"), DEFVAL(Callable()));
     ClassDB::bind_method(D_METHOD("open_existing_session", "session_id", "on_done"),
                          &IdtxClient::open_existing_session, DEFVAL(Callable()));
-    ClassDB::bind_method(D_METHOD("end_session"), &IdtxClient::end_session);
+    ClassDB::bind_method(D_METHOD("end_session", "session_id"), &IdtxClient::end_session);
 
     ClassDB::bind_method(D_METHOD("download_url", "usd_file"), &IdtxClient::download_url);
     ClassDB::bind_method(D_METHOD("ws_base_url"), &IdtxClient::ws_base_url);
 
-    ClassDB::bind_method(D_METHOD("open_session_socket", "session_id", "ws_url"),
-                         &IdtxClient::open_session_socket);
-    ClassDB::bind_method(D_METHOD("close_session_socket"), &IdtxClient::close_session_socket);
-    ClassDB::bind_method(D_METHOD("is_socket_open"), &IdtxClient::is_socket_open);
-    ClassDB::bind_method(D_METHOD("send_transform", "prim_path", "xform"), &IdtxClient::send_transform);
+    ClassDB::bind_method(D_METHOD("is_socket_open", "session_id"), &IdtxClient::is_socket_open);
+    ClassDB::bind_method(D_METHOD("send_transform", "session_id", "prim_path", "xform"),
+                         &IdtxClient::send_transform);
 
-    ClassDB::bind_method(D_METHOD("attach_transform_sync", "stage_node", "remote"),
+    ClassDB::bind_method(D_METHOD("attach_transform_sync", "session_id", "stage_node", "remote"),
                          &IdtxClient::attach_transform_sync);
-    ClassDB::bind_method(D_METHOD("detach_transform_sync"), &IdtxClient::detach_transform_sync);
-    ClassDB::bind_method(D_METHOD("arm_transform_sync"), &IdtxClient::arm_transform_sync);
+    ClassDB::bind_method(D_METHOD("detach_transform_sync", "session_id"),
+                         &IdtxClient::detach_transform_sync);
+    ClassDB::bind_method(D_METHOD("arm_transform_sync", "session_id"), &IdtxClient::arm_transform_sync);
     ClassDB::bind_method(D_METHOD("notify_local_transform_changed", "node"),
                          &IdtxClient::notify_local_transform_changed);
 
@@ -627,18 +649,20 @@ void IdtxClient::_bind_methods()
         PropertyInfo(Variant::DICTIONARY, "session"), PropertyInfo(Variant::STRING, "stage_url")));
     ADD_SIGNAL(MethodInfo("session_closed", PropertyInfo(Variant::STRING, "session_id")));
 
-    ADD_SIGNAL(MethodInfo("socket_opened"));
+    ADD_SIGNAL(MethodInfo("socket_opened", PropertyInfo(Variant::STRING, "session_id")));
     ADD_SIGNAL(MethodInfo("handshake_received",
         PropertyInfo(Variant::STRING, "session_id"), PropertyInfo(Variant::STRING, "usd_path"),
         PropertyInfo(Variant::STRING, "usd_uri")));
     ADD_SIGNAL(MethodInfo("transform_broadcast_received",
-        PropertyInfo(Variant::STRING, "prim_path"), PropertyInfo(Variant::TRANSFORM3D, "xform"),
-        PropertyInfo(Variant::STRING, "from_client_id")));
+        PropertyInfo(Variant::STRING, "session_id"), PropertyInfo(Variant::STRING, "prim_path"),
+        PropertyInfo(Variant::TRANSFORM3D, "xform"), PropertyInfo(Variant::STRING, "from_client_id")));
     ADD_SIGNAL(MethodInfo("ack_received",
-        PropertyInfo(Variant::BOOL, "ok"), PropertyInfo(Variant::STRING, "error")));
+        PropertyInfo(Variant::STRING, "session_id"), PropertyInfo(Variant::BOOL, "ok"),
+        PropertyInfo(Variant::STRING, "error")));
     ADD_SIGNAL(MethodInfo("socket_error",
-        PropertyInfo(Variant::STRING, "code"), PropertyInfo(Variant::STRING, "message")));
+        PropertyInfo(Variant::STRING, "session_id"), PropertyInfo(Variant::STRING, "code"),
+        PropertyInfo(Variant::STRING, "message")));
     ADD_SIGNAL(MethodInfo("socket_disconnected",
-        PropertyInfo(Variant::INT, "reason"), PropertyInfo(Variant::INT, "code"),
-        PropertyInfo(Variant::STRING, "text")));
+        PropertyInfo(Variant::STRING, "session_id"), PropertyInfo(Variant::INT, "reason"),
+        PropertyInfo(Variant::INT, "code"), PropertyInfo(Variant::STRING, "text")));
 }

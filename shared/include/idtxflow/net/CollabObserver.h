@@ -59,16 +59,24 @@ namespace net
         virtual void on_session_closed(const std::string& session_id) = 0;
 
         // --- session socket lifecycle ---
+        //
+        // Every socket callback carries the `session_id` of the socket it
+        // belongs to, so a host tracking multiple concurrent sessions can route
+        // the event to the right session/scene. `on_handshake` also repeats the
+        // id inside its payload (as received on the wire).
         
-        virtual void on_socket_opened() = 0;
+        virtual void on_socket_opened(const std::string& session_id) = 0;
         virtual void on_handshake(const std::string& session_id,
                                   const std::string& usd_path,
                                   const std::string& usd_uri) = 0;
-        virtual void on_remote_edit(const model::PrimEdit& edit,
+        virtual void on_remote_edit(const std::string& session_id,
+                                    const model::PrimEdit& edit,
                                     const std::string& from_client_id) = 0;
-        virtual void on_ack(bool ok, const std::string& error) = 0;
-        virtual void on_socket_error(const std::string& code, const std::string& message) = 0;
-        virtual void on_disconnected(model::CloseReason reason, int code,
+        virtual void on_ack(const std::string& session_id, bool ok, const std::string& error) = 0;
+        virtual void on_socket_error(const std::string& session_id,
+                                     const std::string& code, const std::string& message) = 0;
+        virtual void on_disconnected(const std::string& session_id,
+                                     model::CloseReason reason, int code,
                                      const std::string& text) = 0;
     };
 

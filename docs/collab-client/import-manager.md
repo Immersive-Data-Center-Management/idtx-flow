@@ -188,13 +188,13 @@ scene is deleted on any of:
 - **Tab closed** — `EditorPlugin.scene_closed(filepath)` → `plugin.gd _on_scene_closed`
   → `import_manager.on_session_scene_closed()`, treated as an implicit **leave
   session** (`end_session()` + delete the file).
-- **Cancel / session end** — `_teardown_active_session()` → `_cleanup_all_session_scenes()`.
-- **Editor / plugin close** — `import_manager._exit_tree()` runs the same teardown.
+- **Editor / plugin close** — `import_manager._exit_tree()` → `_teardown_all_sessions()`
+  → `_cleanup_all_session_scenes()`, a safety net so sessions/sockets aren't leaked.
 - **Startup prune** — `plugin.gd _enter_tree` → `prune_stale_session_scenes()` removes
   any strays left by a prior crash where the above never fired.
 
 The empty hidden folder is removed once the last session scene is gone. There is no
-Godot API to programmatically close a specific scene tab, so on Cancel / session end
+Godot API to programmatically close a specific scene tab, so on session end
 the file is deleted but an (empty) tab may remain until the user closes it.
 
 ---

@@ -14,7 +14,9 @@
  * runtime scripts.
  */
 
+#include <map>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include <godot_cpp/classes/node.hpp>
@@ -131,7 +133,7 @@ public:
     // is opened, or the failure dict.
     void open_existing_session(const godot::String& session_id,
                                const godot::Callable& on_done = godot::Callable());
-    void end_session();
+    void end_session(const godot::String& session_id);
 
     // --- URL helpers (sync) ---
     
@@ -140,18 +142,21 @@ public:
 
     // --- WebSocket session ---
     
-    void open_session_socket(const godot::String& session_id, const godot::String& ws_url);
-    void close_session_socket();
-    bool is_socket_open() const;
+    // Whether the given session's socket is open (false for an unknown id).
+    bool is_socket_open(const godot::String& session_id) const;
 
-    // Outbound transform (matrix form); prim_path is the USD prim path.
-    void send_transform(const godot::String& prim_path, const godot::Transform3D& xform);
+    // Outbound transform (matrix form) on a session; prim_path is the USD prim path.
+    void send_transform(const godot::String& session_id, const godot::String& prim_path,
+                        const godot::Transform3D& xform);
 
-    // --- Transform sync ---
+    // --- Transform sync (per session) ---
     
-    void attach_transform_sync(godot::Node* stage_node, bool remote);
-    void detach_transform_sync();
-    void arm_transform_sync();
+    void attach_transform_sync(const godot::String& session_id, godot::Node* stage_node, bool remote);
+    void detach_transform_sync(const godot::String& session_id);
+    void arm_transform_sync(const godot::String& session_id);
+    // The prim node is the session-agnostic outbound origin (a gizmo edit). The
+    // binding resolves which session's stage the node belongs to and routes the
+    // edit there, so callers (the USD nodes) need not know the session id.
     void notify_local_transform_changed(godot::Node* node);
 
     // --- CollabObserver ---
@@ -170,14 +175,16 @@ public:
     void on_session_ready(const idtxflow::net::model::SessionInfo& session,
                           const std::string& stage_url, const std::string& ws_url) override;
     void on_session_closed(const std::string& session_id) override;
-    void on_socket_opened() override;
+    void on_socket_opened(const std::string& session_id) override;
     void on_handshake(const std::string& session_id, const std::string& usd_path,
                       const std::string& usd_uri) override;
-    void on_remote_edit(const idtxflow::net::model::PrimEdit& edit,
+    void on_remote_edit(const std::string& session_id, const idtxflow::net::model::PrimEdit& edit,
                         const std::string& from_client_id) override;
-    void on_ack(bool ok, const std::string& error) override;
-    void on_socket_error(const std::string& code, const std::string& message) override;
-    void on_disconnected(idtxflow::net::model::CloseReason reason, int code,
+    void on_ack(const std::string& session_id, bool ok, const std::string& error) override;
+    void on_socket_error(const std::string& session_id,
+                         const std::string& code, const std::string& message) override;
+    void on_disconnected(const std::string& session_id,
+                         idtxflow::net::model::CloseReason reason, int code,
                          const std::string& text) override;
 
 protected:
@@ -222,7 +229,9 @@ private:
     std::unique_ptr<idtxflow::collab::Ticker>                     ticker_;
     std::unique_ptr<idtxflow::net::ports::ITransportFactory>      transport_factory_;
     idtxflow::net::AgnosticTransports                             transports_;
-    std::unique_ptr<idtxflow::collab::StageBridge>                stage_;
+
+    // One StageBridge per session, keyed by session id.
+    std::map<std::string, std::unique_ptr<idtxflow::collab::StageBridge>> stages_;
 
     idtxflow::net::CollabEngine engine_;
 };

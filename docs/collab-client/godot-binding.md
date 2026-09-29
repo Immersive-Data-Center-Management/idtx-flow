@@ -68,25 +68,32 @@ singleton.
   an Array of session dicts for `list_sessions`, a session dict for `get_session`,
   `{ session_id, committed }` for `commit_session`, and `{ exists: bool }` for the
   two `check_*_exists` probes (a 404 resolves as `exists: false`, not an error).
-- **Session flow:** `open_new_session(usd_file, mode, on_done)` (create) and
+- **Session flow (multi-session):** `open_new_session(usd_file, mode, on_done)` (create) and
   `open_existing_session(session_id, on_done)` (join) each run the core's
-  obtain → `enter_session` → open-socket → `session_ready` sequence; `end_session()` tears
-  it down. These are distinct from the raw REST `create_session` / `get_session` calls above
-  (which only issue the request and report to the observer).
+  obtain → `enter_session` → open-socket → `session_ready` sequence; `end_session(session_id)`
+  tears down that one session. The client can hold several concurrent sessions, each keyed by
+  its id with its own socket + stage. `open_existing_session` refuses a session already held,
+  failing fast with `error_code: "already_joined"` (no round-trip) — the server currently can't detect a
+  same-client re-join, so this guard is client-side. These are distinct from the raw REST
+  `create_session` / `get_session` calls above (which only issue the request).
 - **URL helpers:** `download_url`, `ws_base_url`.
-- **WebSocket:** `open_session_socket`, `close_session_socket`, `is_socket_open`,
-  `send_transform(prim_path, xform)`.
-- **Transform sync:** `attach_transform_sync(stage_node, remote)`,
-  `detach_transform_sync`, `arm_transform_sync`, `notify_local_transform_changed(node)`.
+- **Session state:** `is_socket_open(session_id)`,
+  `send_transform(session_id, prim_path, xform)`. (Socket lifecycle is owned by the engine's
+  session flow; there are no separate open/close-socket calls.)
+- **Transform sync (per session):** `attach_transform_sync(session_id, stage_node, remote)`,
+  `detach_transform_sync(session_id)`, `arm_transform_sync(session_id)`,
+  `notify_local_transform_changed(session_id, node)`.
 
 **Signals.** `IdtxClient` implements `CollabObserver` and converts each callback
-into a Godot signal (and, for a request, into that request's `on_done` dictionary):
+into a Godot signal (and, for a request, into that request's `on_done` dictionary).
+Every socket-lifecycle signal carries the `session_id` it belongs to, so a host tracking
+multiple concurrent sessions can route each event to the right session/scene:
 
 | Signal | Fired when |
 |---|---|
 | `session_ready` | session created (`open_new_session`) or joined (`open_existing_session`) + socket opened; carries the resolved stage download URL |
-| `session_closed` | `end_session()` completed |
-| `socket_opened` | session WebSocket connected |
+| `session_closed` | `end_session(session_id)` completed (carries `session_id`) |
+| `socket_opened` | session WebSocket connected (carries `session_id`) |
 | `handshake_received` | server handshake for the session |
 | `transform_broadcast_received` | a peer's transform edit arrived (already applied to the stage) |
 | `ack_received` | server acknowledged a submitted edit |

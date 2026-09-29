@@ -54,6 +54,12 @@ public:
      * @param node The Reference to the StageNode
      */
     void set_stage_node(UsdStageNode3D* node) { stage_node_ = node; }
+
+    /**
+     * Getter for the stage node that owns this converted node.
+     * @return stage_node_
+     */
+    UsdStageNode3D* get_stage_node() const { return stage_node_; }
     
     /**
      * Getter for the path to the stage referred to by the stage_node_.
@@ -93,7 +99,7 @@ public:
     virtual void set_prim_path(const godot::String& prim_path) { prim_path_ = prim_path; }
 
     /**
-     * Setter for the prim type name of the prim this node has been converted from
+     * Getter for the prim type name of the prim this node has been converted from
      * @return 
      */
     virtual godot::String get_prim_type() const { return  prim_type_; }

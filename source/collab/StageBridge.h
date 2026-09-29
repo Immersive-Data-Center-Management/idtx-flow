@@ -45,6 +45,10 @@ namespace collab
         StageBridge(const StageBridge&) = delete;
         StageBridge& operator=(const StageBridge&) = delete;
 
+        /// The UsdStageNode3D this bridge is bound to (non-owning). Used by the
+        /// binding to match a prim node back to its session's bridge.
+        UsdStageNode3D* stage_node() const { return stage_node_; }
+
         // IStageBridge
         void build_index() override;
         bool read_prim(const std::string& prim_path, net::model::PrimEdit& out) const override;

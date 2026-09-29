@@ -246,7 +246,11 @@ func _on_join_sessions_listed(result: Dictionary) -> void:
 		push_warning("[IDTXFlow] [Import Manager] Could not list sessions: %s"
 			% String(result.get("message", "")))
 	if _step_configure.has_method("set_join_sessions"):
-		_step_configure.set_join_sessions(sessions)
+		# Pass the sessions we are already in so the list can gray them out.
+		var joined := PackedStringArray()
+		for sid in _session_scenes.keys():
+			joined.append(sid)
+		_step_configure.set_join_sessions(sessions, joined)
 
 
 # --------------------------------------------------------------------------
@@ -364,20 +368,27 @@ func _on_step3_back() -> void:
 
 
 func _on_cancel() -> void:
-	# Cancelling the wizard tears down any active server collaboration session.
-	_teardown_active_session()
 	_reset_and_go_home()
 
 
-## Close the session WebSocket and DELETE the collaboration session.
-## Safe to call when no session is active (no-op). Called on wizard cancel and
-## on plugin/scene exit so we don't leak sessions on the backend. The engine
-## owns the active session id and performs detach → close → delete.
-func _teardown_active_session() -> void:
+## Leave ONE collaboration session: tell the engine to end that session (detach
+## its stage + close its socket) and delete its transient scene. Safe when the id
+## is unknown. This is the per-tab "leave" used when a single session scene closes.
+func _leave_session(session_id: String) -> void:
+	if session_id.is_empty():
+		return
 	var client := _idtx()
 	if client and client.has_method("end_session"):
-		client.end_session()
-	# Delete any transient session scenes we created 
+		client.end_session(session_id)
+	_cleanup_session_scene(session_id)
+
+
+## Tear down EVERY active session. Ends each session in the engine and deletes all transient scenes.
+func _teardown_all_sessions() -> void:
+	var client := _idtx()
+	for sid in _session_scenes.keys().duplicate():
+		if client and client.has_method("end_session"):
+			client.end_session(sid)
 	_cleanup_all_session_scenes()
 
 
@@ -424,7 +435,7 @@ func on_session_scene_closed(filepath: String) -> void:
 	for sid in _session_scenes.keys().duplicate():
 		if _session_scenes[sid] == filepath:
 			print("[IDTXFlow] [Import Manager] Session scene tab closed; leaving session '%s'." % sid)
-			_teardown_active_session()
+			_leave_session(sid)
 			return
 
 
@@ -592,10 +603,15 @@ func _perform_server_join_import() -> void:
 		push_warning("[IDTXFlow] [Import Manager] No session selected to join; aborting.")
 		return
 
+	# Client-side duplicate-join guard: we cannot join a session we are already in.
+	# Friendly message and avoids opening a redundant flow. See also step_configure's grayed-out "joined" rows.
+	if _session_scenes.has(session_id):
+		push_warning("[IDTXFlow] [Import Manager] Already in session '%s'; not joining again." % session_id)
+		return
+
 	client.session_ready.connect(_on_session_ready, CONNECT_ONE_SHOT)
 	print("[IDTXFlow] [Import Manager] Joining session '%s'." % session_id)
-	# The engine owns the lookup → open-socket sequence (GET /sessions/<id>); the
-	# resolved stage download URL then arrives on `session_ready`.
+	# The engine owns the lookup → open-socket sequence; the resolved stage download URL then arrives on `session_ready`.
 	client.open_existing_session(session_id, _on_import_join_done)
 
 
@@ -697,7 +713,7 @@ func _on_stage_loading_finished(
 	if _import_state.get("source", "") == "server":
 		var client := _idtx()
 		if client and client.has_method("attach_transform_sync"):
-			client.attach_transform_sync(stage_node, true)
+			client.attach_transform_sync(_import_state.get("session_id", ""), stage_node, true)
 
 	print("[IDTXFlow] [Import Manager] Imported '%s' as child of '%s'." % [file_path, stage_node.get_parent().name])
 
@@ -776,6 +792,13 @@ func _finalize_new_scene_import(stage_node: Node, file_path: String) -> void:
 	_editor_interface.set_main_screen_editor("3D")
 	var new_stage_node := _find_stage_node(new_scene_root)
 	if new_stage_node:
+		# In a live collaboration session the stage root is scene placement only
+		# (it is never synced — only its prims are). Lock it from manual gizmo drags
+		# so users don't accidentally move the whole stage during a session. This is
+		# Godot's editor per-node lock (the Scene-dock padlock): it blocks manual
+		# selection/drag but leaves programmatic set_transform untouched.
+		if _is_session_import():
+			new_stage_node.set_meta("_edit_lock_", true)
 		var sel := _editor_interface.get_selection()
 		if sel:
 			sel.clear()
@@ -787,7 +810,7 @@ func _finalize_new_scene_import(stage_node: Node, file_path: String) -> void:
 		if _import_state.get("source", "") == "server":
 			var client := _idtx()
 			if client and client.has_method("attach_transform_sync"):
-				client.attach_transform_sync(new_stage_node, true)
+				client.attach_transform_sync(_import_state.get("session_id", ""), new_stage_node, true)
 
 	_reset_and_go_home()
 
@@ -859,7 +882,7 @@ func _get_target_scene_node() -> Node:
 
 func _exit_tree() -> void:
 	_unhook_selection_listener()
-	# Ensure any active collaboration session is torn down when the wizard leaves
+	# Ensure every active collaboration session is torn down when the wizard leaves
 	# the tree (editor closing, plugin disabled, scene change), so we don't leak
 	# a session / WS on the backend.
-	_teardown_active_session()
+	_teardown_all_sessions()

@@ -61,8 +61,12 @@ void CollabEngine::shutdown()
     }
     initialized_ = false;
 
-    close_session_socket();
-    detach_stage();
+    // Tear down every live session (detach stages, close sockets).
+    for (auto& [id, s] : sessions_)
+    {
+        teardown_session(s);
+    }
+    sessions_.clear();
 
     rest_.reset();
     observer_ = nullptr;
@@ -192,13 +196,35 @@ void CollabEngine::delete_session(const std::string& session_id)
         [this](const model::RestError& e) { if (observer_) observer_->on_request_failed(Op::DeleteSession, e); });
 }
 
+CollabEngine::Session* CollabEngine::find_session(const std::string& id)
+{
+    auto it = sessions_.find(id);
+    return it == sessions_.end() ? nullptr : &it->second;
+}
+
+const CollabEngine::Session* CollabEngine::find_session(const std::string& id) const
+{
+    auto it = sessions_.find(id);
+    return it == sessions_.end() ? nullptr : &it->second;
+}
+
+std::vector<std::string> CollabEngine::active_session_ids() const
+{
+    std::vector<std::string> ids;
+    ids.reserve(sessions_.size());
+    for (const auto& [id, s] : sessions_) ids.push_back(id);
+    return ids;
+}
+
 void CollabEngine::enter_session(const model::SessionInfo& si)
 {
     if (!rest_) return;
 
-    // Own the identity so end_session can tear down what we entered.
-    active_session_id_ = si.session_id;
-    active_mode_       = si.mode;
+    // Record the session so end_session can tear down exactly what we entered.
+    Session& s = sessions_[si.session_id];
+    s.id       = si.session_id;
+    s.mode     = si.mode;
+    s.usd_file = si.usd_file;
 
     // Compute the authenticated stage download URL and the full socket URL
     // (base + relative ws_url) here. The stage_url is a plain http(s):// URL;
@@ -211,7 +237,7 @@ void CollabEngine::enter_session(const model::SessionInfo& si)
 
     if (!ws_full.empty())
     {
-        open_session_socket(si.session_id, ws_full);
+        open_session_socket(s, ws_full);
     }
 
     // Hand control back to the host for the engine-specific stage load.
@@ -221,7 +247,6 @@ void CollabEngine::enter_session(const model::SessionInfo& si)
 void CollabEngine::open_new_session(const std::string& usd_file, const std::string& mode)
 {
     if (!rest_) return;
-    active_mode_ = mode;
 
     rest_->create_session(usd_file, mode,
         [this](const model::SessionInfo& si)
@@ -241,6 +266,23 @@ void CollabEngine::open_existing_session(const std::string& session_id)
 {
     if (!rest_) return;
 
+    // Client-side duplicate-join guard: refuse to join a session we are already
+    // in, before any round-trip. The server currently cannot detect a same-client rejoin
+    // (it keys sockets by connection, not identity), so this is the only place
+    // the check can live.
+    if (find_session(session_id))
+    {
+        if (observer_)
+        {
+            model::RestError e;
+            e.http_code  = 0;
+            e.error_code = "already_joined";
+            e.message    = "Already in session '" + session_id + "'.";
+            observer_->on_request_failed(Op::GetSession, e);
+        }
+        return;
+    }
+
     rest_->get_session(session_id,
         [this](const model::SessionInfo& si)
         {
@@ -254,176 +296,223 @@ void CollabEngine::open_existing_session(const std::string& session_id)
         });
 }
 
-void CollabEngine::end_session()
+void CollabEngine::teardown_session(Session& s)
 {
-    // Detach + close so no further frames flush over a
-    // socket we are tearing down (matches the previous GDScript teardown order).
-    detach_stage();
-    close_session_socket();
-
-    // we are not actively deleting the session, just leaving. The backend will reap
-    // sessions with no connected clients based on given rules!
-    const std::string closed_id = active_session_id_;
-    active_session_id_.clear();
-    active_mode_.clear();
-
-    if (observer_) observer_->on_session_closed(closed_id);
+    // Detach the stage first (stops the change sink), then close+drop the socket
+    // and its transport, so no further frames flush over a socket we are tearing down.
+    if (s.stage)
+    {
+        s.stage->set_on_changed(nullptr);
+        s.stage = nullptr;
+    }
+    if (s.socket)
+    {
+        s.socket->close();
+        s.socket.reset();
+    }
+    s.ws.reset();
+    s.remote = false;
+    s.armed = false;
+    s.applying_remote = false;
+    s.arm_countdown = -1;
 }
 
-void CollabEngine::open_session_socket(const std::string& session_id, const std::string& ws_url)
+void CollabEngine::end_session(const std::string& session_id)
 {
-    if (!initialized_) return;
+    auto it = sessions_.find(session_id);
+    if (it != sessions_.end())
+    {
+        // We are not deleting the session on the backend, just leaving. The
+        // server reaps sessions with no connected clients per its own rules.
+        teardown_session(it->second);
+        sessions_.erase(it);
+    }
+    if (observer_) observer_->on_session_closed(session_id);
+}
 
-    socket_ = std::make_unique<SessionSocket>(ports_.ws, ports_.clock);
-    socket_->set_session_id(session_id);
+void CollabEngine::end_all_sessions()
+{
+    // Snapshot ids first: end_session erases from the map as it goes.
+    for (const std::string& id : active_session_ids())
+    {
+        end_session(id);
+    }
+}
+
+void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
+{
+    if (!initialized_ || !ports_.ws_factory) return;
+
+    const std::string session_id = s.id;
+
+    // Mint a fresh WebSocket transport for this session, then wrap it in the
+    // protocol socket. Each session owns its own transport so concurrent
+    // sessions never share a connection.
+    s.ws = ports_.ws_factory->make_websocket();
+    s.socket = std::make_unique<SessionSocket>(s.ws.get(), ports_.clock);
+    s.socket->set_session_id(session_id);
 
     // Socket callbacks arrive on the transport's network thread; marshal every
-    // observer notification onto the host main thread through the dispatcher.
-    socket_->on_opened([this]
+    // observer notification onto the host main thread through the dispatcher,
+    // tagged with this session's id so the host can route it.
+    s.socket->on_opened([this, session_id]
     {
-        ports_.dispatcher->post([this] { if (observer_) observer_->on_socket_opened(); });
+        ports_.dispatcher->post([this, session_id]
+        { if (observer_) observer_->on_socket_opened(session_id); });
     });
-    socket_->on_handshake([this](const std::string& sid, const std::string& path, const std::string& uri)
+    s.socket->on_handshake([this](const std::string& sid, const std::string& path, const std::string& uri)
     {
         ports_.dispatcher->post([this, sid, path, uri]
         { if (observer_) observer_->on_handshake(sid, path, uri); });
     });
-    socket_->on_remote_edit([this](const model::PrimEdit& edit, const std::string& from)
+    s.socket->on_remote_edit([this, session_id](const model::PrimEdit& edit, const std::string& from)
     {
-        ports_.dispatcher->post([this, edit, from]
+        ports_.dispatcher->post([this, session_id, edit, from]
         {
-            // Apply the inbound edit to the stage with loopback suppression so the
-            // resulting stage change is not re-broadcast, then report it.
-            if (ports_.stage)
+            // Apply the inbound edit to this session's stage with loopback
+            // suppression so the resulting stage change is not re-broadcast,
+            // then report it. The session may have ended in the meantime.
+            Session* sp = find_session(session_id);
+            if (sp && sp->stage)
             {
-                applying_remote_ = true;
-                ports_.stage->apply_remote_edit(edit);
-                applying_remote_ = false;
+                sp->applying_remote = true;
+                sp->stage->apply_remote_edit(edit);
+                sp->applying_remote = false;
             }
-            if (observer_) observer_->on_remote_edit(edit, from);
+            if (observer_) observer_->on_remote_edit(session_id, edit, from);
         });
     });
-    socket_->on_ack([this](bool ok, const std::string& error)
+    s.socket->on_ack([this, session_id](bool ok, const std::string& error)
     {
-        ports_.dispatcher->post([this, ok, error] { if (observer_) observer_->on_ack(ok, error); });
+        ports_.dispatcher->post([this, session_id, ok, error]
+        { if (observer_) observer_->on_ack(session_id, ok, error); });
     });
-    socket_->on_error([this](const std::string& code, const std::string& message)
+    s.socket->on_error([this, session_id](const std::string& code, const std::string& message)
     {
-        IDTX_LOG(IDTX_ERROR, "session socket error code='{}' msg='{}'", code, message);
-        ports_.dispatcher->post([this, code, message]
-        { if (observer_) observer_->on_socket_error(code, message); });
+        IDTX_LOG(IDTX_ERROR, "session '{}' socket error code='{}' msg='{}'", session_id, code, message);
+        ports_.dispatcher->post([this, session_id, code, message]
+        { if (observer_) observer_->on_socket_error(session_id, code, message); });
     });
-    socket_->on_disconnected([this](model::CloseReason reason, int code, const std::string& text)
+    s.socket->on_disconnected([this, session_id](model::CloseReason reason, int code, const std::string& text)
     {
-        ports_.dispatcher->post([this, reason, code, text]
-        { if (observer_) observer_->on_disconnected(reason, code, text); });
+        ports_.dispatcher->post([this, session_id, reason, code, text]
+        { if (observer_) observer_->on_disconnected(session_id, reason, code, text); });
     });
 
     const std::string token = ports_.token ? ports_.token->get() : std::string();
-    socket_->connect(ws_url, token);
+    s.socket->connect(ws_url, token);
 }
 
-void CollabEngine::close_session_socket()
+bool CollabEngine::is_socket_open(const std::string& session_id) const
 {
-    if (socket_)
-    {
-        socket_->close();
-        socket_.reset();
-    }
+    const Session* s = find_session(session_id);
+    return s && s->socket && s->socket->is_open();
 }
 
-bool CollabEngine::is_socket_open() const
+void CollabEngine::attach_stage(const std::string& session_id, ports::IStageBridge* stage, bool remote)
 {
-    return socket_ && socket_->is_open();
-}
+    Session* s = find_session(session_id);
+    if (!s) return;
 
-void CollabEngine::attach_stage(ports::IStageBridge* stage, bool remote)
-{
-    ports_.stage = stage;
-    remote_ = remote;
-    armed_ = false;
-    applying_remote_ = false;
+    s->stage = stage;
+    s->remote = remote;
+    s->armed = false;
+    s->applying_remote = false;
     // Auto-arm a few frames after a remote stage attaches, so the transform
     // writes performed during USD conversion/load settle first (they would
     // otherwise phantom-broadcast). Counted down in poll() via the frame ticker.
-    arm_countdown_ = remote ? kArmAfterTicks : -1;
-    if (ports_.stage)
+    s->arm_countdown = remote ? kArmAfterTicks : -1;
+    if (s->stage)
     {
-        ports_.stage->set_on_changed([this](const model::PrimEdit& edit) { on_stage_changed(edit); });
-        ports_.stage->build_index();
+        s->stage->set_on_changed([this, session_id](const model::PrimEdit& edit)
+        { on_stage_changed(session_id, edit); });
+        s->stage->build_index();
     }
 }
 
-void CollabEngine::detach_stage()
+void CollabEngine::detach_stage(const std::string& session_id)
 {
-    if (ports_.stage)
+    Session* s = find_session(session_id);
+    if (!s) return;
+
+    if (s->stage)
     {
-        ports_.stage->set_on_changed(nullptr);
+        s->stage->set_on_changed(nullptr);
     }
-    ports_.stage = nullptr;
-    remote_ = false;
-    armed_ = false;
-    applying_remote_ = false;
-    arm_countdown_ = -1;
+    s->stage = nullptr;
+    s->remote = false;
+    s->armed = false;
+    s->applying_remote = false;
+    s->arm_countdown = -1;
 }
 
-void CollabEngine::arm_sync()
+void CollabEngine::arm_sync(const std::string& session_id)
 {
+    Session* s = find_session(session_id);
+    if (!s) return;
     // Explicit arm request (also reachable from the binding); cancel any pending
     // auto-arm countdown.
-    armed_ = true;
-    arm_countdown_ = -1;
+    s->armed = true;
+    s->arm_countdown = -1;
 }
 
-void CollabEngine::notify_local_edit(const model::PrimEdit& edit)
+void CollabEngine::notify_local_edit(const std::string& session_id, const model::PrimEdit& edit)
 {
+    Session* s = find_session(session_id);
     // Author into the live stage (the free local save). Authoring trips the
     // bridge's change report, which routes back through on_stage_changed for the
     // gated broadcast.
-    IDTX_LOG(IDTX_DEBUG, "[trace] B notify_local_edit prim='{}' has_stage={}",
-             edit.prim_path, ports_.stage != nullptr);
-    if (ports_.stage)
+    IDTX_LOG(IDTX_DEBUG, "[trace] B notify_local_edit session='{}' prim='{}' has_stage={}",
+             session_id, edit.prim_path, (s != nullptr && s->stage != nullptr));
+    if (s && s->stage)
     {
-        ports_.stage->author_local_edit(edit);
+        s->stage->author_local_edit(edit);
     }
 }
 
-void CollabEngine::on_stage_changed(const model::PrimEdit& edit)
+void CollabEngine::on_stage_changed(const std::string& session_id, const model::PrimEdit& edit)
 {
+    Session* s = find_session(session_id);
+    if (!s) return;
+
     // Broadcast only local edits of an armed, remote session — never while
     // applying a remote edit (that would echo it straight back).
-    IDTX_LOG(IDTX_DEBUG, "[trace] D on_stage_changed prim='{}' remote={} armed={} applying={} has_socket={}",
-             edit.prim_path, remote_, armed_, applying_remote_, socket_ != nullptr);
-    if (!remote_ || !armed_ || applying_remote_)
+    IDTX_LOG(IDTX_DEBUG, "[trace] D on_stage_changed session='{}' prim='{}' remote={} armed={} applying={} has_socket={}",
+             session_id, edit.prim_path, s->remote, s->armed, s->applying_remote, s->socket != nullptr);
+    if (!s->remote || !s->armed || s->applying_remote)
     {
         return;
     }
-    if (socket_)
+    if (s->socket)
     {
-        socket_->send_edit(edit);
+        s->socket->send_edit(edit);
     }
 }
 
 void CollabEngine::poll()
 {
-    // Advance the auto-arm countdown once per frame; arm when it elapses so
-    // conversion-time writes right after stage load are not broadcast.
-    if (arm_countdown_ > 0)
+    // Advance each session's auto-arm countdown once per frame; arm when it
+    // elapses so conversion-time writes right after stage load are not
+    // broadcast. Then pump each session's socket.
+    for (auto& [id, s] : sessions_)
     {
-        --arm_countdown_;
-        IDTX_LOG(IDTX_DEBUG, "[trace] E poll auto-arm countdown={} armed={}",
-                 arm_countdown_, armed_);
-        if (arm_countdown_ == 0)
+        if (s.arm_countdown > 0)
         {
-            armed_ = true;
-            arm_countdown_ = -1;
-            IDTX_LOG(IDTX_DEBUG, "[trace] E poll AUTO-ARMED (armed_=true)");
+            --s.arm_countdown;
+            IDTX_LOG(IDTX_DEBUG, "[trace] E poll session='{}' auto-arm countdown={} armed={}",
+                     id, s.arm_countdown, s.armed);
+            if (s.arm_countdown == 0)
+            {
+                s.armed = true;
+                s.arm_countdown = -1;
+                IDTX_LOG(IDTX_DEBUG, "[trace] E poll session='{}' AUTO-ARMED (armed=true)", id);
+            }
         }
-    }
 
-    if (socket_)
-    {
-        socket_->poll();
+        if (s.socket)
+        {
+            s.socket->poll();
+        }
     }
 }
 

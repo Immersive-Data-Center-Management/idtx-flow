@@ -299,21 +299,32 @@ func set_server_options_visible(show_it: bool) -> void:
 ## path. `sessions` is an Array of session dicts { session_id, usd_file, mode,
 ## client_count, ... }. An empty array disables the Join option with a hint. Also
 ## re-enables the Refresh button (a pending re-query has now completed).
-func set_join_sessions(sessions: Array) -> void:
+func set_join_sessions(sessions: Array, joined_ids: PackedStringArray = PackedStringArray()) -> void:
 	_join_session_ids = PackedStringArray()
 	if _join_list:
 		_join_list.clear()
+		var first_selectable := -1
 		for s in sessions:
 			var sid := String(s.get("session_id", ""))
 			if sid.is_empty():
 				continue
 			var count := int(s.get("client_count", 0))
+			var already_joined := joined_ids.has(sid)
 			var label := "%s  •  %d client(s)" % [sid, count]
+			if already_joined:
+				label += "  •  (joined)"
+			var idx := _join_list.item_count
 			_join_list.add_item(label)
 			_join_session_ids.append(sid)
-		# Default-select the first row so a non-empty list is immediately usable.
-		if _join_list.item_count > 0:
-			_join_list.select(0)
+			if already_joined:
+				# Can't join a session we are already in: disable the row so it
+				# can't be selected (mirrors the wizard's client-side guard).
+				_join_list.set_item_disabled(idx, true)
+			elif first_selectable < 0:
+				first_selectable = idx
+		# Default-select the first row we can actually join.
+		if first_selectable >= 0:
+			_join_list.select(first_selectable)
 	if _join_refresh_btn:
 		_join_refresh_btn.disabled = false
 	_refresh_join_enabled()

@@ -225,14 +225,26 @@ produces it.
 ## Session lifecycle
 
 A collaboration session is entered by `open_new_session` (Create) or
-`open_existing_session` (Join) and **owned by the engine**, not the wizard (the wizard
-tracks no session state). It is torn down by `IdtxClient.end_session()` ->
-`CollabEngine::end_session()`, which detaches the stage, closes the socket, and requests
-backend deletion, then reports `session_closed`.
+`open_existing_session` (Join) and **owned by the engine**, which can hold several
+concurrent sessions — each keyed by its id with its own WebSocket + attached stage. The
+wizard tracks the transient scene per session id (`_session_scenes`), so **one live-session
+scene tab corresponds to one session**.
 
-The wizard calls `end_session()` from `_teardown_active_session()` on **Cancel**
-and on **plugin/scene exit**, so a session is not leaked on the backend. Socket
-resilience (TLS, keepalive, reconnect) is handled inside the WebSocket transport
+**Duplicate-join guard.** `open_existing_session` refuses to join a session the engine is
+already in, failing fast with `on_request_failed(GetSession, "already_joined")` and no
+round-trip. This guard is client-side by necessity: the server keys WebSocket clients by
+connection, not client identity, so it currently cannot detect (and would otherwise silently accept,
+or mislabel) a same-client re-join. The wizard mirrors this in the UI
+(the join list grays out sessions already open) and re-checks before joining.
+
+**Teardown = leave, per session.** `IdtxClient.end_session(session_id)` →
+`CollabEngine::end_session(session_id)` detaches that session's stage, closes+drops its
+socket, and forgets it, then reports `session_closed`. It does **not** delete the session on
+the backend — leaving simply disconnects; the server reaps idle (zero-client) sessions per
+its own rules. The wizard leaves **one** session when its scene tab is closed
+(`on_session_scene_closed` → `_leave_session(sid)`), and tears down **all** sessions on
+**plugin/scene exit** (`_teardown_all_sessions`), so nothing is leaked.
+Socket resilience (TLS, keepalive, reconnect) is handled inside the WebSocket transport
 (see [godot-binding.md](godot-binding.md) / [net-core.md](net-core.md)).
 
 ---

@@ -44,27 +44,29 @@ namespace net
 {
     /// Owns the engine-agnostic transports produced for one engine instance.
     /// Keep this alive for as long as the engine holds the ports built from it.
+    /// Only the shared HTTP transport is owned here; per-session WebSocket
+    /// transports are minted by the engine on demand via the injected factory.
     struct AgnosticTransports
     {
-        std::unique_ptr<ports::IHttpTransport>      http;
-        std::unique_ptr<ports::IWebSocketTransport> ws;
+        std::unique_ptr<ports::IHttpTransport> http;
     };
 
-    /// Build the engine-agnostic transports from `factory` and fill the agnostic
-    /// fields of `ports` (http, ws, token, clock). The binding still supplies the
-    /// engine-specific ports (dispatcher, ticker, stage) itself. Returns the owned
-    /// transports; the caller must keep the returned value alive.
+    /// Build the engine-agnostic HTTP transport from `factory` and fill the
+    /// agnostic fields of `ports` (http, ws_factory, token, clock). The WebSocket
+    /// is not built here: the engine mints one per session through `ws_factory`.
+    /// The binding still supplies the engine-specific ports (dispatcher, ticker)
+    /// itself. Returns the owned transports; the caller must keep the returned
+    /// value — and `factory` — alive for as long as the engine uses the ports.
     inline AgnosticTransports make_agnostic_ports(ports::ITransportFactory& factory,
                                                   CollabPorts& ports)
     {
         AgnosticTransports transports;
         transports.http = factory.make_http();
-        transports.ws   = factory.make_websocket();
 
-        ports.http  = transports.http.get();
-        ports.ws    = transports.ws.get();
-        ports.token = &adapters::StaticTokenProvider::instance();
-        ports.clock = &adapters::SystemClock::instance();
+        ports.http       = transports.http.get();
+        ports.ws_factory = &factory;
+        ports.token      = &adapters::StaticTokenProvider::instance();
+        ports.clock      = &adapters::SystemClock::instance();
         return transports;
     }
 

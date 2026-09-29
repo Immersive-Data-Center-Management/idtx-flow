@@ -11,8 +11,10 @@
  * heavy; real setup and teardown are the idempotent initialize()/shutdown().
  */
 
+#include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <idtxflow/net/CollabObserver.h>
 #include <idtxflow/net/model/Types.h>
@@ -22,6 +24,7 @@
 #include <idtxflow/net/ports/IMainThreadDispatcher.h>
 #include <idtxflow/net/ports/IStageBridge.h>
 #include <idtxflow/net/ports/ITokenProvider.h>
+#include <idtxflow/net/ports/ITransportFactory.h>
 #include <idtxflow/net/ports/IWebSocketTransport.h>
 #include <idtxflow/utils/Logger.h>
 
@@ -32,15 +35,16 @@ namespace net
     class RestClient;
     class SessionSocket;
 
-    /// The adapters the engine requires. `stage` is optional (set later, on stage
-    /// load, via attach_stage); the rest are provided at initialize().
+    /// The adapters the engine requires. `ws_factory` mints a fresh WebSocket
+    /// transport per session (so N concurrent sessions get N sockets); the HTTP
+    /// transport is shared across all REST calls. Stages are attached per
+    /// session later (attach_stage), so none is provided here.
     struct CollabPorts
     {
         ports::IHttpTransport*        http = nullptr;
-        ports::IWebSocketTransport*   ws = nullptr;
+        ports::ITransportFactory*     ws_factory = nullptr;
         ports::IMainThreadDispatcher* dispatcher = nullptr;
         ports::ITokenProvider*        token = nullptr;
-        ports::IStageBridge*          stage = nullptr;
         ports::IClock*                clock = nullptr;
         ports::IFrameTicker*          ticker = nullptr;
     };
@@ -103,54 +107,65 @@ namespace net
 
         // --- high-level session flow ---
         //
-        // Two entry points that share the same tail (enter_session): they differ
-        // only in how the SessionInfo is obtained.
+        // The engine can hold multiple concurrent sessions, each keyed by its
+        // session id and owning its own WebSocket + attached stage + sync state.
+        // Two entry points share the same tail (enter_session); they differ only
+        // in how the SessionInfo is obtained:
         //
         //   open_new_session      -> POST /sessions   (create a fresh session)
         //   open_existing_session -> GET  /sessions/<id> (look up a running one)
         //
-        // Both then run enter_session: own the active session id/mode, compute the
-        // authenticated stage download URL and the full socket URL, open the
-        // session socket, and report on_session_ready so the host performs the
-        // engine-specific stage load and attaches it back (attach_stage). The
-        // resulting stage_url is a plain http(s):// URL; the authenticated fetch
-        // happens later in the USD http asset resolver (JWT injected at fetch
-        // time), not here.
+        // Both then run enter_session: record the session (id, mode, usd_file),
+        // mint a WebSocket for it, compute the authenticated stage download URL
+        // and the full socket URL, open the socket, and report on_session_ready
+        // so the host performs the engine-specific stage load and attaches it
+        // back (attach_stage). The stage_url is a plain http(s):// URL; the JWT is
+        // injected later in the USD http asset resolver at fetch time, not here.
 
         // Create a new session for a file, then enter it. A create failure is
         // reported through on_request_failed(Op::CreateSession, ...).
         void open_new_session(const std::string& usd_file, const std::string& mode);
         // Look up an existing session by id, then enter it (join). Unlike
         // open_new_session this emits no on_session_created (nothing was created).
+        //
+        // Client-side duplicate-join guard: if this engine is already in the
+        // requested session, the call fails fast with
+        // on_request_failed(Op::GetSession, "already_joined") and no network
+        // round-trip. This guard must live here because the server keys sockets
+        // by connection, not by client identity, so it currently cannot detect (and would
+        // silently accept, or mislabel as single_edit_busy) a same-client rejoin.
+        //
         // A lookup failure is reported through on_request_failed(Op::GetSession, ...).
         void open_existing_session(const std::string& session_id);
-        // Tear the active session down: detach the stage, close the socket, and
-        // request deletion on the backend, then report on_session_closed. Safe to
-        // call with no active session (still reports, with an empty id).
-        void end_session();
+        // Tear one session down: detach its stage, close+drop its socket, and
+        // forget it, then report on_session_closed(session_id). We do not delete
+        // the session on the backend — leaving simply disconnects; the server
+        // reaps idle sessions per its own rules. A no-op (still reports) when the
+        // id is unknown.
+        void end_session(const std::string& session_id);
+        // Tear down every active session (used on shutdown). Reports on_session_closed for each.
+        void end_all_sessions();
+        // The ids of all sessions currently held by the engine.
+        std::vector<std::string> active_session_ids() const;
 
         // --- session socket ---
         
-        /// Open the collaboration WebSocket for a session; lifecycle via
-        /// on_socket_opened / on_handshake / on_disconnected / on_socket_error.
-        void open_session_socket(const std::string& session_id, const std::string& ws_url);
-        /// Close the collaboration WebSocket (reports on_disconnected).
-        void close_session_socket();
-        /// Whether the session socket is currently open.
-        bool is_socket_open() const;
+        /// Whether the given session's socket is currently open (false if the id is unknown).
+        bool is_socket_open(const std::string& session_id) const;
 
-        // --- transform sync (TfNotice-as-source) ---
+        // --- transform sync (TfNotice-as-source), per session ---
         
-        // Attach the live stage for a loaded session; `remote` enables broadcasting.
-        void attach_stage(ports::IStageBridge* stage, bool remote);
-        /// Detach the current stage (stops applying/broadcasting edits).
-        void detach_stage();
-        // Enable broadcasting once the stage has settled, so conversion-time writes
-        // don't phantom-broadcast.
-        void arm_sync();
-        // Author a node's local edit into the stage (the free local save); the
-        // stage's change report then drives the gated broadcast.
-        void notify_local_edit(const model::PrimEdit& edit);
+        // Attach the live stage for a loaded session; `remote` enables broadcasting
+        // on that session's socket. No-op if the id is unknown.
+        void attach_stage(const std::string& session_id, ports::IStageBridge* stage, bool remote);
+        /// Detach a session's stage (stops applying/broadcasting its edits).
+        void detach_stage(const std::string& session_id);
+        // Enable broadcasting for a session once its stage has settled, so
+        // conversion-time writes don't phantom-broadcast.
+        void arm_sync(const std::string& session_id);
+        // Author a node's local edit into a session's stage (the free local save);
+        // the stage's change report then drives that session's gated broadcast.
+        void notify_local_edit(const std::string& session_id, const model::PrimEdit& edit);
 
         /// Drain outbound coalescing. Driven by the frame ticker.
         void poll();
@@ -158,39 +173,60 @@ namespace net
     private:
         IDTX_LOG_CATEGORY("CollabEngine")
 
-        // Invoked by the stage bridge when the live stage changes; broadcasts the
-        // edit only for an armed, remote session that is not currently applying a
-        // remote edit (loopback suppression).
-        void on_stage_changed(const model::PrimEdit& edit);
+        // One live session the engine holds: its identity, its own WebSocket
+        // transport + protocol socket, the attached stage (if any), and the
+        // per-session transform-sync state. Everything a session needs is here so
+        // sessions are fully isolated from one another.
+        struct Session
+        {
+            std::string id;
+            std::string mode;
+            std::string usd_file;
 
-        // Shared tail of open_new_session / open_existing_session: own the session
-        // identity, compute the stage download URL + full socket URL, open the
-        // socket, and report on_session_ready. Does not create or look up the
+            std::unique_ptr<ports::IWebSocketTransport> ws;     // owned per session
+            std::unique_ptr<SessionSocket>              socket;
+
+            ports::IStageBridge* stage = nullptr;   // attached on stage load
+            bool remote = false;
+            bool armed = false;
+            bool applying_remote = false;
+            // Frames remaining before outbound broadcasting auto-arms after a
+            // remote stage attaches; -1 means disabled. Counted down in poll().
+            int  arm_countdown = -1;
+        };
+
+        // Invoked by a session's stage bridge when its live stage changes;
+        // broadcasts the edit only for that session when it is armed + remote and
+        // not currently applying a remote edit (loopback suppression).
+        void on_stage_changed(const std::string& session_id, const model::PrimEdit& edit);
+
+        // Shared tail of open_new_session / open_existing_session: record the
+        // session, mint + open its socket, compute the stage download URL + full
+        // socket URL, and report on_session_ready. Does not create or look up the
         // session itself — the caller supplies the resolved SessionInfo.
         void enter_session(const model::SessionInfo& session);
+
+        // Open the collaboration WebSocket for a session record (minting the
+        // transport via ws_factory) and wire its callbacks; lifecycle via
+        // on_socket_opened / on_handshake / on_disconnected / on_socket_error.
+        void open_session_socket(Session& s, const std::string& ws_url);
+
+        // Look up a session by id, or nullptr if unknown.
+        Session* find_session(const std::string& id);
+        const Session* find_session(const std::string& id) const;
+
+        // Tear down + erase a single session record (detach stage, close socket).
+        // Does not report on_session_closed; the caller decides.
+        void teardown_session(Session& s);
 
         bool           initialized_ = false;
         CollabPorts    ports_;
         CollabObserver* observer_ = nullptr;
 
-        std::unique_ptr<RestClient>    rest_;
-        std::unique_ptr<SessionSocket> socket_;
+        std::unique_ptr<RestClient> rest_;
 
-        bool remote_ = false;
-        bool armed_ = false;
-        bool applying_remote_ = false;
-
-        // Identity of the session the high-level flow (open_new_session /
-        // open_existing_session -> enter_session) owns, so end_session can tear
-        // down exactly what it entered without the host tracking the id.
-        std::string active_session_id_;
-        std::string active_mode_;
-
-        // Frames remaining before outbound broadcasting auto-arms after a remote
-        // stage attaches; -1 means disabled. Counted down by poll() (driven by the
-        // frame ticker) so conversion-time transform writes right after load are
-        // suppressed without relying on engine-side timing done in script.
-        int arm_countdown_ = -1;
+        // All live sessions, keyed by session id.
+        std::map<std::string, Session> sessions_;
     };
 
 } // namespace net
