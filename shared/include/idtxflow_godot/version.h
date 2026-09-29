@@ -16,10 +16,8 @@
  * Usage:
  *   #if IDTXFLOW_GODOT_VERSION >= IDTXFLOW_GODOT_MAKE_VERSION(0, 1, 0)
  */
-#define IDTXFLOW_GODOT_MAKE_VERSION(major, minor, patch) \
-    ((major) * 10000 + (minor) * 100 + (patch))
+#define IDTXFLOW_GODOT_MAKE_VERSION(major, minor, patch) ((major) * 10000 + (minor) * 100 + (patch))
 
-#define IDTXFLOW_GODOT_VERSION \
-    IDTXFLOW_GODOT_MAKE_VERSION(IDTXFLOW_GODOT_VERSION_MAJOR, \
-                                 IDTXFLOW_GODOT_VERSION_MINOR, \
-                                 IDTXFLOW_GODOT_VERSION_PATCH)
+#define IDTXFLOW_GODOT_VERSION                                                                                         \
+    IDTXFLOW_GODOT_MAKE_VERSION(IDTXFLOW_GODOT_VERSION_MAJOR, IDTXFLOW_GODOT_VERSION_MINOR,                            \
+                                IDTXFLOW_GODOT_VERSION_PATCH)

@@ -93,8 +93,8 @@ PXR_NAMESPACE_OPEN_SCOPE
 class UsdHttpAssetResolver : public ArResolver
 {
     IDTX_LOG_CATEGORY("HttpResolver")
-    
-public:
+
+  public:
     UsdHttpAssetResolver() = default;
     ~UsdHttpAssetResolver() = default;
 
@@ -110,8 +110,7 @@ public:
      * @param tls_options TLS options for the IXWebSocket HTTP client. Defaults to using the
      *                    system certificate store ("SYSTEM").
      */
-    static inline void Configure(const std::filesystem::path& cache_dir,
-                                 ix::SocketTLSOptions tls_options = {})
+    static inline void Configure(const std::filesystem::path& cache_dir, ix::SocketTLSOptions tls_options = {})
     {
         std::lock_guard lock(ConfigMutex());
         idtxflow::resolver::DefaultHttpFetcher fetcher{std::move(tls_options)};
@@ -127,31 +126,23 @@ public:
      * @param cache_dir Local directory for caching downloaded files.
      * @param fetcher   The custom HTTP download implementation.
      */
-    template<idtxflow::resolver::HttpFetcherLike Fetcher>
+    template <idtxflow::resolver::HttpFetcherLike Fetcher>
     static inline void ConfigureWithFetcher(const std::filesystem::path& cache_dir, Fetcher fetcher)
     {
         std::lock_guard lock(ConfigMutex());
         // Wrap the typed cache in a type-erased adapter so we can store it as a shared_ptr<void>
-        auto typed_cache = std::make_shared<idtxflow::resolver::HttpAssetCache<Fetcher>>(
-            cache_dir, std::move(fetcher));
+        auto typed_cache = std::make_shared<idtxflow::resolver::HttpAssetCache<Fetcher>>(cache_dir, std::move(fetcher));
         ErasedCache() = typed_cache;
         // Store a resolve function that captures the typed cache
-        ResolveFunction() = [typed_cache](const std::string& url) -> std::optional<std::filesystem::path>
-        {
+        ResolveFunction() = [typed_cache](const std::string& url) -> std::optional<std::filesystem::path> {
             return typed_cache->Resolve(url);
         };
-        PrefetchFunction() = [typed_cache](const std::string& url)
-        {
-            typed_cache->Prefetch(url);
-        };
-        IsCachedFunction() = [typed_cache](const std::string& url) -> bool
-        {
-            return typed_cache->IsCached(url);
-        };
+        PrefetchFunction() = [typed_cache](const std::string& url) { typed_cache->Prefetch(url); };
+        IsCachedFunction() = [typed_cache](const std::string& url) -> bool { return typed_cache->IsCached(url); };
         IDTX_LOG(IDTX_INFO, "Configured with cache dir: {} (custom fetcher)", cache_dir.string());
     }
 
-protected:
+  protected:
     // -------------------------------------------------------------------
     // ArResolver interface implementation
     // -------------------------------------------------------------------
@@ -161,9 +152,7 @@ protected:
         return TfGetExtension(path);
     }
 
-    std::string _CreateIdentifier(
-        const std::string& assetPath,
-        const ArResolvedPath& anchorAssetPath) const override
+    std::string _CreateIdentifier(const std::string& assetPath, const ArResolvedPath& anchorAssetPath) const override
     {
         // HTTP(S) URLs are already absolute identifiers
         if (IsHttpUrl(assetPath))
@@ -181,9 +170,8 @@ protected:
         return assetPath;
     }
 
-    std::string _CreateIdentifierForNewAsset(
-        const std::string& assetPath,
-        const ArResolvedPath& anchorAssetPath) const override
+    std::string _CreateIdentifierForNewAsset(const std::string& assetPath,
+                                             const ArResolvedPath& anchorAssetPath) const override
     {
         // Same logic as _CreateIdentifier — HTTP assets are read-only for now
         return _CreateIdentifier(assetPath, anchorAssetPath);
@@ -230,16 +218,15 @@ protected:
         return ArFilesystemAsset::Open(ArResolvedPath(asset_path));
     }
 
-    std::shared_ptr<ArWritableAsset> _OpenAssetForWrite(
-        const ArResolvedPath& resolvedPath,
-        WriteMode writeMode) const override
+    std::shared_ptr<ArWritableAsset> _OpenAssetForWrite(const ArResolvedPath& resolvedPath,
+                                                        WriteMode writeMode) const override
     {
         // HTTP assets are read-only — writing is not supported
         IDTX_LOG(IDTX_ERROR, "Write not supported for HTTP assets: {}", resolvedPath.GetPathString());
         return nullptr;
     }
 
-private:
+  private:
     // -------------------------------------------------------------------
     // URL utilities
     // -------------------------------------------------------------------
@@ -318,14 +305,16 @@ private:
         {
             return ResolveFunction()(url);
         }
-        
+
         // Fall back to default cache
         if (Cache())
         {
             return Cache()->Resolve(url);
         }
-        
-        IDTX_LOG(IDTX_ERROR, "Resolver not configured. Call UsdHttpAssetResolver::Configure() or ConfigureWithFetcher() before use.");
+
+        IDTX_LOG(
+            IDTX_ERROR,
+            "Resolver not configured. Call UsdHttpAssetResolver::Configure() or ConfigureWithFetcher() before use.");
         return std::nullopt;
     }
 
