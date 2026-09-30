@@ -2,6 +2,8 @@
 
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/core/object.hpp>
+#include <godot_cpp/variant/callable_method_pointer.hpp>
 
 #include <idtxflow_godot/nodes/IUsdNode3D.h>
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
@@ -76,7 +78,7 @@ void IdtxClient::shutdown()
     // finally unregister the singleton.
     if (dispatcher_) dispatcher_->shutdown();
     engine_.shutdown();
-    stages_.clear();
+    bindings_.clear();
     transports_ = {};
     transport_factory_.reset();
     ticker_.reset();
@@ -182,19 +184,9 @@ void IdtxClient::list_files(const String& name_contains, const String& extension
     engine_.list_files(name_contains.utf8().get_data(), extension.utf8().get_data());
 }
 
-void IdtxClient::create_session(const String& usd_file, const String& mode)
-{
-    engine_.create_session(usd_file.utf8().get_data(), mode.utf8().get_data());
-}
-
-void IdtxClient::delete_session(const String& session_id)
-{
-    engine_.delete_session(session_id.utf8().get_data());
-}
-
 void IdtxClient::list_sessions(const Callable& on_done)
 {
-    if (on_done.is_valid()) sessions_cbs_.push_back(on_done);
+    if (on_done.is_valid()) bindings_cbs_.push_back(on_done);
     engine_.list_sessions();
 }
 
@@ -236,8 +228,8 @@ void IdtxClient::open_existing_session(const String& session_id, const Callable&
 
 void IdtxClient::end_session(const String& session_id)
 {
-    // Drop this session's stage bridge, then leave the session in the engine.
-    stages_.erase(std::string(session_id.utf8().get_data()));
+    // Drop this session's binding (detaches its bridge), then leave the session in the engine.
+    unbind_session(session_id);
     engine_.end_session(session_id.utf8().get_data());
 }
 
@@ -246,47 +238,104 @@ bool IdtxClient::is_socket_open(const String& session_id) const
     return engine_.is_socket_open(session_id.utf8().get_data());
 }
 
-void IdtxClient::send_transform(const String& session_id, const String& prim_path, const Transform3D& xform)
-{
-    engine_.notify_local_edit(
-        session_id.utf8().get_data(),
-        gxform::transform_to_prim_edit(std::string(prim_path.utf8().get_data()), xform));
-}
-
 // ---------------------------------------------------------------------------
-// Transform sync (per session)
+// Session sync binding and stage-bridge lifecycle (per session)
 // ---------------------------------------------------------------------------
 
-void IdtxClient::attach_transform_sync(const String& session_id, Node* stage_node, bool remote)
+void IdtxClient::bind_session(const String& session_id, Node* stage_node, bool remote)
 {
     const std::string sid = session_id.utf8().get_data();
-
-    // Replace any prior bridge for this session.
-    detach_transform_sync(session_id);
 
     UsdStageNode3D* usd_stage = Object::cast_to<UsdStageNode3D>(stage_node);
     if (usd_stage == nullptr)
     {
-        IDTX_LOG(IDTX_ERROR, "attach_transform_sync: node is not a UsdStageNode3D");
+        IDTX_LOG(IDTX_ERROR, "bind_session: node is not a UsdStageNode3D");
         return;
     }
 
-    auto bridge = std::make_unique<idtxflow::collab::StageBridge>(usd_stage, usd_stage->get_stage());
-    engine_.attach_stage(sid, bridge.get(), remote);
-    stages_[sid] = std::move(bridge);
-    IDTX_LOG(IDTX_INFO, "attach_transform_sync: session='{}' remote={}", sid, remote ? "true" : "false");
+    // Replace any prior binding for this session.
+    unbind_session(session_id);
+
+    // Record the session's sync state: which node it is bound to and the remote
+    // flag. The bridge itself is built by attach_bridge (below / on reload).
+    SessionBinding& binding = bindings_[sid];
+    binding.node_id = usd_stage->get_instance_id();
+    binding.remote  = remote;
+
+    // Follow the node's stage lifecycle: drop the bridge when the stage unloads,
+    // rebuild it when the stage loads again. The node instance persists across the
+    // cycle, so connect once and keep the connections; bind the session id so the
+    // slots know which session they manage.
+    const Callable unload_cb = callable_mp(this, &IdtxClient::_on_stage_unloading).bind(session_id);
+    if (!usd_stage->is_connected("stage_unloading", unload_cb))
+        usd_stage->connect("stage_unloading", unload_cb);
+    const Callable loaded_cb = callable_mp(this, &IdtxClient::_on_stage_loaded).bind(session_id);
+    if (!usd_stage->is_connected("stage_loading_finished", loaded_cb))
+        usd_stage->connect("stage_loading_finished", loaded_cb);
+
+    attach_bridge(sid);
 }
 
-void IdtxClient::detach_transform_sync(const String& session_id)
+void IdtxClient::unbind_session(const String& session_id)
 {
     const std::string sid = session_id.utf8().get_data();
-    engine_.detach_stage(sid);
-    stages_.erase(sid);
+    detach_bridge(sid);
+
+    // Disconnect the node's lifecycle signals if it is still alive, so a fully
+    // unbound node carries no stray connections back to us.
+    auto it = bindings_.find(sid);
+    if (it != bindings_.end())
+    {
+        Node* node = Object::cast_to<Node>(ObjectDB::get_instance(it->second.node_id));
+        if (node != nullptr)
+        {
+            const Callable unload_cb = callable_mp(this, &IdtxClient::_on_stage_unloading).bind(session_id);
+            if (node->is_connected("stage_unloading", unload_cb))
+                node->disconnect("stage_unloading", unload_cb);
+            const Callable loaded_cb = callable_mp(this, &IdtxClient::_on_stage_loaded).bind(session_id);
+            if (node->is_connected("stage_loading_finished", loaded_cb))
+                node->disconnect("stage_loading_finished", loaded_cb);
+        }
+    }
+
+    bindings_.erase(sid);
 }
 
-void IdtxClient::arm_transform_sync(const String& session_id)
+void IdtxClient::attach_bridge(const std::string& session_id)
 {
-    engine_.arm_sync(session_id.utf8().get_data());
+    auto it = bindings_.find(session_id);
+    if (it == bindings_.end() || it->second.bridge)
+        return;
+    UsdStageNode3D* usd_stage =
+        Object::cast_to<UsdStageNode3D>(ObjectDB::get_instance(it->second.node_id));
+    if (usd_stage == nullptr || !usd_stage->get_stage())
+        return;
+
+    auto bridge = std::make_unique<idtxflow::collab::StageBridge>(usd_stage, usd_stage->get_stage());
+    engine_.attach_stage(session_id, bridge.get(), it->second.remote);
+    it->second.bridge = std::move(bridge);
+    IDTX_LOG(IDTX_INFO, "attach_bridge: session='{}' remote={}", session_id, it->second.remote ? "true" : "false");
+}
+
+void IdtxClient::detach_bridge(const std::string& session_id)
+{
+    auto it = bindings_.find(session_id);
+    if (it == bindings_.end())
+        return;
+    engine_.detach_stage(session_id);
+    it->second.bridge.reset();
+}
+
+void IdtxClient::_on_stage_unloading(const String& session_id)
+{
+    detach_bridge(session_id.utf8().get_data());
+}
+
+void IdtxClient::_on_stage_loaded(bool success, const String& session_id)
+{
+    if (!success)
+        return;
+    attach_bridge(session_id.utf8().get_data());
 }
 
 void IdtxClient::notify_local_transform_changed(Node* node)
@@ -312,9 +361,9 @@ void IdtxClient::notify_local_transform_changed(Node* node)
     // the node isn't part of a live session's stage, there is nothing to sync.
     UsdStageNode3D* owning_stage = usd->get_stage_node();
     std::string sid;
-    for (const auto& [id, bridge] : stages_)
+    for (const auto& [id, binding] : bindings_)
     {
-        if (bridge && bridge->stage_node() == owning_stage)
+        if (binding.bridge && binding.bridge->stage_node() == owning_stage)
         {
             sid = id;
             break;
@@ -450,7 +499,7 @@ void IdtxClient::on_sessions(const std::vector<idtxflow::net::model::SessionInfo
     Dictionary ok;
     ok["ok"]     = true;
     ok["result"] = arr;
-    resolve_next(sessions_cbs_, ok);
+    resolve_next(bindings_cbs_, ok);
 }
 
 void IdtxClient::on_session_details(const idtxflow::net::model::SessionInfo& session)
@@ -497,7 +546,7 @@ void IdtxClient::on_session_ready(const idtxflow::net::model::SessionInfo& s,
 {
     // Hand control back to the host for the engine-specific stage load: the
     // caller loads a UsdStageNode3D from stage_url, then calls
-    // attach_transform_sync(stage_node, true).
+    // bind_session(session_id, stage_node, true).
     Dictionary d;
     d["session_id"] = String(s.session_id.c_str());
     d["usd_file"]   = String(s.usd_file.c_str());
@@ -531,7 +580,7 @@ void IdtxClient::on_request_failed(idtxflow::net::Op op, const idtxflow::net::mo
     else if (op == idtxflow::net::Op::FetchThumbnail) resolve_next(thumbnail_cbs_, err);
     else if (op == idtxflow::net::Op::ListFiles)     resolve_next(list_cbs_, err);
     else if (op == idtxflow::net::Op::CreateSession) resolve_next(create_cbs_, err);
-    else if (op == idtxflow::net::Op::ListSessions)  resolve_next(sessions_cbs_, err);
+    else if (op == idtxflow::net::Op::ListSessions)  resolve_next(bindings_cbs_, err);
     else if (op == idtxflow::net::Op::GetSession)
     {
         // Op::GetSession backs both the raw get_session() REST call and the
@@ -600,9 +649,6 @@ void IdtxClient::_bind_methods()
                          DEFVAL(Callable()));
     ClassDB::bind_method(D_METHOD("list_files", "name_contains", "extension", "on_done"),
                          &IdtxClient::list_files, DEFVAL(""), DEFVAL(""), DEFVAL(Callable()));
-    ClassDB::bind_method(D_METHOD("create_session", "usd_file", "mode"), &IdtxClient::create_session,
-                         DEFVAL("single_edit"));
-    ClassDB::bind_method(D_METHOD("delete_session", "session_id"), &IdtxClient::delete_session);
     ClassDB::bind_method(D_METHOD("list_sessions", "on_done"), &IdtxClient::list_sessions,
                          DEFVAL(Callable()));
     ClassDB::bind_method(D_METHOD("get_session", "session_id", "on_done"), &IdtxClient::get_session,
@@ -624,14 +670,11 @@ void IdtxClient::_bind_methods()
     ClassDB::bind_method(D_METHOD("ws_base_url"), &IdtxClient::ws_base_url);
 
     ClassDB::bind_method(D_METHOD("is_socket_open", "session_id"), &IdtxClient::is_socket_open);
-    ClassDB::bind_method(D_METHOD("send_transform", "session_id", "prim_path", "xform"),
-                         &IdtxClient::send_transform);
 
-    ClassDB::bind_method(D_METHOD("attach_transform_sync", "session_id", "stage_node", "remote"),
-                         &IdtxClient::attach_transform_sync);
-    ClassDB::bind_method(D_METHOD("detach_transform_sync", "session_id"),
-                         &IdtxClient::detach_transform_sync);
-    ClassDB::bind_method(D_METHOD("arm_transform_sync", "session_id"), &IdtxClient::arm_transform_sync);
+    ClassDB::bind_method(D_METHOD("bind_session", "session_id", "stage_node", "remote"),
+                         &IdtxClient::bind_session);
+    ClassDB::bind_method(D_METHOD("unbind_session", "session_id"),
+                         &IdtxClient::unbind_session);
     ClassDB::bind_method(D_METHOD("notify_local_transform_changed", "node"),
                          &IdtxClient::notify_local_transform_changed);
 

@@ -712,8 +712,8 @@ func _on_stage_loading_finished(
 	# in the 'is_new_scene' scenario this will be handled within '_finalize_new_scene_import'
 	if _import_state.get("source", "") == "server":
 		var client := _idtx()
-		if client and client.has_method("attach_transform_sync"):
-			client.attach_transform_sync(_import_state.get("session_id", ""), stage_node, true)
+		if client and client.has_method("bind_session"):
+			client.bind_session(_import_state.get("session_id", ""), stage_node, true)
 
 	print("[IDTXFlow] [Import Manager] Imported '%s' as child of '%s'." % [file_path, stage_node.get_parent().name])
 
@@ -804,13 +804,14 @@ func _finalize_new_scene_import(stage_node: Node, file_path: String) -> void:
 			sel.clear()
 			sel.add_node(new_stage_node)
 		_editor_interface.edit_node(new_stage_node)
-		# The initially loaded stage node is long gone, so we need to re-wire the sync
-		# for the now existing UsdStageNode3D. Otherwise we will not be able to handle
-		# inbound transform changes properly
+		# The stage node loaded under the wizard was transient; attach sync to the
+		# packed-scene's stage node so gizmo edits broadcast and inbound edits apply.
+		# Subsequent tab-switch reloads re-attach automatically via the node's
+		# stage lifecycle (see IdtxClient), so this is only the initial hook-up.
 		if _import_state.get("source", "") == "server":
 			var client := _idtx()
-			if client and client.has_method("attach_transform_sync"):
-				client.attach_transform_sync(_import_state.get("session_id", ""), new_stage_node, true)
+			if client and client.has_method("bind_session"):
+				client.bind_session(_import_state.get("session_id", ""), new_stage_node, true)
 
 	_reset_and_go_home()
 

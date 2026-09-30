@@ -157,7 +157,7 @@ end-to-end detail (backend calls and transform sync) is in [flows.md](flows.md).
 - **Create collaboration session** — `IdtxClient.open_new_session(usd_file, mode)`
   creates the session (`POST /sessions`) and runs the engine's open-socket sequence;
   the wizard listens for `session_ready`, loads the stage from the resolved download
-  URL into a new scene, and calls `attach_transform_sync(stage_node, true)`.
+  URL into a new scene, and calls `bind_session(session_id, stage_node, true)`.
 - **Join collaboration session** — the join list is populated on entering step 3 via
   `IdtxClient.list_sessions()` (filtered to `collaborative_edit` for the selected
   file; re-queryable with **Refresh**). Importing calls

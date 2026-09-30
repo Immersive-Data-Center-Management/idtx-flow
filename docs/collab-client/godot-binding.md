@@ -60,7 +60,7 @@ singleton.
 - **Config / auth:** `set_base_url`, `get_base_url`, `is_authenticated`,
   `get_access_token`, `clear_credentials`.
 - **REST (async):** `login`, `health`, `fetch_thumbnail`, `list_files`,
-  `create_session`, `delete_session`, `list_sessions`, `get_session`,
+  `list_sessions`, `get_session`,
   `commit_session`, `check_download_exists`, `check_thumbnail_exists`. Each
   optionally takes an `on_done` Callable that receives a result Dictionary —
   `{ "ok": true, "result": <payload> }` on success, or
@@ -74,14 +74,18 @@ singleton.
   tears down that one session. The client can hold several concurrent sessions, each keyed by
   its id with its own socket + stage. `open_existing_session` refuses a session already held,
   failing fast with `error_code: "already_joined"` (no round-trip) — the server currently can't detect a
-  same-client re-join, so this guard is client-side. These are distinct from the raw REST
-  `create_session` / `get_session` calls above (which only issue the request).
+  same-client re-join, so this guard is client-side. The Godot client is
+  leave-only: it never creates a bare session or destroys one server-side
+  (the backend auto-tears-down a session once its last client leaves), so
+  `open_new_session` / `end_session` are the only session-lifecycle entry
+  points exposed here. This is distinct from the raw REST calls
+  above (which only issues the request).
 - **URL helpers:** `download_url`, `ws_base_url`.
 - **Session state:** `is_socket_open(session_id)`,
   `send_transform(session_id, prim_path, xform)`. (Socket lifecycle is owned by the engine's
   session flow; there are no separate open/close-socket calls.)
-- **Transform sync (per session):** `attach_transform_sync(session_id, stage_node, remote)`,
-  `detach_transform_sync(session_id)`, `arm_transform_sync(session_id)`,
+- **Session sync binding (per session):** `bind_session(session_id, stage_node, remote)`,
+  `unbind_session(session_id)`, `arm_session(session_id)`,
   `notify_local_transform_changed(session_id, node)`.
 
 **Signals.** `IdtxClient` implements `CollabObserver` and converts each callback

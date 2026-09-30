@@ -39,6 +39,11 @@ public:
     void _exit_tree() override;
 
     /**
+     * Handle engine notifications
+     */
+    void _notification(int p_what);
+
+    /**
      * Set the URI of the stage that shall be opened and converted
      * @param path 
      */
@@ -69,11 +74,14 @@ public:
     void open_stage_and_then(const godot::StringName& next_method_name);
     
     /**
-     * Getter to retrieve the usd stage, this node has loaded and converted
-     * @return 
+     * Getter to retrieve the usd stage this node has opened.
+     * Returns an empty ref when no live stage handle exists: before the first
+     * open/convert, after loading a cached scene whose children are kept without
+     * reopening the stage, or after the node released its handle on teardown.
+     * @return the live stage, or an empty UsdStageRefPtr when none is loaded
      */
     [[nodiscard]]
-    pxr::UsdStageRefPtr get_stage() const { return stage_handle_->Stage(); }
+    pxr::UsdStageRefPtr get_stage() const { return stage_handle_ ? stage_handle_->Stage() : pxr::UsdStageRefPtr(); }
 
     /**
      * Check if the stage is currently being loaded asynchronously.

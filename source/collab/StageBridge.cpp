@@ -146,6 +146,9 @@ void StageBridge::_on_objects_changed(const pxr::UsdNotice::ObjectsChanged& noti
         return;
     if (!on_changed_)
         return;
+    // Ignore notices arriving while the stage is being released.
+    if (!stage_ || !stage_->GetRootLayer())
+        return;
 
     auto consider = [&](const pxr::SdfPath& path)
     {
@@ -222,7 +225,9 @@ void StageBridge::apply_remote_edit(const net::model::PrimEdit& edit)
 
 bool StageBridge::author_to_usd(const std::string& prim_path, const Transform3D& xform)
 {
-    if (!stage_)
+    // The stage may have been released (node left the tree) between an inbound
+    // edit being queued and applied; bail rather than touch a dead stage.
+    if (!stage_ || !stage_->GetRootLayer())
         return false;
 
     const pxr::SdfPath sdf_path(prim_path);
@@ -266,7 +271,7 @@ bool StageBridge::author_to_usd(const std::string& prim_path, const Transform3D&
 
 bool StageBridge::read_prim_transform(const std::string& prim_path, Transform3D& out) const
 {
-    if (!stage_)
+    if (!stage_ || !stage_->GetRootLayer())
         return false;
     pxr::UsdPrim prim = stage_->GetPrimAtPath(pxr::SdfPath(prim_path));
     if (!prim)

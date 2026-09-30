@@ -90,12 +90,6 @@ public:
     // modified, modified_epoch }.
     void list_files(const godot::String& name_contains = "", const godot::String& extension = "",
                     const godot::Callable& on_done = godot::Callable());
-    // Create a collaboration session for a USD file. Fire-and-forget: the result
-    // is surfaced through the session-flow signals, not an on_done Callable.
-    void create_session(const godot::String& usd_file, const godot::String& mode = "single_edit");
-    // Tear down a session on the backend. Fire-and-forget: failures are surfaced
-    // through the session-flow signals, not an on_done Callable.
-    void delete_session(const godot::String& session_id);
     // List currently active collaboration sessions. result: Array of session
     // dicts { session_id, usd_file, mode, client_count, created_at, ws_url,
     // protocol }.
@@ -121,7 +115,7 @@ public:
     // Create a new collaboration session for a file, then enter it.
     // On success emits the `session_ready` signal with the
     // resolved stage_url; the caller then loads the stage and calls
-    // attach_transform_sync. `on_done` (optional) reports { "ok": true } once the
+    // bind_session. `on_done` (optional) reports { "ok": true } once the
     // session is created and its socket opened, or the failure dict. `end_session`
     // emits `session_closed`.
     void open_new_session(const godot::String& usd_file, const godot::String& mode = "single_edit",
@@ -145,15 +139,16 @@ public:
     // Whether the given session's socket is open (false for an unknown id).
     bool is_socket_open(const godot::String& session_id) const;
 
-    // Outbound transform (matrix form) on a session; prim_path is the USD prim path.
-    void send_transform(const godot::String& session_id, const godot::String& prim_path,
-                        const godot::Transform3D& xform);
+    // --- Session sync binding (per session) ---
 
-    // --- Transform sync (per session) ---
-    
-    void attach_transform_sync(const godot::String& session_id, godot::Node* stage_node, bool remote);
-    void detach_transform_sync(const godot::String& session_id);
-    void arm_transform_sync(const godot::String& session_id);
+    // Bind a live collaboration session to a stage node: the client owns the sync
+    // from here — it attaches the bridge now (if the node's stage is loaded) or
+    // when it next loads, and keeps it attached across the node's tree lifecycle
+    // `remote` enables inbound apply + outbound broadcast (after arming).
+    void bind_session(const godot::String& session_id, godot::Node* stage_node, bool remote);
+    // Stop syncing a session: detach + drop the bridge and forget the binding.
+    // Does not end the session or close its socket (see end_session).
+    void unbind_session(const godot::String& session_id);
     // The prim node is the session-agnostic outbound origin (a gizmo edit). The
     // binding resolves which session's stage the node belongs to and routes the
     // edit there, so callers (the USD nodes) need not know the session id.
@@ -200,6 +195,17 @@ private:
     void _on_process_frame();
     void _bootstrap_ticker();
 
+    // Tree-lifecycle slots for a session's stage node. The stage node rebuilds
+    // its USD stage + child nodes on its own _exit_tree/_enter_tree cycle, so the
+    // bridge is dropped when the stage unloads and rebuilt when it loads again,
+    // otherwise it would outlive (or point past) the stage it wraps.
+    void _on_stage_unloading(const godot::String& session_id);
+    void _on_stage_loaded(bool success, const godot::String& session_id);
+    // Build the StageBridge for a session's node and hand it to the engine. This
+    // is the general "start the bridge" step; detach_bridge is its inverse.
+    void attach_bridge(const std::string& session_id);
+    void detach_bridge(const std::string& session_id);
+
     // Per-request completion queues (FIFO). A request enqueues its Callable (only
     // if valid) when issued; the matching observer result pops the front and
     // invokes it with the result Dictionary, skipping a target that has since
@@ -215,7 +221,7 @@ private:
     std::vector<godot::Callable> list_cbs_;
     std::vector<godot::Callable> create_cbs_;
     std::vector<godot::Callable> join_cbs_;
-    std::vector<godot::Callable> sessions_cbs_;
+    std::vector<godot::Callable> bindings_cbs_;
     std::vector<godot::Callable> session_details_cbs_;
     std::vector<godot::Callable> commit_cbs_;
     std::vector<godot::Callable> download_exists_cbs_;
@@ -230,8 +236,16 @@ private:
     std::unique_ptr<idtxflow::net::ports::ITransportFactory>      transport_factory_;
     idtxflow::net::AgnosticTransports                             transports_;
 
-    // One StageBridge per session, keyed by session id.
-    std::map<std::string, std::unique_ptr<idtxflow::collab::StageBridge>> stages_;
+    // Per-session sync state, keyed by session id. One record owns the node it is
+    // bound to (by ObjectID, stable across the node's _exit_tree/_enter_tree
+    // cycle), the remote flag, and the live StageBridge (null while the node's stage is unloaded).
+    struct SessionBinding
+    {
+        uint64_t node_id = 0;          // Godot ObjectID of the bound UsdStageNode3D
+        bool     remote  = false;
+        std::unique_ptr<idtxflow::collab::StageBridge> bridge;   // null while unloaded
+    };
+    std::map<std::string, SessionBinding> bindings_;
 
     idtxflow::net::CollabEngine engine_;
 };

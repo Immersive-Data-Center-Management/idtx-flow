@@ -122,7 +122,7 @@ Both then run the shared `CollabEngine::enter_session`: own the session id/mode,
 resolve the authenticated `stage_url` + full `ws_url`, open the session WebSocket, and
 report `on_session_ready`. On `session_ready` the wizard loads the stage from the
 resolved `stage_url` (same download-resolution mechanism as Flow 2) into a **new scene**,
-then calls `attach_transform_sync(stage_node, true)`; the engine attaches the stage
+then calls `bind_session(session_id, stage_node, true)`; the engine attaches the stage
 bridge and arms broadcasting a few frames later. Transform sync is then live for **both**
 flows — see [transform-sync-flow.md](transform-sync-flow.md) for the inbound/outbound
 edit path.
@@ -151,7 +151,7 @@ sequenceDiagram
     Engine-->>Client: on_session_ready session, stage_url, ws_url
     Client-->>Wiz: session_ready session, stage_url
     Wiz->>Wiz: load stage from stage_url (new scene)
-    Wiz->>Client: attach_transform_sync stage_node, true
+    Wiz->>Client: bind_session session_id, stage_node, true
     Client->>Engine: attach stage and arm broadcasting after a few frames
 ```
 
