@@ -31,112 +31,105 @@ namespace idtxflow
 {
 namespace converter
 {
-    template<typename TargetEngine>
-        requires types::ValidTargetEngine<TargetEngine>
-    class PrimConverterRegistry
+template <typename TargetEngine>
+    requires types::ValidTargetEngine<TargetEngine>
+class PrimConverterRegistry
+{
+    IDTX_LOG_CATEGORY("PrimConverterRegistry")
+  public:
+    using ConverterPtr = std::shared_ptr<IPrimConverter<TargetEngine>>;
+
+    /**
+     * Access the singleton instance for this TargetEngine.
+     */
+    static PrimConverterRegistry& Instance()
     {
-        IDTX_LOG_CATEGORY("PrimConverterRegistry")
-    public:
-        using ConverterPtr = std::shared_ptr<IPrimConverter<TargetEngine>>;
+        static PrimConverterRegistry instance;
+        return instance;
+    }
 
-        /**
-         * Access the singleton instance for this TargetEngine.
-         */
-        static PrimConverterRegistry& Instance()
+    /**
+     * Register a converter. It will be indexed under each token returned by
+     * GetSupportedPrimTypes(). Multiple converters for the same token are sorted
+     * by descending priority; the highest-priority converter wins on lookup.
+     *
+     * @param converter Shared pointer to the converter instance.
+     */
+    void Register(ConverterPtr converter)
+    {
+        for (const auto& token: converter->GetSupportedPrimTypes())
         {
-            static PrimConverterRegistry instance;
-            return instance;
+            auto& entry = converters_[token];
+            entry.push_back(converter);
+            std::sort(entry.begin(), entry.end(),
+                      [](const ConverterPtr& a, const ConverterPtr& b) { return a->GetPriority() > b->GetPriority(); });
+            IDTX_LOG(IDTX_INFO, "Registered prim converter '{}' for type '{}' (priority {})",
+                     converter->GetConverterName(), token.GetString(), converter->GetPriority());
         }
+    }
 
-        /**
-         * Register a converter. It will be indexed under each token returned by
-         * GetSupportedPrimTypes(). Multiple converters for the same token are sorted
-         * by descending priority; the highest-priority converter wins on lookup.
-         *
-         * @param converter Shared pointer to the converter instance.
-         */
-        void Register(ConverterPtr converter)
+    /**
+     * Unregister all entries associated with a given converter name.
+     *
+     * @param converter_name The name returned by GetConverterName().
+     */
+    void Unregister(const std::string& converter_name)
+    {
+        for (auto& [token, vec]: converters_)
         {
-            for (const auto& token : converter->GetSupportedPrimTypes())
-            {
-                auto& entry = converters_[token];
-                entry.push_back(converter);
-                std::sort(entry.begin(), entry.end(),
-                    [](const ConverterPtr& a, const ConverterPtr& b)
-                    {
-                        return a->GetPriority() > b->GetPriority();
-                    });
-                IDTX_LOG(IDTX_INFO, "Registered prim converter '{}' for type '{}' (priority {})",
-                          converter->GetConverterName(),
-                          token.GetString(),
-                          converter->GetPriority());
-            }
+            vec.erase(std::remove_if(vec.begin(), vec.end(),
+                                     [&](const ConverterPtr& c) { return c->GetConverterName() == converter_name; }),
+                      vec.end());
         }
+    }
 
-        /**
-         * Unregister all entries associated with a given converter name.
-         *
-         * @param converter_name The name returned by GetConverterName().
-         */
-        void Unregister(const std::string& converter_name)
-        {
-            for (auto& [token, vec] : converters_)
-            {
-                vec.erase(
-                    std::remove_if(vec.begin(), vec.end(),
-                        [&](const ConverterPtr& c) { return c->GetConverterName() == converter_name; }),
-                    vec.end());
-            }
-        }
+    /**
+     * Check whether any converter is registered for the given prim type token.
+     */
+    bool Has(const pxr::TfToken& prim_type) const
+    {
+        auto it = converters_.find(prim_type);
+        return it != converters_.end() && !it->second.empty();
+    }
 
-        /**
-         * Check whether any converter is registered for the given prim type token.
-         */
-        bool Has(const pxr::TfToken& prim_type) const
-        {
-            auto it = converters_.find(prim_type);
-            return it != converters_.end() && !it->second.empty();
-        }
+    /**
+     * Get the highest-priority converter for a prim type, or nullptr if none registered.
+     */
+    IPrimConverter<TargetEngine>* Get(const pxr::TfToken& prim_type) const
+    {
+        auto it = converters_.find(prim_type);
+        if (it != converters_.end() && !it->second.empty()) return it->second.front().get();
+        return nullptr;
+    }
 
-        /**
-         * Get the highest-priority converter for a prim type, or nullptr if none registered.
-         */
-        IPrimConverter<TargetEngine>* Get(const pxr::TfToken& prim_type) const
-        {
-            auto it = converters_.find(prim_type);
-            if (it != converters_.end() && !it->second.empty())
-                return it->second.front().get();
-            return nullptr;
-        }
+    /**
+     * List all registered prim type tokens (useful for debugging / editor introspection).
+     */
+    std::vector<pxr::TfToken> GetRegisteredTypes() const
+    {
+        std::vector<pxr::TfToken> result;
+        result.reserve(converters_.size());
+        for (const auto& [token, _]: converters_)
+            result.push_back(token);
+        return result;
+    }
 
-        /**
-         * List all registered prim type tokens (useful for debugging / editor introspection).
-         */
-        std::vector<pxr::TfToken> GetRegisteredTypes() const
-        {
-            std::vector<pxr::TfToken> result;
-            result.reserve(converters_.size());
-            for (const auto& [token, _] : converters_)
-                result.push_back(token);
-            return result;
-        }
+    /**
+     * Remove all registered converters. Useful for teardown / testing.
+     */
+    void Clear()
+    {
+        converters_.clear();
+    }
 
-        /**
-         * Remove all registered converters. Useful for teardown / testing.
-         */
-        void Clear()
-        {
-            converters_.clear();
-        }
+  private:
+    PrimConverterRegistry() = default;
+    PrimConverterRegistry(const PrimConverterRegistry&) = delete;
+    PrimConverterRegistry& operator=(const PrimConverterRegistry&) = delete;
 
-    private:
-        PrimConverterRegistry() = default;
-        PrimConverterRegistry(const PrimConverterRegistry&) = delete;
-        PrimConverterRegistry& operator=(const PrimConverterRegistry&) = delete;
-
-        // Map from prim type token to a priority-sorted list of converters
-        std::map<pxr::TfToken, std::vector<ConverterPtr>> converters_;
-    };
+    // Map from prim type token to a priority-sorted list of converters
+    std::map<pxr::TfToken, std::vector<ConverterPtr>> converters_;
+};
 
 } // namespace converter
 } // namespace idtxflow

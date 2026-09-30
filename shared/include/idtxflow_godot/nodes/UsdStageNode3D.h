@@ -31,57 +31,71 @@ class UsdStageNode3D : public godot::Node3D, public IUsdNode3D
 {
     GDCLASS(UsdStageNode3D, Node3D)
     IUSDNODE(UsdStageNode3D, false)
-    
-public:
+
+  public:
     /*********************** Godot Lifecycle Methods **********************************/
     void _enter_tree() override;
     void _ready() override;
     void _exit_tree() override;
 
-
     /**
      * Set the URI of the stage that shall be opened and converted
-     * @param path 
+     * @param path
      */
     void set_stage_uri(const godot::String& path);
 
     /**
      * Get the URI of the stage tah was opened and converted
-     * @return 
+     * @return
      */
-    godot::String get_stage_uri() const { return stage_uri_; }
+    godot::String get_stage_uri() const
+    {
+        return stage_uri_;
+    }
 
     /**
      * Set the cached scene name. Used internally after stage conversion to persist the generated cache filename.
      * @param name The cached scene filename
      */
-    void set_cached_scene_name(const godot::String& name) { cached_scene_name_ = name; }
+    void set_cached_scene_name(const godot::String& name)
+    {
+        cached_scene_name_ = name;
+    }
 
     /**
      * Get the cached scene name that was generated after a successful stage conversion.
      * @return The cached scene filename
      */
-    godot::String get_cached_scene_name() const { return cached_scene_name_; }
+    godot::String get_cached_scene_name() const
+    {
+        return cached_scene_name_;
+    }
 
     /**
      * Opens the stage at stage_uri_ asynchronously on a background thread,
      * then calls the method passed to it via name with call_deferred to continue execution on the main thread
      */
     void open_stage_and_then(const godot::StringName& next_method_name);
-    
+
     /**
      * Getter to retrieve the usd stage, this node has loaded and converted
-     * @return 
+     * @return
      */
     [[nodiscard]]
-    pxr::UsdStageRefPtr get_stage() const { return stage_handle_->Stage(); }
+    pxr::UsdStageRefPtr get_stage() const
+    {
+        return stage_handle_->Stage();
+    }
 
     /**
      * Check if the stage is currently being loaded asynchronously.
      */
-    bool is_loading() const { return is_loading_; }
-    
-protected:
+    bool is_loading() const
+    {
+        return is_loading_;
+    }
+
+  protected:
     /**
      * reconstructing the node either after loading the scene this node is contained in, or during an
      * _exit_tree -> _enter_tree cycle
@@ -99,7 +113,7 @@ protected:
      * converted stage from it's cached scene representation. This has to happen on the main thread
      */
     void _load_converted_stage();
-    
+
     /**
      * Finalize the conversion of the usdPrims->godotNodes while recursively setting the owner of each node
      * as well as the reference to their outermost StageNode3D reference
@@ -118,7 +132,7 @@ protected:
      * whether it has been opened with an overlay layer.
      * @param stage_uri The original stage URI
      * @param binary whether to use tscn or scn format
-     * @return 
+     * @return
      */
     godot::String _generate_cached_scene_name(const godot::String& stage_uri, bool binary = true);
 
@@ -127,19 +141,19 @@ protected:
      * to ensure all children are added to the scene tree and ownership is stored
      */
     void _pack_and_save_cached_scene();
-    
+
     static void _bind_methods();
-    
+
     bool node_ready_ = false;
     godot::String stage_uri_;
     godot::String cached_scene_name_;
     std::unique_ptr<idtxflow::converter::StageHandle> stage_handle_;
 
     // --- Async loading state ---
-    
+
     // The async stage load task (single-use per load operation)
     std::unique_ptr<idtxflow::async::StageLoadTask> pending_load_task_;
-    
+
     // The result from the worker thread, protected by result_mutex_
     idtxflow::async::StageLoadResult pending_result_;
     std::mutex result_mutex_;
