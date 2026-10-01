@@ -35,17 +35,24 @@ void UsdStageNode3D::_ready()
 
 void UsdStageNode3D::_exit_tree()
 {
-    // Cancel any pending async load
-    if (pending_load_task_)
-    {
-        pending_load_task_->Cancel();
-        is_loading_ = false;
-    }
-    
-    stage_handle_.reset();
-    _cleanup_nodes();
     Node3D::_exit_tree();
-    
+}
+
+void UsdStageNode3D::_notification(int p_what)
+{
+    // Teardown: the node is actually being deleted. Keep this minimal and shutdown-safe.
+    // Only release our own owned resources that the engine won't:
+    // - cancel any in-flight async load and drop the USD stage handle.
+    // - do not call _cleanup_nodes(): a node being destroyed has its children freed automatically by the engine (would double-frees them -> crash on shutdown).
+    if (p_what == NOTIFICATION_PREDELETE)
+    {
+        if (pending_load_task_)
+        {
+            pending_load_task_->Cancel();
+            is_loading_ = false;
+        }
+        stage_handle_.reset();
+    }
 }
 
 void UsdStageNode3D::set_stage_uri(const String& path)
@@ -151,6 +158,23 @@ void UsdStageNode3D::_reconstruct_node()
     {
         if (!stage_uri_.is_empty())
         {
+            // PERSISTENCE GUARD: on a transient tab-switch re-enter, the converted children
+            // are still alive and the stage handle survived (it is only dropped on
+            // PREDELETE or a URI change). In that case do not clean up and reload —
+            // that re-creates node objects the editor still reference. A freshly
+            // deserialized scene that embedded the children has no stage handle yet,
+            // so it must fall through and (re)build. Only skip when both are present.
+            if (stage_handle_)
+            {
+                for (int i = 0; i < get_child_count(); ++i)
+                {
+                    if (get_child(i)->has_meta("USD_NODE"))
+                    {
+                        return;
+                    }
+                }
+            }
+
             // coming here is most likely the case, when the scene has been loaded or after an _exit_tree -> _enter_tree
             // cycle. If the node has a cached scene name stored, it has been saved in the converted state and thus does not
             // trigger conversion again as all nodes has been loaded already. Otherwise trigger conversion.
