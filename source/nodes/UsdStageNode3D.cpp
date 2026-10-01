@@ -159,14 +159,19 @@ void UsdStageNode3D::_reconstruct_node()
         if (!stage_uri_.is_empty())
         {
             // PERSISTENCE GUARD: on a transient tab-switch re-enter, the converted children
-            // are still alive. If we already have our converted subtree, do
-            // not clean up and reload — that re-creates node objects the editor
-            // still reference. Only (re)build when there is nothing yet.
-            for (int i = 0; i < get_child_count(); ++i)
+            // are still alive and the stage handle survived (it is only dropped on
+            // PREDELETE or a URI change). In that case do not clean up and reload —
+            // that re-creates node objects the editor still reference. A freshly
+            // deserialized scene that embedded the children has no stage handle yet,
+            // so it must fall through and (re)build. Only skip when both are present.
+            if (stage_handle_)
             {
-                if (get_child(i)->has_meta("USD_NODE"))
+                for (int i = 0; i < get_child_count(); ++i)
                 {
-                    return;
+                    if (get_child(i)->has_meta("USD_NODE"))
+                    {
+                        return;
+                    }
                 }
             }
 
