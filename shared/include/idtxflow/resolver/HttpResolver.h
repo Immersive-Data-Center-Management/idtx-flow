@@ -68,6 +68,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <filesystem>
 
 #include <pxr/base/tf/pathUtils.h>
 #include <functional>
@@ -227,7 +228,19 @@ protected:
 
         // Open the cached local file as a standard filesystem asset
         std::string asset_path = local_path->generic_string();
-        return ArFilesystemAsset::Open(ArResolvedPath(asset_path));
+        std::error_code ec;
+        const auto bytes = std::filesystem::file_size(asset_path, ec);
+        IDTX_LOG(IDTX_DEBUG, "Opening cached asset '{}' from '{}' ({} bytes)",
+                 url, asset_path, ec ? 0 : bytes);
+        auto asset = ArFilesystemAsset::Open(ArResolvedPath(asset_path));
+        if (!asset)
+        {
+            IDTX_LOG(IDTX_ERROR,
+                "Downloaded '{}' to '{}' ({} bytes) but USD could not open it "
+                "(not a valid USD asset? wrong/error response body?).",
+                url, asset_path, ec ? 0 : bytes);
+        }
+        return asset;
     }
 
     std::shared_ptr<ArWritableAsset> _OpenAssetForWrite(

@@ -284,11 +284,16 @@ namespace resolver
 
             std::unique_lock lock(entry->mutex);
 
-            // Fast path: already cached
+            // Fast path: already cached — but only trust it if the file is still on
+            // disk. A cache dir cleared out-of-band (e.g. the user deleted it while
+            // the editor was running) leaves a stale Cached entry pointing at a
+            // now-missing file; demote it to Idle so the re-fetch block below runs.
             if (entry->state == FetchState::Cached)
             {
-                // check if cached file really exists, if so return the path to it
                 if (std::filesystem::exists(entry->local_path)) return entry->local_path;
+                IDTX_LOG(IDTX_WARN, "Cached file missing on disk for '{}' ('{}'); re-fetching.",
+                         url, entry->local_path.string());
+                entry->state = FetchState::Idle;
             }
 
             // If idle or failed, kick off the fetch
@@ -325,6 +330,7 @@ namespace resolver
                 return entry->local_path;
             }
 
+            IDTX_LOG(IDTX_ERROR, "Resolve failed for '{}' (fetch state=Failed; see download log above)", url);
             return std::nullopt;
         }
 
