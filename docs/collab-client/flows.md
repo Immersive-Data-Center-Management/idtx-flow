@@ -113,8 +113,10 @@ Everything in Flow 2's login/browse, but the import opens a **live session**: a
 WebSocket is opened and the loaded stage is wired for real-time transform sync. Two
 entry points share the same tail — they differ only in how the session is obtained:
 
-- **Create** (`create_session`) → `IdtxClient.open_new_session(usd_file, mode)` →
-  `CollabEngine::open_new_session` → `POST /api/v1/sessions`.
+- **Create** (`create_session`) → `IdtxClient.open_new_session(usd_file, mode, auto_commit)` →
+  `CollabEngine::open_new_session` → `POST /api/v1/sessions` (body `{ usd_file, mode, auto_commit }`).
+  `auto_commit` (create-only) tells the server to merge the session's overrides back into the
+  original USD file when the session is torn down.
 - **Join** (`join_session`) → `IdtxClient.open_existing_session(session_id)` →
   `CollabEngine::open_existing_session` → `GET /api/v1/sessions/<id>`.
 
@@ -164,8 +166,8 @@ sequenceDiagram
 2. Step 3: select **Create collaboration session** (mode: single_edit or
    collaborative_edit), **Import** -> `_perform_import()` ->
    `_perform_server_session_import()`.
-3. The wizard calls `SessionSceneCoordinator.create_session(usd_file, mode)` →
-   `IdtxClient.open_new_session(usd_file, mode, on_done)` — the engine creates the session
+3. The wizard calls `SessionSceneCoordinator.create_session(usd_file, mode, auto_commit)` →
+   `IdtxClient.open_new_session(usd_file, mode, auto_commit, on_done)` — the engine creates the session
    (`POST /api/v1/sessions`) and runs the shared `enter_session` tail described above;
    the resolved stage URL arrives on the `on_done` completion.
 

@@ -260,11 +260,13 @@ std::string RestCodec::make_login_body(const std::string& username,
 }
 
 std::string RestCodec::make_session_body(const std::string& usd_file,
-                                         const std::string& mode)
+                                         const std::string& mode,
+                                         bool auto_commit)
 {
     pxr::JsObject body;
     body["usd_file"] = pxr::JsValue(usd_file);
     body["mode"] = pxr::JsValue(mode.empty() ? std::string("single_edit") : mode);
+    body["auto_commit"] = pxr::JsValue(auto_commit);
     return pxr::JsWriteToString(pxr::JsValue(body));
 }
 

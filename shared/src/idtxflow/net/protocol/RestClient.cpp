@@ -244,12 +244,12 @@ void RestClient::list_files(const std::string& name_contains, const std::string&
 }
 
 void RestClient::create_session(const std::string& usd_file, const std::string& mode,
-                                SessionCb on_ok, ErrorCb on_err)
+                                bool auto_commit, SessionCb on_ok, ErrorCb on_err)
 {
     ports::IHttpTransport::Request req;
     req.method = "POST";
     req.endpoint = "/api/v1/sessions";
-    req.body = adapters::RestCodec::make_session_body(usd_file, mode);
+    req.body = adapters::RestCodec::make_session_body(usd_file, mode, auto_commit);
     req.headers["Content-Type"] = "application/json";
     if (!attach_auth(req, on_err)) return;
 

@@ -102,8 +102,9 @@ Its public surface, by area:
   `fetch_thumbnail`, `list_files`, `create_session`, `delete_session`,
   `list_sessions`, `get_session`, `commit_session`, `check_download_exists`,
   `check_thumbnail_exists`.
-- **High-level session flow** — two entry points share one tail. `open_new_session(usd_file, mode)`
-  creates a session (`POST /sessions`); `open_existing_session(session_id)` joins an existing one
+- **High-level session flow** — two entry points share one tail. `open_new_session(usd_file, mode, auto_commit)`
+  creates a session (`POST /sessions` with body `{ usd_file, mode, auto_commit }`; `auto_commit`
+  asks the server to commit overrides back to the file on teardown); `open_existing_session(session_id)` joins an existing one
   (`GET /sessions/<id>`). Both then run the private `enter_session(SessionInfo)`: own the active
   session id/mode, resolve the authenticated stage download URL and the full socket URL, open the
   socket, then report `on_session_ready` so the host loads the stage and attaches it back. (`download_url`

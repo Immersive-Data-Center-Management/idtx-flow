@@ -49,6 +49,7 @@ const STEP_CONFIGURE_PATH     := "res://addons/IDTXFlow/editor/import/step_confi
 #                     "create_session" / "join_session".
 #   "session_id"    : the active session id (session imports only), captured from
 #                     the coordinator's session_stage_ready; used to name/track the transient scene.
+#   "auto_commit"   : create-session only; commit overrides to the file on session end.
 var _import_state: Dictionary = {
 	"source": "",
 	"selected_path": "",
@@ -56,6 +57,7 @@ var _import_state: Dictionary = {
 	"destination": "current",
 	"action": "current",
 	"session_id": "",
+	"auto_commit": false,
 }
 
 # Transient session-scene lifecycle (registry, transient res:// scenes, teardown,
@@ -480,7 +482,9 @@ func _perform_server_download_import(file_path: String) -> void:
 ## wizard imports from the resolved download URL. Mode is chosen in step 3.
 func _perform_server_session_import(_file_path: String) -> void:
 	var mode: String = _step_configure.get_session_mode()
-	_session_scene_coordinator.create_session(_file_path, mode)
+	var auto_commit: bool = _step_configure.get_session_auto_commit()
+	_import_state["auto_commit"] = auto_commit
+	_session_scene_coordinator.create_session(_file_path, mode, auto_commit)
 
 
 
@@ -661,7 +665,7 @@ func _finalize_new_scene_import(stage_node: Node, file_path: String) -> void:
 	# Track transient session scenes so they can be cleaned up on scene_closed /
 	# teardown / editor close.
 	if is_session and not session_id.is_empty():
-		_session_scene_coordinator.register_session_scene(session_id, target_path)
+		_session_scene_coordinator.register_session_scene(session_id, target_path, _import_state.get("auto_commit", false))
 
 	_editor_interface.set_main_screen_editor("3D")
 	var new_stage_node := _find_stage_node(new_scene_root)

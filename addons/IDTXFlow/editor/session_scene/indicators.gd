@@ -37,6 +37,7 @@ func refresh() -> void:
 		_viewport_overlay.visible = active
 		if active:
 			_viewport_overlay.set_session_label(_current_session_label())
+			_viewport_overlay.set_auto_commit(_current_auto_commit())
 		_viewport_overlay.queue_redraw()
 
 	if _tab_marker != null:
@@ -104,6 +105,16 @@ func _current_session_label() -> String:
 		if not sid.is_empty():
 			return sid
 	return path.get_file().get_basename()
+
+
+## Whether the current session scene was created with auto-commit on.
+func _current_auto_commit() -> bool:
+	var root := _editor_interface.get_edited_scene_root()
+	if root == null:
+		return false
+	if _session_scene_coordinator != null and _session_scene_coordinator.has_method("auto_commit_for_path"):
+		return _session_scene_coordinator.auto_commit_for_path(root.scene_file_path)
+	return false
 
 
 func _find_node3d_viewport_container() -> Control:

@@ -91,7 +91,8 @@ namespace net
         /// List server USD files (optional name/extension filters); result via on_files / on_request_failed.
         void list_files(const std::string& name_contains, const std::string& extension);
         /// Create a session for a file; result via on_session_created / on_request_failed.
-        void create_session(const std::string& usd_file, const std::string& mode);
+        void create_session(const std::string& usd_file, const std::string& mode,
+                            bool auto_commit = false);
         /// List active sessions; result via on_sessions / on_request_failed.
         void list_sessions();
         /// Retrieve one session's details; result via on_session_details / on_request_failed.
@@ -123,8 +124,11 @@ namespace net
         // injected later in the USD http asset resolver at fetch time, not here.
 
         // Create a new session for a file, then enter it. A create failure is
-        // reported through on_request_failed(Op::CreateSession, ...).
-        void open_new_session(const std::string& usd_file, const std::string& mode);
+        // reported through on_request_failed(Op::CreateSession, ...). auto_commit
+        // (create-only) asks the server to merge the session's overrides back into
+        // the original USD file when the session is torn down.
+        void open_new_session(const std::string& usd_file, const std::string& mode,
+                              bool auto_commit = false);
         // Look up an existing session by id, then enter it (join). Unlike
         // open_new_session this emits no on_session_created (nothing was created).
         //

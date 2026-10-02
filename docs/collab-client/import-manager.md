@@ -167,7 +167,7 @@ end-to-end detail (backend calls and transform sync) is in [flows.md](flows.md).
   (`_perform_import_into_new_scene`). For a local source this is entirely local; for
   a server source it is an authenticated download (no session/WebSocket).
 - **Create collaboration session** — the wizard calls
-  `SessionSceneCoordinator.create_session(usd_file, mode)`; the coordinator runs
+  `SessionSceneCoordinator.create_session(usd_file, mode, auto_commit)`; the coordinator runs
   `IdtxClient.open_new_session` (`POST /sessions`) + the engine open-socket sequence
   and, on the per-request `on_done` completion, emits `session_stage_ready(session_id, stage_url)`. The
   wizard then loads the stage from the resolved URL into a new scene and calls
@@ -218,7 +218,7 @@ the stage; it holds no session state (see [The import wizard](#the-import-wizard
 
 | Member | Purpose |
 | --- | --- |
-| `create_session(usd_file, mode)` / `join_session(session_id)` | Acquisition; resolve to `session_stage_ready` or `session_failed`. |
+| `create_session(usd_file, mode, auto_commit)` / `join_session(session_id)` | Acquisition; resolve to `session_stage_ready` or `session_failed`. `auto_commit` (create-only) commits overrides to the file on teardown. |
 | `register_session_scene(session_id, path)` | Record a materialized transient scene in the registry. |
 | `has_session(session_id)` / `joined_ids()` | Registry queries (used by the wizard join-list + indicators). |
 | `is_session_scene_path(path)` / `active_session_id_for_path(path)` | Resolve a scene path ↔ session (used by indicators). |

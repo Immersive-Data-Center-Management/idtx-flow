@@ -68,7 +68,7 @@ singleton.
   an Array of session dicts for `list_sessions`, a session dict for `get_session`,
   `{ session_id, committed }` for `commit_session`, and `{ exists: bool }` for the
   two `check_*_exists` probes (a 404 resolves as `exists: false`, not an error).
-- **Session flow (multi-session):** `open_new_session(usd_file, mode, on_done)` (create) and
+- **Session flow (multi-session):** `open_new_session(usd_file, mode, auto_commit, on_done)` (create) and
   `open_existing_session(session_id, on_done)` (join) each run the core's
   obtain → `enter_session` → open-socket sequence and then report the per-request
   `on_done` completion (result carries `session_id`, `stage_url`, `ws_url`);

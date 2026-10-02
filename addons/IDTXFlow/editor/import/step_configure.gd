@@ -73,6 +73,8 @@ var _target_info_label: Label
 
 # Create-session controls (enabled only when "Create session" is selected).
 var _create_mode_option: OptionButton
+# Auto-commit toggle (create-session only); see tooltip for the commit-on-end behavior.
+var _create_auto_commit: CheckBox
 
 # Join-session controls (enabled only when "Join session" is selected).
 var _join_list: ItemList
@@ -251,6 +253,13 @@ func get_session_mode() -> String:
 	return MODE_SINGLE
 
 
+## Whether auto-commit is requested for a new session (create-session only).
+## When true, the server merges the session's overrides back into the original
+## USD file when the session is torn down.
+func get_session_auto_commit() -> bool:
+	return _create_auto_commit != null and _create_auto_commit.button_pressed
+
+
 ## The session id of the currently selected join-list row, or "" if none.
 ## Only meaningful when get_import_action() == ACTION_JOIN_SESSION.
 func get_selected_session_id() -> String:
@@ -391,6 +400,13 @@ func _build_import_mode_section() -> Control:
 	_create_mode_option.disabled = true
 	create_box.add_child(_make_caption_indent(_create_mode_option))
 
+	# Auto-commit: enabled only when "Create session" is selected (tooltip explains it).
+	_create_auto_commit = CheckBox.new()
+	_create_auto_commit.text = "Auto-commit on session end"
+	_create_auto_commit.tooltip_text = "When enabled, your edits are merged back into the USD file when the session closes. When disabled, they are discarded on teardown unless committed."
+	_create_auto_commit.disabled = true
+	create_box.add_child(_make_caption_indent(_create_auto_commit))
+
 	create_box.add_child(_make_caption_indent(_make_inline_caption(
 		"Creates a live editing session (WebSocket) and imports into a new scene."
 		+ " Single-edit locks the file to you; collaborative lets other clients join."
@@ -494,6 +510,8 @@ func _on_action_toggled(_pressed: bool) -> void:
 	var action := get_import_action()
 	if _create_mode_option:
 		_create_mode_option.disabled = action != ACTION_CREATE_SESSION
+	if _create_auto_commit:
+		_create_auto_commit.disabled = action != ACTION_CREATE_SESSION
 	_refresh_join_enabled()
 	_notify_import_ready()
 

@@ -214,10 +214,10 @@ void IdtxClient::check_thumbnail_exists(const String& usd_file, const Callable& 
     engine_.check_thumbnail_exists(usd_file.utf8().get_data());
 }
 
-void IdtxClient::open_new_session(const String& usd_file, const String& mode, const Callable& on_done)
+void IdtxClient::open_new_session(const String& usd_file, const String& mode, bool auto_commit, const Callable& on_done)
 {
     if (on_done.is_valid()) create_cbs_.push_back(on_done);
-    engine_.open_new_session(usd_file.utf8().get_data(), mode.utf8().get_data());
+    engine_.open_new_session(usd_file.utf8().get_data(), mode.utf8().get_data(), auto_commit);
 }
 
 void IdtxClient::open_existing_session(const String& session_id, const Callable& on_done)
@@ -659,8 +659,8 @@ void IdtxClient::_bind_methods()
     ClassDB::bind_method(D_METHOD("check_thumbnail_exists", "usd_file", "on_done"),
                          &IdtxClient::check_thumbnail_exists, DEFVAL(Callable()));
 
-    ClassDB::bind_method(D_METHOD("open_new_session", "usd_file", "mode", "on_done"),
-                         &IdtxClient::open_new_session, DEFVAL("single_edit"), DEFVAL(Callable()));
+    ClassDB::bind_method(D_METHOD("open_new_session", "usd_file", "mode", "auto_commit", "on_done"),
+                         &IdtxClient::open_new_session, DEFVAL("single_edit"), DEFVAL(false), DEFVAL(Callable()));
     ClassDB::bind_method(D_METHOD("open_existing_session", "session_id", "on_done"),
                          &IdtxClient::open_existing_session, DEFVAL(Callable()));
     ClassDB::bind_method(D_METHOD("end_session", "session_id"), &IdtxClient::end_session);

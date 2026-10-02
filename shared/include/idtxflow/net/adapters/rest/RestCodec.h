@@ -54,9 +54,11 @@ namespace adapters
         static std::string make_login_body(const std::string& username,
                                            const std::string& password);
 
-        /// Build the JSON body for POST /sessions (mode defaults to single_edit).
+        /// Build the JSON body for POST /sessions (mode defaults to single_edit;
+        /// auto_commit defaults to false).
         static std::string make_session_body(const std::string& usd_file,
-                                             const std::string& mode);
+                                             const std::string& mode,
+                                             bool auto_commit = false);
 
     private:
         IDTX_LOG_CATEGORY("RestCodec")

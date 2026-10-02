@@ -119,6 +119,7 @@ public:
     // the stage from `stage_url` and calls bind_session. `end_session` emits
     // `session_closed`.
     void open_new_session(const godot::String& usd_file, const godot::String& mode = "single_edit",
+                          bool auto_commit = false,
                           const godot::Callable& on_done = godot::Callable());
     // Join an existing collaboration session by id, then enter it. Same per-request
     // completion as open_new_session (`on_done` result with session_id + stage_url +

@@ -140,10 +140,11 @@ void CollabEngine::list_files(const std::string& name_contains, const std::strin
         [this](const model::RestError& e) { if (observer_) observer_->on_request_failed(Op::ListFiles, e); });
 }
 
-void CollabEngine::create_session(const std::string& usd_file, const std::string& mode)
+void CollabEngine::create_session(const std::string& usd_file, const std::string& mode,
+                                  bool auto_commit)
 {
     if (!rest_) return;
-    rest_->create_session(usd_file, mode,
+    rest_->create_session(usd_file, mode, auto_commit,
         [this](const model::SessionInfo& si) { if (observer_) observer_->on_session_created(si); },
         [this](const model::RestError& e) { if (observer_) observer_->on_request_failed(Op::CreateSession, e); });
 }
@@ -244,11 +245,12 @@ void CollabEngine::enter_session(const model::SessionInfo& si)
     if (observer_) observer_->on_session_ready(si, stage_url, ws_full);
 }
 
-void CollabEngine::open_new_session(const std::string& usd_file, const std::string& mode)
+void CollabEngine::open_new_session(const std::string& usd_file, const std::string& mode,
+                                    bool auto_commit)
 {
     if (!rest_) return;
 
-    rest_->create_session(usd_file, mode,
+    rest_->create_session(usd_file, mode, auto_commit,
         [this](const model::SessionInfo& si)
         {
             // Report the ordinary created callback first (unchanged observable

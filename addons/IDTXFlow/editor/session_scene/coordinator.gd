@@ -53,13 +53,13 @@ func _idtx() -> Object:
 ## Create a new collaboration session for `file_path` with `mode`
 ## (single_edit / collaborative_edit), then enter it. The per-request `on_done`
 ## completion carries the resolved stage URL, from which we emit `session_stage_ready`.
-func create_session(file_path: String, mode: String) -> void:
+func create_session(file_path: String, mode: String, auto_commit: bool = false) -> void:
 	var client := _idtx()
 	if client == null:
 		session_failed.emit("IDTX client not available; cannot start server session.")
 		return
 	print("[IDTXFlow] [Session Scene] Creating '%s' session." % mode)
-	client.open_new_session(file_path, mode, _on_create_done)
+	client.open_new_session(file_path, mode, auto_commit, _on_create_done)
 
 
 ## Join a running session by id, then enter it. Refuses a session we are already
@@ -110,11 +110,12 @@ func _on_acquire_done(result: Dictionary) -> void:
 # --------------------------------------------------------------------------
 
 ## Track a transient session scene created by the wizard so it can be cleaned up
-## on scene_closed / teardown / editor close.
-func register_session_scene(session_id: String, path: String) -> void:
+## on scene_closed / teardown / editor close. `auto_commit` records whether the
+## session was created with server-side auto-commit (shown by the live indicators).
+func register_session_scene(session_id: String, path: String, auto_commit: bool = false) -> void:
 	if session_id.is_empty():
 		return
-	_session_scenes[session_id] = path
+	_session_scenes[session_id] = { "path": path, "auto_commit": auto_commit }
 	session_scenes_changed.emit()
 
 
@@ -134,15 +135,27 @@ func joined_ids() -> PackedStringArray:
 ## True when `path` is one of the transient session scenes we created (used by the
 ## editor plugin to decide whether to show the "live session" indicators).
 func is_session_scene_path(path: String) -> bool:
-	return _session_scenes.values().has(path)
+	for sid in _session_scenes:
+		if _session_scenes[sid]["path"] == path:
+			return true
+	return false
 
 
 ## The session id backing the transient scene at `path`, or "" if none.
 func active_session_id_for_path(path: String) -> String:
 	for sid in _session_scenes:
-		if _session_scenes[sid] == path:
+		if _session_scenes[sid]["path"] == path:
 			return sid
 	return ""
+
+
+## Whether the session backing the transient scene at `path` was created with
+## auto-commit on. False if the path is not a tracked session scene.
+func auto_commit_for_path(path: String) -> bool:
+	for sid in _session_scenes:
+		if _session_scenes[sid]["path"] == path:
+			return _session_scenes[sid]["auto_commit"]
+	return false
 
 
 # --------------------------------------------------------------------------
@@ -193,7 +206,7 @@ func teardown_all_sessions() -> void:
 ## and delete the transient file. Ignores non-session paths.
 func on_session_scene_closed(filepath: String) -> void:
 	for sid in _session_scenes.keys().duplicate():
-		if _session_scenes[sid] == filepath:
+		if _session_scenes[sid]["path"] == filepath:
 			print("[IDTXFlow] [Session Scene] Session scene tab closed; leaving session '%s'." % sid)
 			leave_session(sid)
 			return
@@ -221,7 +234,7 @@ func prune_stale_session_scenes() -> void:
 func _cleanup_session_scene(session_id: String) -> void:
 	if not _session_scenes.has(session_id):
 		return
-	var path: String = _session_scenes[session_id]
+	var path: String = _session_scenes[session_id]["path"]
 	_session_scenes.erase(session_id)
 	session_scenes_changed.emit()
 	if FileAccess.file_exists(path):

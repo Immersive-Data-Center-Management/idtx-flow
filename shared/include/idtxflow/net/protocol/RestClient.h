@@ -72,9 +72,9 @@ namespace net
         void list_files(const std::string& name_contains, const std::string& extension,
                         FilesCb on_ok, ErrorCb on_err);
 
-        /// POST /sessions { usd_file, mode }. Authenticated.
+        /// POST /sessions { usd_file, mode, auto_commit }. Authenticated.
         void create_session(const std::string& usd_file, const std::string& mode,
-                            SessionCb on_ok, ErrorCb on_err);
+                            bool auto_commit, SessionCb on_ok, ErrorCb on_err);
 
         /// GET /sessions — list all currently active sessions. Authenticated.
         void list_sessions(SessionsCb on_ok, ErrorCb on_err);
