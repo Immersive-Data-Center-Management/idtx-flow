@@ -10,7 +10,7 @@ signal back_pressed
 signal cancel_pressed
 signal primary_pressed
 
-const WizardTheme := preload("res://addons/IDTXFlow/import_manager/wizard_theme.gd")
+const WizardTheme := preload("res://addons/IDTXFlow/editor/import/widgets/wizard_theme.gd")
 
 var _back_btn: Button
 var _cancel_btn: Button

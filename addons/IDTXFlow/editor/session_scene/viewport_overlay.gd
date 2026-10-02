@@ -6,7 +6,7 @@ extends Control
 ##   - a centered banner bar at the top  + the session id.
 ##
 ## Parented onto the editor's internal `Node3DEditorViewportContainer` (by
-## session_indicators.gd), fills it, and is fully click-through so it never
+## indicators.gd), fills it, and is fully click-through so it never
 ## interferes with the viewport. The coordinator sets the color + session label and
 ## toggles visibility based on the current scene.
 

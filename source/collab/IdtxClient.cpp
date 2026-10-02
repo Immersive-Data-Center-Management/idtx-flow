@@ -544,26 +544,25 @@ void IdtxClient::on_thumbnail_exists(const std::string&, bool exists)
 void IdtxClient::on_session_ready(const idtxflow::net::model::SessionInfo& s,
                                   const std::string& stage_url, const std::string& ws_url)
 {
-    // Hand control back to the host for the engine-specific stage load: the
-    // caller loads a UsdStageNode3D from stage_url, then calls
+    // The session enter step succeeded (session created-or-joined + socket opened). Report
+    // it to whichever high-level completion is waiting, per request
+    // The result carries everything the caller needs to load the
+    // stage (session_id + resolved stage_url + ws_url), then call
     // bind_session(session_id, stage_node, true).
     Dictionary d;
     d["session_id"] = String(s.session_id.c_str());
     d["usd_file"]   = String(s.usd_file.c_str());
     d["mode"]       = String(s.mode.c_str());
     d["ws_url"]     = String(ws_url.c_str());
-    emit_signal("session_ready", d, String(stage_url.c_str()));
+    d["stage_url"]  = String(stage_url.c_str());
 
-    // The enter step succeeded (session created-or-joined + socket opened); report
-    // it to whichever high-level completion is waiting. Only one of these queues
-    // is ever populated per flow (open_new_session -> create_cbs_,
-    // open_existing_session -> join_cbs_), so resolving both is safe. The
-    // subsequent stage load/ready lifecycle stays on the session_ready signal.
     Dictionary ok;
     ok["ok"]     = true;
     ok["result"] = d;
-    resolve_next(create_cbs_, ok);
-    resolve_next(join_cbs_, ok);
+    // Resolve only the queue for the in-flight flow (open_new_session -> create_cbs_,
+    // open_existing_session -> join_cbs_), so a concurrent create and join cannot cross-resolve.
+    if (!create_cbs_.empty())    resolve_next(create_cbs_, ok);
+    else                         resolve_next(join_cbs_, ok);
 }
 
 void IdtxClient::on_session_closed(const std::string& session_id)
@@ -683,15 +682,8 @@ void IdtxClient::_bind_methods()
     ClassDB::bind_method(D_METHOD("_drain_dispatch"), &IdtxClient::_drain_dispatch);
     ClassDB::bind_method(D_METHOD("_on_process_frame"), &IdtxClient::_on_process_frame);
     ClassDB::bind_method(D_METHOD("_bootstrap_ticker"), &IdtxClient::_bootstrap_ticker);
-
-    // Session lifecycle: `session_ready` fires once a session is entered (created
-    // via open_new_session OR joined via open_existing_session) and its socket is
-    // open, carrying the resolved stage download URL for the host's
-    // engine-specific stage load; `session_closed` follows end_session().
-    ADD_SIGNAL(MethodInfo("session_ready",
-        PropertyInfo(Variant::DICTIONARY, "session"), PropertyInfo(Variant::STRING, "stage_url")));
+    
     ADD_SIGNAL(MethodInfo("session_closed", PropertyInfo(Variant::STRING, "session_id")));
-
     ADD_SIGNAL(MethodInfo("socket_opened", PropertyInfo(Variant::STRING, "session_id")));
     ADD_SIGNAL(MethodInfo("handshake_received",
         PropertyInfo(Variant::STRING, "session_id"), PropertyInfo(Variant::STRING, "usd_path"),

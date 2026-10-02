@@ -1,5 +1,5 @@
 @tool
-extends "res://addons/IDTXFlow/import_manager/file_provider.gd"
+extends "res://addons/IDTXFlow/editor/import/file_provider.gd"
 
 ## Local-filesystem data source for `WizardFileBrowser`.
 ##

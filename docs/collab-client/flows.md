@@ -120,8 +120,11 @@ entry points share the same tail — they differ only in how the session is obta
 
 Both then run the shared `CollabEngine::enter_session`: own the session id/mode,
 resolve the authenticated `stage_url` + full `ws_url`, open the session WebSocket, and
-report `on_session_ready`. On `session_ready` the wizard loads the stage from the
-resolved `stage_url` (same download-resolution mechanism as Flow 2) into a **new scene**,
+report `on_session_ready`. `IdtxClient` delivers that per request through the
+`open_new_session`/`open_existing_session` `on_done` completion (result carries
+`session_id` + `stage_url` + `ws_url`); the `SessionSceneCoordinator` emits
+`session_stage_ready`, and the wizard loads the stage from the resolved `stage_url`
+(same download-resolution mechanism as Flow 2) into a **new scene**,
 then calls `bind_session(session_id, stage_node, true)`; the engine attaches the stage
 bridge and arms broadcasting a few frames later. Transform sync is then live for **both**
 flows — see [transform-sync-flow.md](transform-sync-flow.md) for the inbound/outbound
@@ -149,7 +152,7 @@ sequenceDiagram
     Engine->>Engine: resolve stage_url and ws_full (ws_base and ws_url)
     Engine->>BE: open session WebSocket
     Engine-->>Client: on_session_ready session, stage_url, ws_url
-    Client-->>Wiz: session_ready session, stage_url
+    Client-->>Wiz: on_done result (session_id, stage_url, ws_url) → session_stage_ready
     Wiz->>Wiz: load stage from stage_url (new scene)
     Wiz->>Client: bind_session session_id, stage_node, true
     Client->>Engine: attach stage and arm broadcasting after a few frames
@@ -161,16 +164,17 @@ sequenceDiagram
 2. Step 3: select **Create collaboration session** (mode: single_edit or
    collaborative_edit), **Import** -> `_perform_import()` ->
    `_perform_server_session_import()`.
-3. The wizard connects the `session_ready` signal and calls
-   `IdtxClient.open_new_session(usd_file, mode)` — the engine creates the session
-   (`POST /api/v1/sessions`) and runs the shared `enter_session` tail described above.
+3. The wizard calls `SessionSceneCoordinator.create_session(usd_file, mode)` →
+   `IdtxClient.open_new_session(usd_file, mode, on_done)` — the engine creates the session
+   (`POST /api/v1/sessions`) and runs the shared `enter_session` tail described above;
+   the resolved stage URL arrives on the `on_done` completion.
 
 ### Flow 3b — Join session
 
 1. Step 1-2: same login + server browse as Flow 2.
 2. Step 3: select **Join collaboration session** and pick a session from the list. **Import** -> `_perform_import()` -> `_perform_server_join_import()`.
-3. The wizard connects the `session_ready` signal and calls
-   `IdtxClient.open_existing_session(session_id)` — the engine looks the session up
+3. The wizard calls `SessionSceneCoordinator.join_session(session_id)` →
+   `IdtxClient.open_existing_session(session_id, on_done)` — the engine looks the session up
    (`GET /api/v1/sessions/<id>`) and runs the same `enter_session` tail. Unlike Create,
    no `on_session_created` is emitted (nothing was created).
 
@@ -227,8 +231,8 @@ produces it.
 A collaboration session is entered by `open_new_session` (Create) or
 `open_existing_session` (Join) and **owned by the engine**, which can hold several
 concurrent sessions — each keyed by its id with its own WebSocket + attached stage. The
-wizard tracks the transient scene per session id (`_session_scenes`), so **one live-session
-scene tab corresponds to one session**.
+editor `SessionSceneCoordinator` tracks the transient scene per session id
+(`_session_scenes`), so **one live-session scene tab corresponds to one session**.
 
 **Duplicate-join guard.** `open_existing_session` refuses to join a session the engine is
 already in, failing fast with `on_request_failed(GetSession, "already_joined")` and no
@@ -241,9 +245,9 @@ or mislabel) a same-client re-join. The wizard mirrors this in the UI
 `CollabEngine::end_session(session_id)` detaches that session's stage, closes+drops its
 socket, and forgets it, then reports `session_closed`. It does **not** delete the session on
 the backend — leaving simply disconnects; the server reaps idle (zero-client) sessions per
-its own rules. The wizard leaves **one** session when its scene tab is closed
-(`on_session_scene_closed` → `_leave_session(sid)`), and tears down **all** sessions on
-**plugin/scene exit** (`_teardown_all_sessions`), so nothing is leaked.
+its own rules. The coordinator leaves **one** session when its scene tab is closed
+(`on_session_scene_closed` → `leave_session(sid)`), and tears down **all** sessions on
+**plugin/scene exit** (`teardown_all_sessions`), so nothing is leaked.
 Socket resilience (TLS, keepalive, reconnect) is handled inside the WebSocket transport
 (see [godot-binding.md](godot-binding.md) / [net-core.md](net-core.md)).
 
@@ -255,6 +259,6 @@ Socket resilience (TLS, keepalive, reconnect) is handled inside the WebSocket tr
 |---|---|---|---|
 | Local | `_perform_local_import`, `UsdStageNode3D` | — | — |
 | Server download | login/browse steps, `_perform_server_download_import` | `IdtxClient.login/list_files/download_url`, JWT asset resolver | `POST /auth/login`, `GET /files`, `GET /download/<path>` |
-| Create session | `_perform_server_session_import`, `_on_session_ready` | `IdtxClient.open_new_session`, `StageBridge` | `CollabEngine.open_new_session` → `enter_session`, `POST /sessions`, `/ws`, transform sync |
-| Join session | `_refresh_join_sessions`, `_perform_server_join_import`, `_on_session_ready` | `IdtxClient.list_sessions`, `IdtxClient.open_existing_session`, `StageBridge` | `CollabEngine.open_existing_session` → `enter_session`, `GET /sessions`, `GET /sessions/<id>`, `/ws`, transform sync |
+| Create session | `_perform_server_session_import`, coordinator `create_session`, `_on_session_stage_ready` | `IdtxClient.open_new_session`, `StageBridge` | `CollabEngine.open_new_session` → `enter_session`, `POST /sessions`, `/ws`, transform sync |
+| Join session | `_refresh_join_sessions`, `_perform_server_join_import`, coordinator `join_session`, `_on_session_stage_ready` | `IdtxClient.list_sessions`, `IdtxClient.open_existing_session`, `StageBridge` | `CollabEngine.open_existing_session` → `enter_session`, `GET /sessions`, `GET /sessions/<id>`, `/ws`, transform sync |
 

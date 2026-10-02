@@ -112,19 +112,17 @@ public:
 
     // --- high-level session flow ---
     
-    // Create a new collaboration session for a file, then enter it.
-    // On success emits the `session_ready` signal with the
-    // resolved stage_url; the caller then loads the stage and calls
-    // bind_session. `on_done` (optional) reports { "ok": true } once the
-    // session is created and its socket opened, or the failure dict. `end_session`
-    // emits `session_closed`.
+    // Create a new collaboration session for a file, then enter it. `on_done`
+    // (optional) reports the per-request completion once the session is created and
+    // its socket is open: { "ok": true, "result": { session_id, usd_file, mode,
+    // ws_url, stage_url } } on success, or the failure dict. The caller then loads
+    // the stage from `stage_url` and calls bind_session. `end_session` emits
+    // `session_closed`.
     void open_new_session(const godot::String& usd_file, const godot::String& mode = "single_edit",
                           const godot::Callable& on_done = godot::Callable());
-    // Join an existing collaboration session by id, then enter it.
-    // Same success path as open_new_session (`session_ready`
-    // signal + stage load), but performs a session lookup instead of a
-    // create. `on_done` (optional) reports { "ok": true } once the socket
-    // is opened, or the failure dict.
+    // Join an existing collaboration session by id, then enter it. Same per-request
+    // completion as open_new_session (`on_done` result with session_id + stage_url +
+    // ws_url), but performs a session lookup instead of a create.
     void open_existing_session(const godot::String& session_id,
                                const godot::Callable& on_done = godot::Callable());
     void end_session(const godot::String& session_id);

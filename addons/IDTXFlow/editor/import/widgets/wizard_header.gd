@@ -8,7 +8,7 @@ extends VBoxContainer
 ##   Row 2 : thin (3 px) ProgressBar (uses the editor theme's ProgressBar style)
 ##   Row 3 : subtle HSeparator (editor theme)
 
-const WizardTheme := preload("res://addons/IDTXFlow/import_manager/wizard_theme.gd")
+const WizardTheme := preload("res://addons/IDTXFlow/editor/import/widgets/wizard_theme.gd")
 
 var _step_label: RichTextLabel
 var _progress: ProgressBar

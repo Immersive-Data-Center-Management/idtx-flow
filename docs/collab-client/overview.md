@@ -32,8 +32,8 @@ thin layer is specific to Godot.
 ```mermaid
 graph TB
     subgraph UI["Editor UI — GDScript (addons/IDTXFlow/)"]
-        PLUGIN["plugin.gd / main_screen.gd<br/>editor plugin + main screen"]
-        WIZ["import_manager/<br/>import wizard: steps, providers, widgets"]
+        PLUGIN["plugin.gd<br/>editor plugin + main screen"]
+        WIZ["editor/import/<br/>import wizard: steps, providers, widgets"]
     end
 
     subgraph BIND["Godot binding — C++ GDExtension (source/collab/, source/nodes/)"]
@@ -82,8 +82,9 @@ graph TB
     subgraph ENGINESPECIFIC["Engine-specific — Godot binding + editor UI (godot-cpp + USD)"]
         subgraph UI["Editor UI — GDScript (addons/IDTXFlow/)"]
             PLUGIN["plugin.gd<br/>EditorPlugin: main screen + inspector + settings"]
-            WIZ["import_manager.gd<br/>3-step wizard root"]
+            WIZ["editor/import/import_manager.gd<br/>3-step wizard root"]
             WIZUI["wizard pieces<br/>steps · providers · widgets"]
+            SESS["editor/session_scene/<br/>coordinator + live-session indicators"]
         end
 
         subgraph BIND["Godot binding — source/collab, source/nodes (godot-cpp + USD)"]
@@ -102,6 +103,8 @@ graph TB
 
     PLUGIN --> WIZ
     WIZ --> WIZUI
+    PLUGIN -->|owns + wires| SESS
+    WIZ -.triggers create/join.- SESS
 
     WIZ -->|Engine.get_singleton · methods · signals · on_done| CLIENT
     WIZUI --> CLIENT
@@ -117,7 +120,7 @@ graph TB
 
     classDef engine fill:#fff0e6,stroke:#d9822b,color:#5c2d0b;
     classDef ref fill:#eeeeee,stroke:#888888,color:#333333,stroke-dasharray: 5 3;
-    class ENGINESPECIFIC,UI,PLUGIN,WIZ,WIZUI,BIND,CLIENT,BRIDGE,CODEC2,DISP,TICK,NODES,REG engine;
+    class ENGINESPECIFIC,UI,PLUGIN,WIZ,WIZUI,SESS,BIND,CLIENT,BRIDGE,CODEC2,DISP,TICK,NODES,REG engine;
     class ENGINEREF,PORTSREF ref;
 ```
 
@@ -217,7 +220,7 @@ graph TB
 |---|---|---|
 | Net core | `shared/idtxflow/net/` | `CollabEngine`, `CollabObserver`, `protocol/` (RestClient, SessionSocket), `wire/WireCodec`, `model/`, `ports/`, `adapters/`, `CollabComposition` |
 | Godot binding | `source/collab/`, `source/nodes/`, `source/register_types.cpp` | `IdtxClient`, `StageBridge`, `TransformCodec`, `Dispatcher`, `Ticker`, USD nodes, module boot |
-| Editor UI | `addons/IDTXFlow/` | `plugin.gd`, `main_screen.gd`, `import_manager/` (wizard) |
+| Editor UI | `addons/IDTXFlow/` | `plugin.gd`, `editor/import/` (wizard), `editor/session_scene/` (session-scene lifecycle + indicators), `editor/inspector/` |
 
 ---
 
@@ -229,7 +232,8 @@ graph TB
 - **[godot-binding.md](godot-binding.md)** — the Godot C++ side: `IdtxClient`, `StageBridge`, `TransformCodec`,
   dispatcher/ticker/clock, USD nodes, module registration, and the USD HTTP asset resolver.
 - **[import-manager.md](import-manager.md)** — the editor UI: the plugin/main screen and the import wizard
-  (steps, providers, widgets) for local and server imports.
+  (steps, providers, widgets) for local and server imports — plus the editor session-scene coordinator,
+  transient session scenes, and live-session indicators.
 - **[flows.md](flows.md)** — end-to-end user flows (local import, server download, create/join collaboration
   session) and the session lifecycle.
 - **[transform-sync-flow.md](transform-sync-flow.md)** — deep dive on how a single transform
@@ -241,5 +245,5 @@ graph TB
 
 - **Local import** — pick a USD file from `res://` and import it into the current or a new scene. No backend.
 - **Server download import** — log in to an asset server, browse its files, and import a USD via an authenticated download (into the current or a new scene). No session.
-- **Create collaboration session** — as above, but open a live session for the file (single-edit or collaborative-edit): a WebSocket is opened and the stage is wired for real-time transform sync with other peers. Always a new scene.
-- **Join collaboration session** — join a running collaborative-edit session for the selected file; same live transform sync. Always a new scene.
+- **Create collaboration session** — as above, but open a live session for the file (single-edit or collaborative-edit): a WebSocket is opened and the stage is wired for real-time transform sync with other peers.
+- **Join collaboration session** — join a running collaborative-edit session for the selected file; same live transform sync.

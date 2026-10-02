@@ -22,9 +22,9 @@ extends VBoxContainer
 ## `WizardFileBrowser.set_side_panel(...)`. The widget can be reused in later
 ## wizard steps (like step 4 confirm) without external chrome.
 
-const WizardTheme := preload("res://addons/IDTXFlow/import_manager/wizard_theme.gd")
-const IdtxAccess := preload("res://addons/IDTXFlow/import_manager/idtx_client_access.gd")
-const _USD_ICON_PATH := "res://addons/IDTXFlow/import_manager/usd_file_vec.png"
+const WizardTheme := preload("res://addons/IDTXFlow/editor/import/widgets/wizard_theme.gd")
+const IdtxAccess := preload("res://addons/IDTXFlow/editor/idtx_client_access.gd")
+const _USD_ICON_PATH := "res://addons/IDTXFlow/editor/import/usd_file_vec.png"
 
 var _bg_list: ItemList
 var _thumb_icon: TextureRect

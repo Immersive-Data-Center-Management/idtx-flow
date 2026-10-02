@@ -1,5 +1,5 @@
 @tool
-extends "res://addons/IDTXFlow/import_manager/file_provider.gd"
+extends "res://addons/IDTXFlow/editor/import/file_provider.gd"
 
 ## IDTX asset-server data source for `WizardFileBrowser`.
 ##
@@ -19,7 +19,7 @@ extends "res://addons/IDTXFlow/import_manager/file_provider.gd"
 ## The tree is built once and reused; the refresh button calls `request_reload()`
 ## to discard it and re-fetch (so new uploads appear).
 
-const IdtxAccess := preload("res://addons/IDTXFlow/import_manager/idtx_client_access.gd")
+const IdtxAccess := preload("res://addons/IDTXFlow/editor/idtx_client_access.gd")
 
 var _server_url: String = ""
 var _loading: bool = false

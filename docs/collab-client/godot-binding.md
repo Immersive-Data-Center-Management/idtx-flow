@@ -70,8 +70,10 @@ singleton.
   two `check_*_exists` probes (a 404 resolves as `exists: false`, not an error).
 - **Session flow (multi-session):** `open_new_session(usd_file, mode, on_done)` (create) and
   `open_existing_session(session_id, on_done)` (join) each run the core's
-  obtain → `enter_session` → open-socket → `session_ready` sequence; `end_session(session_id)`
-  tears down that one session. The client can hold several concurrent sessions, each keyed by
+  obtain → `enter_session` → open-socket sequence and then report the per-request
+  `on_done` completion (result carries `session_id`, `stage_url`, `ws_url`);
+  `end_session(session_id)` tears down that one session. The client can hold several
+  concurrent sessions, each keyed by
   its id with its own socket + stage. `open_existing_session` refuses a session already held,
   failing fast with `error_code: "already_joined"` (no round-trip) — the server currently can't detect a
   same-client re-join, so this guard is client-side. The Godot client is
@@ -81,21 +83,20 @@ singleton.
   points exposed here. This is distinct from the raw REST calls
   above (which only issues the request).
 - **URL helpers:** `download_url`, `ws_base_url`.
-- **Session state:** `is_socket_open(session_id)`,
-  `send_transform(session_id, prim_path, xform)`. (Socket lifecycle is owned by the engine's
+- **Session state:** `is_socket_open(session_id)`. (Socket lifecycle is owned by the engine's
   session flow; there are no separate open/close-socket calls.)
 - **Session sync binding (per session):** `bind_session(session_id, stage_node, remote)`,
-  `unbind_session(session_id)`, `arm_session(session_id)`,
-  `notify_local_transform_changed(session_id, node)`.
+  `unbind_session(session_id)`, `notify_local_transform_changed(node)`.
 
-**Signals.** `IdtxClient` implements `CollabObserver` and converts each callback
-into a Godot signal (and, for a request, into that request's `on_done` dictionary).
-Every socket-lifecycle signal carries the `session_id` it belongs to, so a host tracking
-multiple concurrent sessions can route each event to the right session/scene:
+**Signals.** `IdtxClient` implements `CollabObserver` and converts each socket-lifecycle
+callback into a Godot signal (and, for a request, into that request's `on_done` dictionary).
+Session **acquisition** (create/join) is reported only via the per-request `on_done`
+completion (result includes `session_id` + resolved `stage_url` + `ws_url`)
+Every socket-lifecycle signal carries the `session_id` it belongs to,
+so a host tracking multiple concurrent sessions can route each event to the right session/scene:
 
 | Signal | Fired when |
 |---|---|
-| `session_ready` | session created (`open_new_session`) or joined (`open_existing_session`) + socket opened; carries the resolved stage download URL |
 | `session_closed` | `end_session(session_id)` completed (carries `session_id`) |
 | `socket_opened` | session WebSocket connected (carries `session_id`) |
 | `handshake_received` | server handshake for the session |

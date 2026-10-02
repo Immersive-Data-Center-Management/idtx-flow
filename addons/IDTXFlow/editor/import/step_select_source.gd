@@ -11,12 +11,12 @@ signal local_files_requested
 signal server_login_succeeded(url: String, username: String, remember: bool)
 signal cancel_requested
 
-const WizardTheme       := preload("res://addons/IDTXFlow/import_manager/wizard_theme.gd")
-const WizardHeader      := preload("res://addons/IDTXFlow/import_manager/wizard_header.gd")
-const WizardFooter      := preload("res://addons/IDTXFlow/import_manager/wizard_footer.gd")
-const ServerLoginPanel  := preload("res://addons/IDTXFlow/import_manager/server_login_panel.gd")
-const IdtxAccess        := preload("res://addons/IDTXFlow/import_manager/idtx_client_access.gd")
-const ServerRegistry    := preload("res://addons/IDTXFlow/import_manager/server_registry.gd")
+const WizardTheme       := preload("res://addons/IDTXFlow/editor/import/widgets/wizard_theme.gd")
+const WizardHeader      := preload("res://addons/IDTXFlow/editor/import/widgets/wizard_header.gd")
+const WizardFooter      := preload("res://addons/IDTXFlow/editor/import/widgets/wizard_footer.gd")
+const ServerLoginPanel  := preload("res://addons/IDTXFlow/editor/import/server/server_login_panel.gd")
+const IdtxAccess        := preload("res://addons/IDTXFlow/editor/idtx_client_access.gd")
+const ServerRegistry    := preload("res://addons/IDTXFlow/editor/import/server/server_registry.gd")
 
 const DEFAULT_URL := "http://localhost:8080"
 

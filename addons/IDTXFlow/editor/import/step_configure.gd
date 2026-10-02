@@ -46,10 +46,10 @@ signal import_ready_changed(ready: bool)
 ## the active sessions and calls set_join_sessions() with the fresh list.
 signal refresh_sessions_requested
 
-const WizardTheme  := preload("res://addons/IDTXFlow/import_manager/wizard_theme.gd")
-const WizardHeader := preload("res://addons/IDTXFlow/import_manager/wizard_header.gd")
-const WizardFooter := preload("res://addons/IDTXFlow/import_manager/wizard_footer.gd")
-const AssetPanel   := preload("res://addons/IDTXFlow/import_manager/asset_detail_panel.gd")
+const WizardTheme  := preload("res://addons/IDTXFlow/editor/import/widgets/wizard_theme.gd")
+const WizardHeader := preload("res://addons/IDTXFlow/editor/import/widgets/wizard_header.gd")
+const WizardFooter := preload("res://addons/IDTXFlow/editor/import/widgets/wizard_footer.gd")
+const AssetPanel   := preload("res://addons/IDTXFlow/editor/import/widgets/asset_detail_panel.gd")
 
 # Import action identifiers (returned by get_import_action()).
 const ACTION_CURRENT        := "current"

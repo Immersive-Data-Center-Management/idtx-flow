@@ -19,12 +19,12 @@ signal back_requested
 signal cancel_requested
 signal confirm_requested
 
-const WizardTheme         := preload("res://addons/IDTXFlow/import_manager/wizard_theme.gd")
-const WizardHeader        := preload("res://addons/IDTXFlow/import_manager/wizard_header.gd")
-const WizardFooter        := preload("res://addons/IDTXFlow/import_manager/wizard_footer.gd")
-const WizardFileBrowser   := preload("res://addons/IDTXFlow/import_manager/wizard_file_browser.gd")
-const AssetPanel          := preload("res://addons/IDTXFlow/import_manager/asset_detail_panel.gd")
-const ServerFileProvider  := preload("res://addons/IDTXFlow/import_manager/server_file_provider.gd")
+const WizardTheme         := preload("res://addons/IDTXFlow/editor/import/widgets/wizard_theme.gd")
+const WizardHeader        := preload("res://addons/IDTXFlow/editor/import/widgets/wizard_header.gd")
+const WizardFooter        := preload("res://addons/IDTXFlow/editor/import/widgets/wizard_footer.gd")
+const WizardFileBrowser   := preload("res://addons/IDTXFlow/editor/import/widgets/wizard_file_browser.gd")
+const AssetPanel          := preload("res://addons/IDTXFlow/editor/import/widgets/asset_detail_panel.gd")
+const ServerFileProvider  := preload("res://addons/IDTXFlow/editor/import/server/server_file_provider.gd")
 
 var _server_url: String = ""
 var _selected_path: String = ""

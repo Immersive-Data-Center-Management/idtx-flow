@@ -30,11 +30,11 @@ signal filename_filter_changed(filter: String)
 ## small status label (server browse relies on this).
 signal listing_status(message: String)
 
-const WizardTheme := preload("res://addons/IDTXFlow/import_manager/wizard_theme.gd")
+const WizardTheme := preload("res://addons/IDTXFlow/editor/import/widgets/wizard_theme.gd")
 # Providers are resolved with load() at runtime (not preload consts) to avoid
 # parse-time dependency ordering issues when the plugin is first compiled —
 # same pattern import_manager.gd uses for its step scripts.
-const LOCAL_FILE_PROVIDER_PATH := "res://addons/IDTXFlow/import_manager/local_file_provider.gd"
+const LOCAL_FILE_PROVIDER_PATH := "res://addons/IDTXFlow/editor/import/local/local_file_provider.gd"
 
 enum FileMode { FILE_MODE_OPEN_FILE, FILE_MODE_OPEN_FILES, FILE_MODE_OPEN_DIR, FILE_MODE_OPEN_ANY }
 enum DisplayMode { DISPLAY_THUMBNAILS, DISPLAY_LIST }

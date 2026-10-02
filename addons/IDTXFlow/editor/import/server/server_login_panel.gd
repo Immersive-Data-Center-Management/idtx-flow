@@ -8,9 +8,9 @@ extends VBoxContainer
 
 signal login_succeeded(url: String, username: String, remember: bool)
 
-const WizardTheme    := preload("res://addons/IDTXFlow/import_manager/wizard_theme.gd")
-const IdtxAccess     := preload("res://addons/IDTXFlow/import_manager/idtx_client_access.gd")
-const ServerRegistry := preload("res://addons/IDTXFlow/import_manager/server_registry.gd")
+const WizardTheme    := preload("res://addons/IDTXFlow/editor/import/widgets/wizard_theme.gd")
+const IdtxAccess     := preload("res://addons/IDTXFlow/editor/idtx_client_access.gd")
+const ServerRegistry := preload("res://addons/IDTXFlow/editor/import/server/server_registry.gd")
 
 var _server_url: String = ""
 
