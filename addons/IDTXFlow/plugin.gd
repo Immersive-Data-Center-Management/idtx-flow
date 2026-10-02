@@ -5,11 +5,13 @@ const MainScreenScript := preload("res://addons/IDTXFlow/editor/import/import_ma
 const UsdStageInspectorPlugin := preload("res://addons/IDTXFlow/editor/usd_stage_inspector_plugin.gd")
 const SessionSceneIndicators := preload("res://addons/IDTXFlow/editor/session_scene/indicators.gd")
 const SessionSceneCoordinator := preload("res://addons/IDTXFlow/editor/session_scene/coordinator.gd")
+const SessionSaveCommitter := preload("res://addons/IDTXFlow/editor/session_scene/save_committer.gd")
 
 var _main_screen: Control = null
 var _inspector_plugin: EditorInspectorPlugin = null
 var _indicators: RefCounted = null
 var _session_scene_coordinator: RefCounted = null 
+var _save_committer: RefCounted = null
 
 
 func _enter_tree() -> void:
@@ -54,6 +56,10 @@ func _enter_tree() -> void:
 	_inspector_plugin = UsdStageInspectorPlugin.new()
 	add_inspector_plugin(_inspector_plugin)
 
+	# Commit-on-save orchestrator 
+	_save_committer = SessionSaveCommitter.new()
+	_save_committer.setup(get_editor_interface(), _session_scene_coordinator)
+
 	_refresh_session_indicators()
 
 
@@ -69,6 +75,12 @@ func _refresh_session_indicators() -> void:
 func _on_scene_closed(filepath: String) -> void:
 	if _session_scene_coordinator != null:
 		_session_scene_coordinator.on_session_scene_closed(filepath)
+
+
+## Editor save hook: forward to the commit-on-save orchestrator.
+func _save_external_data() -> void:
+	if _save_committer != null:
+		_save_committer.on_editor_save()
 
 
 func _exit_tree() -> void:
@@ -88,6 +100,10 @@ func _exit_tree() -> void:
 	if _main_screen != null:
 		_main_screen.queue_free()
 		_main_screen = null
+
+	if _save_committer != null:
+		_save_committer.clear()
+		_save_committer = null
 
 	_session_scene_coordinator = null
 

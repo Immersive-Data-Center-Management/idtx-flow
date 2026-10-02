@@ -37,6 +37,11 @@ signal session_stage_ready(session_id: String, stage_url: String)
 ## Emitted when a create/join request fails (after the server round-trip), with a human-readable message the wizard can surface.
 signal session_failed(message: String)
 
+## Emitted after a commit request succeeds. `committed` is false when the server had nothing to persist.
+signal session_committed(session_id: String, committed: bool)
+
+## Emitted when a commit request fails for a non-benign reason
+signal session_commit_failed(message: String)
 
 func _idtx() -> Object:
 	return IdtxAccess.get_client()
@@ -174,6 +179,46 @@ func transient_scene_path(session_id: String, basename: String) -> String:
 	# Sanitize the id into a filesystem-safe stem.
 	stem = stem.validate_filename()
 	return "%s/%s.tscn" % [SESSION_DIR, stem]
+
+
+# --------------------------------------------------------------------------
+# Commit (persist the session layer to the file on the server)
+#
+# Edits already stream to the server live, so a commit is the server-side
+# "write it into the file" step. A 409 "nothing_to_commit" is a benign no-op.
+# --------------------------------------------------------------------------
+
+## Ask the server to persist one session's edits into its file. No-op when the
+## client is unavailable or the id is unknown. Results arrive on `_on_commit_done`.
+func commit_session(session_id: String) -> void:
+	if session_id.is_empty():
+		return
+	var client := _idtx()
+	if client == null or not client.has_method("commit_session"):
+		session_commit_failed.emit("IDTX client not available; cannot commit session.")
+		return
+	print("[IDTXFlow] [Session Scene] Committing session '%s'." % session_id)
+	client.commit_session(session_id, _on_commit_done)
+
+
+## Per-request commit completion. On success emit `session_committed` (committed
+## false = benign server-side no-op). The 409 "nothing_to_commit" error is treated
+## as a benign no-op too; any other failure emits `session_commit_failed`.
+func _on_commit_done(result: Dictionary) -> void:
+	if bool(result.get("ok", false)):
+		var r: Dictionary = result.get("result", {})
+		var sid: String = r.get("session_id", "")
+		var committed: bool = bool(r.get("committed", false))
+		print("[IDTXFlow] [Session Scene] Commit done: session_id=%s committed=%s" % [sid, committed])
+		session_committed.emit(sid, committed)
+		return
+	var code := String(result.get("error_code", ""))
+	if code == "nothing_to_commit":
+		print("[IDTXFlow] [Session Scene] Commit: nothing to commit (no-op).")
+		session_committed.emit("", false)
+		return
+	session_commit_failed.emit("Commit failed (%d %s): %s" % [
+		int(result.get("http_code", 0)), code, String(result.get("message", ""))])
 
 
 # --------------------------------------------------------------------------

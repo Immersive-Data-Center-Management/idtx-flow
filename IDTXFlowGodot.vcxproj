@@ -247,6 +247,8 @@
     <Content Include="addons\IDTXFlow\editor\import\widgets\wizard_theme.gd" />
     <Content Include="addons\IDTXFlow\editor\session_scene\indicators.gd" />
     <Content Include="addons\IDTXFlow\editor\session_scene\coordinator.gd" />
+    <Content Include="addons\IDTXFlow\editor\session_scene\commit_prompt.gd" />
+    <Content Include="addons\IDTXFlow\editor\session_scene\save_committer.gd" />
     <Content Include="addons\IDTXFlow\editor\session_scene\tab_marker.gd" />
     <Content Include="addons\IDTXFlow\editor\session_scene\viewport_overlay.gd" />
     <Content Include="docs\collab-client\flows.md" />

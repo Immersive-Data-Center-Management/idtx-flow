@@ -221,13 +221,35 @@ the stage; it holds no session state (see [The import wizard](#the-import-wizard
 | `create_session(usd_file, mode, auto_commit)` / `join_session(session_id)` | Acquisition; resolve to `session_stage_ready` or `session_failed`. `auto_commit` (create-only) commits overrides to the file on teardown. |
 | `register_session_scene(session_id, path)` | Record a materialized transient scene in the registry. |
 | `has_session(session_id)` / `joined_ids()` | Registry queries (used by the wizard join-list + indicators). |
-| `is_session_scene_path(path)` / `active_session_id_for_path(path)` | Resolve a scene path ↔ session (used by indicators). |
+| `is_session_scene_path(path)` / `active_session_id_for_path(path)` | Resolve a scene path ↔ session (used by indicators + the commit-on-save hook). |
+| `commit_session(session_id)` | Persist a session's edits to its file on the server (`POST /sessions/<id>/commit`). Triggered by the editor save flow for the focused session scene. |
 | `on_session_scene_closed(filepath)` | Tab-close → implicit leave + delete the transient file. |
 | `teardown_all_sessions()` | Leave + delete all (plugin/editor close safety net). |
 | `prune_stale_session_scenes()` | Startup prune of strays left by a prior crash. |
 | signal `session_scenes_changed` | Registry changed → drives indicator refresh. |
 | signal `session_stage_ready(session_id, stage_url)` | Acquisition succeeded → wizard materializes the stage. |
 | signal `session_failed(message)` | Acquisition failed. |
+| signal `session_committed(session_id, committed)` | Commit succeeded (`committed=false` = benign server-side no-op). |
+| signal `session_commit_failed(message)` | Commit failed for a non-benign reason (not the 409 `nothing_to_commit` no-op). |
+
+### Commit on save
+
+Local edits already stream to the server live (via the `StageBridge`), so a *commit*
+is the server-side step that writes the session layer back into the file
+(`POST /api/v1/sessions/<id>/commit`). It is bound to the editor's own save flow:
+
+- `plugin.gd` implements `EditorPlugin._save_external_data()` — Godot calls it as
+  part of a save (Ctrl+S / Scene → Save). The hook returns `void` and cannot abort
+  the scene save; the local `.tscn` is already written by the time it runs, so it
+  governs only the server commit. `plugin.gd` just forwards to the orchestrator.
+- `save_committer.gd` (`SessionSaveCommitter`, injected with the editor interface + coordinator. It is
+  **focus-scoped**: it looks up the *currently edited* scene
+  (`get_edited_scene_root().get_scene_file_path()`) and, only if that path is a
+  tracked session scene, pops a **Commit / Cancel** dialog (`commit_prompt.gd`,
+  `ConfirmationDialog` parented under the editor base control). Confirming calls
+  `SessionSceneCoordinator.commit_session(session_id)`; **Cancel** skips the commit.
+  Ordinary (non-session) scenes save with no prompt. The committer also owns the
+  `session_committed` / `session_commit_failed` reactions.
 
 The create/join/leave *sequences* are documented in [`flows.md`](flows.md); the two
 halves this coordinator owns are detailed below.
