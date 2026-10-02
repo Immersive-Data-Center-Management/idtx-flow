@@ -38,6 +38,7 @@ func refresh() -> void:
 		if active:
 			_viewport_overlay.set_session_label(_current_session_label())
 			_viewport_overlay.set_auto_commit(_current_auto_commit())
+			_viewport_overlay.set_syncing(_current_syncing())
 		_viewport_overlay.queue_redraw()
 
 	if _tab_marker != null:
@@ -93,8 +94,7 @@ func _create_viewport_overlay() -> void:
 	_viewport_overlay = overlay
 
 
-## Human-readable label for the current session: its session id, or the scene
-## basename as a fallback.
+## Human-readable label for the current session: its session id, or the scene basename as a fallback.
 func _current_session_label() -> String:
 	var root := _editor_interface.get_edited_scene_root()
 	if root == null:
@@ -114,6 +114,16 @@ func _current_auto_commit() -> bool:
 		return false
 	if _session_scene_coordinator != null and _session_scene_coordinator.has_method("auto_commit_for_path"):
 		return _session_scene_coordinator.auto_commit_for_path(root.scene_file_path)
+	return false
+
+
+## Whether the current session is still catching up to server state (join snapshot not yet complete).
+func _current_syncing() -> bool:
+	var root := _editor_interface.get_edited_scene_root()
+	if root == null:
+		return false
+	if _session_scene_coordinator != null and _session_scene_coordinator.has_method("is_syncing_for_path"):
+		return _session_scene_coordinator.is_syncing_for_path(root.scene_file_path)
 	return false
 
 

@@ -360,7 +360,11 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
     s.socket->on_opened([this, session_id]
     {
         ports_.dispatcher->post([this, session_id]
-        { if (observer_) observer_->on_socket_opened(session_id); });
+        {
+            // A (re)connect restarts the snapshot handshake; clear the latch.
+            if (Session* sp = find_session(session_id)) sp->snapshot_complete = false;
+            if (observer_) observer_->on_socket_opened(session_id);
+        });
     });
     s.socket->on_handshake([this](const std::string& sid, const std::string& path, const std::string& uri)
     {
@@ -381,7 +385,22 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
                 sp->stage->apply_remote_edit(edit);
                 sp->applying_remote = false;
             }
+            else if (sp)
+            {
+                // No stage yet (snapshot arrived before the stage attached):
+                // buffer for replay in attach_stage rather than drop the edit.
+                sp->pending_remote.push_back(edit);
+            }
             if (observer_) observer_->on_remote_edit(session_id, edit, from);
+        });
+    });
+    s.socket->on_snapshot_complete([this, session_id]
+    {
+        ports_.dispatcher->post([this, session_id]
+        {
+            // Latch so a late reader (is_snapshot_complete) sees it, then report.
+            if (Session* sp = find_session(session_id)) sp->snapshot_complete = true;
+            if (observer_) observer_->on_snapshot_complete(session_id);
         });
     });
     s.socket->on_ack([this, session_id](bool ok, const std::string& error)
@@ -411,6 +430,12 @@ bool CollabEngine::is_socket_open(const std::string& session_id) const
     return s && s->socket && s->socket->is_open();
 }
 
+bool CollabEngine::is_snapshot_complete(const std::string& session_id) const
+{
+    const Session* s = find_session(session_id);
+    return s && s->snapshot_complete;
+}
+
 void CollabEngine::attach_stage(const std::string& session_id, ports::IStageBridge* stage, bool remote)
 {
     Session* s = find_session(session_id);
@@ -429,6 +454,18 @@ void CollabEngine::attach_stage(const std::string& session_id, ports::IStageBrid
         s->stage->set_on_changed([this, session_id](const model::PrimEdit& edit)
         { on_stage_changed(session_id, edit); });
         s->stage->build_index();
+
+        // Replay any remote edits that arrived before the stage was attached (a
+        // join snapshot delivered on socket open ahead of the stage load). Apply
+        // with loopback suppression, then clear the buffer.
+        if (!s->pending_remote.empty())
+        {
+            s->applying_remote = true;
+            for (const auto& edit : s->pending_remote)
+                s->stage->apply_remote_edit(edit);
+            s->applying_remote = false;
+            s->pending_remote.clear();
+        }
     }
 }
 

@@ -157,6 +157,12 @@ namespace net
         /// Whether the given session's socket is currently open (false if the id is unknown).
         bool is_socket_open(const std::string& session_id) const;
 
+        /// Whether the given session has received its join snapshot's terminal
+        /// SnapshotComplete since the current socket opened (false if unknown or
+        /// still catching up). Latched state, so a late reader never misses it;
+        /// reset to false on each (re)connect so a reconnect re-enters "syncing".
+        bool is_snapshot_complete(const std::string& session_id) const;
+
         // --- transform sync (TfNotice-as-source), per session ---
         
         // Attach the live stage for a loaded session; `remote` enables broadcasting
@@ -194,6 +200,13 @@ namespace net
             bool remote = false;
             bool armed = false;
             bool applying_remote = false;
+            // Set on SnapshotComplete, reset on each (re)connect.
+            bool snapshot_complete = false;
+            // Inbound remote edits (incl. the join snapshot) that arrived before a
+            // stage bridge was attached. Buffered here instead of dropped, and
+            // replayed onto the stage in attach_stage so a late-joiner / reconnect
+            // snapshot lands regardless of socket-vs-stage-load ordering.
+            std::vector<model::PrimEdit> pending_remote;
             // Frames remaining before outbound broadcasting auto-arms after a
             // remote stage attaches; -1 means disabled. Counted down in poll().
             int  arm_countdown = -1;

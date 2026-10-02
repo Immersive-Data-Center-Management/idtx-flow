@@ -72,6 +72,8 @@ namespace net
         virtual void on_remote_edit(const std::string& session_id,
                                     const model::PrimEdit& edit,
                                     const std::string& from_client_id) = 0;
+        // Reported once the terminal join-snapshot marker arrives: the host now has the full current server state for `session_id`.
+        virtual void on_snapshot_complete(const std::string& session_id) = 0;
         virtual void on_ack(const std::string& session_id, bool ok, const std::string& error) = 0;
         virtual void on_socket_error(const std::string& session_id,
                                      const std::string& code, const std::string& message) = 0;

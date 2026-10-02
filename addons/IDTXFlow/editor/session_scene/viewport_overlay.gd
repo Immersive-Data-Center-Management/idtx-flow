@@ -15,10 +15,12 @@ var border_width: float = 3.0
 
 var _banner: PanelContainer = null
 var _banner_label: Label = null   # second line: the session id
-var _auto_commit_label: Label = null   # third line: the "ON"/"OFF" value (colored); the "AUTO-COMMIT:" prefix is static black
+var _auto_commit_label: Label = null   # third line: the "ON"/"OFF" value (colored)
+var _syncing_label: Label = null   # fourth line: transient "SYNCING…" shown until the join snapshot completes
 
 const AUTO_COMMIT_ON_COLOR := Color(0.24, 0.82, 0.36)   # green, matches live-session
 const AUTO_COMMIT_OFF_COLOR := Color(0.80, 0.30, 0.30)  # muted red: edits not saved on close
+const SYNCING_COLOR := Color(0.95, 0.75, 0.20)          # amber: catching up to server state
 
 
 func _init() -> void:
@@ -49,13 +51,19 @@ func set_session_label(text: String) -> void:
 
 
 ## Set the always-visible auto-commit status (third banner line): the "ON"/"OFF"
-## value, colored green when enabled and muted red when disabled. The static
-## "AUTO-COMMIT:" prefix stays black.
+## value, colored green when enabled and muted red when disabled.
 func set_auto_commit(on: bool) -> void:
 	if _auto_commit_label != null:
 		_auto_commit_label.text = "ON" if on else "OFF"
 		_auto_commit_label.add_theme_color_override(
 			"font_color", AUTO_COMMIT_ON_COLOR if on else AUTO_COMMIT_OFF_COLOR)
+
+
+## Show or hide the transient "SYNCING…" line (fourth banner line): visible while
+## the session is catching up to server state, hidden once its join snapshot completes.
+func set_syncing(syncing: bool) -> void:
+	if _syncing_label != null:
+		_syncing_label.visible = syncing
 
 
 # ---------------------------------------------------------------------------
@@ -135,5 +143,13 @@ func _build_banner() -> void:
 	_auto_commit_label.text = "OFF"
 	_auto_commit_label.add_theme_color_override("font_color", AUTO_COMMIT_OFF_COLOR)
 	ac_row.add_child(_auto_commit_label)
+
+	# Line 4: transient "SYNCING…" (amber), shown only until the join snapshot completes.
+	_syncing_label = Label.new()
+	_syncing_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_syncing_label.text = "SYNCING…"
+	_syncing_label.add_theme_color_override("font_color", SYNCING_COLOR)
+	_syncing_label.visible = false
+	col.add_child(_syncing_label)
 
 	add_child(_banner)

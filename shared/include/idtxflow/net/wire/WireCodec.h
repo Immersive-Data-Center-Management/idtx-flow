@@ -53,7 +53,7 @@ namespace wire
     /// A decoded inbound frame: exactly one payload is populated per `kind`.
     struct DecodedMessage
     {
-        enum class Kind { None, Handshake, RemoteEdit, Ack, Error };
+        enum class Kind { None, Handshake, RemoteEdit, Ack, Error, SnapshotComplete };
 
         Kind         kind = Kind::None;
         HandshakeMsg handshake;

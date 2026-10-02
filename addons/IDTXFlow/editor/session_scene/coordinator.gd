@@ -48,6 +48,41 @@ func _idtx() -> Object:
 
 
 # --------------------------------------------------------------------------
+# Snapshot sync tracking
+#
+# Each tracked session's `synced` is seeded from the client's latched state at
+# registration; the live `snapshot_complete` signal is a refresh prompt for
+# sessions already registered when it fires.
+# --------------------------------------------------------------------------
+
+## Subscribe to the native client's snapshot-complete signal.
+func connect_client_signals() -> void:
+	var client := _idtx()
+	if client == null or not client.has_signal("snapshot_complete"):
+		return
+	if not client.snapshot_complete.is_connected(_on_snapshot_complete):
+		client.snapshot_complete.connect(_on_snapshot_complete)
+
+
+## Drop the client-signal subscription.
+func disconnect_client_signals() -> void:
+	var client := _idtx()
+	if client == null or not client.has_signal("snapshot_complete"):
+		return
+	if client.snapshot_complete.is_connected(_on_snapshot_complete):
+		client.snapshot_complete.disconnect(_on_snapshot_complete)
+
+
+## Native client reports the join snapshot finished for `session_id`; mark the
+## tracked session synced and refresh the indicators.
+func _on_snapshot_complete(session_id: String) -> void:
+	if not _session_scenes.has(session_id):
+		return
+	_session_scenes[session_id]["synced"] = true
+	session_scenes_changed.emit()
+
+
+# --------------------------------------------------------------------------
 # Session acquisition (create / join)
 #
 # The coordinator triggers acquisition and the duplicate-join guard, and reports
@@ -120,7 +155,13 @@ func _on_acquire_done(result: Dictionary) -> void:
 func register_session_scene(session_id: String, path: String, auto_commit: bool = false) -> void:
 	if session_id.is_empty():
 		return
-	_session_scenes[session_id] = { "path": path, "auto_commit": auto_commit }
+	# Seed from the client's latched state: the snapshot may already have completed
+	# (one-shot signal fired) before this scene materialized — querying avoids that race.
+	var synced := false
+	var client := _idtx()
+	if client != null and client.has_method("is_session_synced"):
+		synced = bool(client.is_session_synced(session_id))
+	_session_scenes[session_id] = { "path": path, "auto_commit": auto_commit, "synced": synced }
 	session_scenes_changed.emit()
 
 
@@ -160,6 +201,16 @@ func auto_commit_for_path(path: String) -> bool:
 	for sid in _session_scenes:
 		if _session_scenes[sid]["path"] == path:
 			return _session_scenes[sid]["auto_commit"]
+	return false
+
+
+## Whether the session backing the transient scene at `path` is still catching up
+## to server state — i.e. its join snapshot has not completed yet. False (not
+## syncing) for untracked paths or once `snapshot_complete` has arrived.
+func is_syncing_for_path(path: String) -> bool:
+	for sid in _session_scenes:
+		if _session_scenes[sid]["path"] == path:
+			return not _session_scenes[sid].get("synced", true)
 	return false
 
 

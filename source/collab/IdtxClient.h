@@ -138,6 +138,9 @@ public:
     // Whether the given session's socket is open (false for an unknown id).
     bool is_socket_open(const godot::String& session_id) const;
 
+    // Whether the given session has completed its join snapshot.
+    bool is_session_synced(const godot::String& session_id) const;
+
     // --- Session sync binding (per session) ---
 
     // Bind a live collaboration session to a stage node: the client owns the sync
@@ -174,6 +177,7 @@ public:
                       const std::string& usd_uri) override;
     void on_remote_edit(const std::string& session_id, const idtxflow::net::model::PrimEdit& edit,
                         const std::string& from_client_id) override;
+    void on_snapshot_complete(const std::string& session_id) override;
     void on_ack(const std::string& session_id, bool ok, const std::string& error) override;
     void on_socket_error(const std::string& session_id,
                          const std::string& code, const std::string& message) override;

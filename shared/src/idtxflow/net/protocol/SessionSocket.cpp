@@ -66,6 +66,9 @@ void SessionSocket::handle_binary(const std::string& bytes)
                  decoded.error.code, decoded.error.message);
         if (on_error_) on_error_(decoded.error.code, decoded.error.message);
         break;
+    case wire::DecodedMessage::Kind::SnapshotComplete:
+        if (on_snapshot_complete_) on_snapshot_complete_();
+        break;
     default:
         break;
     }

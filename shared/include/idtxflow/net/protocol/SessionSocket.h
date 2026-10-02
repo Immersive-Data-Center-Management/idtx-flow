@@ -40,6 +40,7 @@ namespace net
         using ErrorCb      = std::function<void(const std::string& code, const std::string& message)>;
         using DisconnectCb = std::function<void(model::CloseReason reason, int code,
                                                 const std::string& text)>;
+        using SnapshotCompleteCb = std::function<void()>;
 
         SessionSocket(ports::IWebSocketTransport* ws, ports::IClock* clock)
             : ws_(ws), clock_(clock) {}
@@ -64,6 +65,7 @@ namespace net
         void on_ack(AckCb cb)               { on_ack_ = std::move(cb); }
         void on_error(ErrorCb cb)           { on_error_ = std::move(cb); }
         void on_disconnected(DisconnectCb cb){ on_disconnected_ = std::move(cb); }
+        void on_snapshot_complete(SnapshotCompleteCb cb){ on_snapshot_complete_ = std::move(cb); }
 
     private:
         IDTX_LOG_CATEGORY("SessionSocket")
@@ -86,6 +88,7 @@ namespace net
         AckCb        on_ack_;
         ErrorCb      on_error_;
         DisconnectCb on_disconnected_;
+        SnapshotCompleteCb on_snapshot_complete_;
     };
 
 } // namespace net

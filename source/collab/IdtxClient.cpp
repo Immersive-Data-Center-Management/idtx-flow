@@ -238,6 +238,11 @@ bool IdtxClient::is_socket_open(const String& session_id) const
     return engine_.is_socket_open(session_id.utf8().get_data());
 }
 
+bool IdtxClient::is_session_synced(const String& session_id) const
+{
+    return engine_.is_snapshot_complete(session_id.utf8().get_data());
+}
+
 // ---------------------------------------------------------------------------
 // Session sync binding and stage-bridge lifecycle (per session)
 // ---------------------------------------------------------------------------
@@ -611,6 +616,13 @@ void IdtxClient::on_remote_edit(const std::string& session_id, const idtxflow::n
                 String(edit.prim_path.c_str()), gxform::prim_edit_to_transform(edit), String(from.c_str()));
 }
 
+void IdtxClient::on_snapshot_complete(const std::string& session_id)
+{
+    // The join snapshot's prim edits were already applied via on_remote_edit; this
+    // marks the boundary at which the stage holds the full current server state.
+    emit_signal("snapshot_complete", String(session_id.c_str()));
+}
+
 void IdtxClient::on_ack(const std::string& session_id, bool ok, const std::string& error)
 {
     emit_signal("ack_received", String(session_id.c_str()), ok, String(error.c_str()));
@@ -669,6 +681,7 @@ void IdtxClient::_bind_methods()
     ClassDB::bind_method(D_METHOD("ws_base_url"), &IdtxClient::ws_base_url);
 
     ClassDB::bind_method(D_METHOD("is_socket_open", "session_id"), &IdtxClient::is_socket_open);
+    ClassDB::bind_method(D_METHOD("is_session_synced", "session_id"), &IdtxClient::is_session_synced);
 
     ClassDB::bind_method(D_METHOD("bind_session", "session_id", "stage_node", "remote"),
                          &IdtxClient::bind_session);
@@ -691,6 +704,7 @@ void IdtxClient::_bind_methods()
     ADD_SIGNAL(MethodInfo("transform_broadcast_received",
         PropertyInfo(Variant::STRING, "session_id"), PropertyInfo(Variant::STRING, "prim_path"),
         PropertyInfo(Variant::TRANSFORM3D, "xform"), PropertyInfo(Variant::STRING, "from_client_id")));
+    ADD_SIGNAL(MethodInfo("snapshot_complete", PropertyInfo(Variant::STRING, "session_id")));
     ADD_SIGNAL(MethodInfo("ack_received",
         PropertyInfo(Variant::STRING, "session_id"), PropertyInfo(Variant::BOOL, "ok"),
         PropertyInfo(Variant::STRING, "error")));

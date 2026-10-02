@@ -24,6 +24,7 @@ func _enter_tree() -> void:
 
 	# Create the editor session-scene coordinator
 	_session_scene_coordinator = SessionSceneCoordinator.new()
+	_session_scene_coordinator.connect_client_signals()
 
 	# Create the main screen and attach it to the editor's main viewport.
 	_main_screen = MainScreenScript.new()
@@ -105,6 +106,8 @@ func _exit_tree() -> void:
 		_save_committer.clear()
 		_save_committer = null
 
+	if _session_scene_coordinator != null:
+		_session_scene_coordinator.disconnect_client_signals()
 	_session_scene_coordinator = null
 
 ## Register the import persistence settings

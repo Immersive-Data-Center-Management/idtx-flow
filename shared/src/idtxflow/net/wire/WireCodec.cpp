@@ -87,6 +87,13 @@ bool decode(const std::string& bytes, DecodedMessage& out)
         out.error.message = e.message();
         return true;
     }
+    case idtxcore::BaseMessage::kSnapshotComplete:
+    {
+        // Terminal marker of the late-joiner snapshot: no payload to extract, just
+        // the boundary signal that the client now has the full current state.
+        out.kind = DecodedMessage::Kind::SnapshotComplete;
+        return true;
+    }
     default:
         return false;
     }

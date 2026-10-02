@@ -12,6 +12,12 @@ message Handshake {
   string usd_uri = 4;
 }
 
+// Terminal marker of the late-joiner snapshot: the server sends one
+// TransformBroadcast per prim with authored session-layer overrides, then a
+// single SnapshotComplete so the client knows it has the full current state.
+message SnapshotComplete {
+}
+
 message BaseMessage {
   optional string session_id = 1;
   oneof message {
@@ -20,5 +26,6 @@ message BaseMessage {
     TransformBroadcast xform_broadcast = 4;
     Ack ack = 5;
     Error error = 6;
+    SnapshotComplete snapshot_complete = 7;
   }
 }
