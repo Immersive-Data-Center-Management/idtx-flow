@@ -68,6 +68,43 @@ inline std::string get_gdextension_dir()
 #endif
 }
 
+// Startup sanity checks for the extension's runtime environment. Each check logs an
+// actionable error for a missing prerequisite instead of letting a later failure crash
+// or fail silently. Add further checks here.
+static void check_prerequisites(const std::string& extension_dir)
+{
+    if (extension_dir.empty())
+    {
+        IDTX_LOGF(IDTX_WARN, "could not determine the extension directory; skipping prerequisite checks");
+        return;
+    }
+
+    // OpenUSD finds its resolver, file-format and schema plugins through plugInfo.json
+    // files laid out relative to the binaries (addons/IDTXFlow/bin/<os>/usd/ and
+    // bin/plugin/usd/). If an export or a manual install drops that tree, PlugRegistry
+    // fails fatally inside the first stage open with no actionable message, so name
+    // every missing file up front. Keep this list in sync with the addon's bin/ layout.
+    const char* required_plugin_files[] = {
+        "usd/plugInfo.json",
+        "../plugin/usd/plugInfo.json",
+        "../plugin/usd/idtx/resources/plugInfo.json",
+        "../plugin/usd/godot/resources/plugInfo.json",
+        "../plugin/usd/usdShaders/resources/plugInfo.json",
+    };
+    for (const char* rel: required_plugin_files)
+    {
+        const std::filesystem::path full = (std::filesystem::path(extension_dir) / rel).lexically_normal();
+        std::error_code ec;
+        if (!std::filesystem::exists(full, ec) || ec)
+        {
+            IDTX_LOGF(IDTX_ERROR,
+                      "USD plugin file missing: {} - stage conversion will fail "
+                      "(the addon's bin/ tree must sit next to the loaded binaries)",
+                      full.string());
+        }
+    }
+}
+
 void initialize_idtxflow_module(ModuleInitializationLevel p_level)
 {
     if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE)
@@ -84,8 +121,7 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level)
     // them at process exit, but their vtables live here; Godot unloads the extension
     // first, so exit crashes with 0xC0000005 once any of those schemes was resolved.
     // Ar has no API to unregister a resolver. Trade-off: GDExtension hot-reload no
-    // longer works for this library. Cleaner long-term fix: move the resolvers into
-    // libidtx_usd.dll, whose lifetime already matches Ar's registry.
+    // longer works for this library.
     {
         HMODULE self = nullptr;
         if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
@@ -104,33 +140,8 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level)
     GDREGISTER_CLASS(UsdMockDatasourceFloatNode3D)
     GDREGISTER_CLASS(UsdRestDatasourceNode3D)
     GDREGISTER_CLASS(UsdStaticBodyNode3D)
-    // Diagnostic only: OpenUSD finds its resolver, file-format and schema plugins
-    // through plugInfo.json files laid out relative to the binaries
-    // (addons/IDTXFlow/bin/<os>/usd/ and bin/plugin/usd/). If an export or a manual
-    // install drops that tree, PlugRegistry fails fatally inside the first stage
-    // open with no actionable message, so name every missing file up front.
-    // Keep this list in sync with the addon's bin/ layout.
-    {
-        const std::string extension_dir = get_gdextension_dir();
-        const char* required_plugin_files[] = {
-            "usd/plugInfo.json",
-            "../plugin/usd/idtx/resources/plugInfo.json",
-            "../plugin/usd/godot/resources/plugInfo.json",
-            "../plugin/usd/usdShaders/resources/plugInfo.json",
-        };
-        for (const char* rel: required_plugin_files)
-        {
-            const std::filesystem::path full = (std::filesystem::path(extension_dir) / rel).lexically_normal();
-            std::error_code ec;
-            if (!extension_dir.empty() && (!std::filesystem::exists(full, ec) || ec))
-            {
-                IDTX_LOGF(IDTX_ERROR,
-                          "USD plugin file missing: {} - stage conversion will fail "
-                          "(the addon's bin/ tree must sit next to the loaded binaries)",
-                          full.string());
-            }
-        }
-    }
+
+    check_prerequisites(get_gdextension_dir());
 
 #ifdef IDTXFLOW_MDL_ENABLED
     // activate the mdl material conversion
