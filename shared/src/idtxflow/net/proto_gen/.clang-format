@@ -1,0 +1,3 @@
+# protoc writes these; formatting them would be undone by the next generation.
+DisableFormat: true
+SortIncludes: Never

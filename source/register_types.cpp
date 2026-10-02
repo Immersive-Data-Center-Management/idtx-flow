@@ -52,12 +52,8 @@ inline std::string get_gdextension_dir()
     char buffer[MAX_PATH];
     HMODULE hm = nullptr;
     // Get handle of the current DLL (this GDExtension)
-    GetModuleHandleExA(
-        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-        GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-        (LPCSTR)&get_gdextension_dir,
-        &hm
-    );
+    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                       (LPCSTR)&get_gdextension_dir, &hm);
     GetModuleFileNameA(hm, buffer, MAX_PATH);
     std::string path(buffer);
     return path.substr(0, path.find_last_of("\\/"));
@@ -72,8 +68,10 @@ inline std::string get_gdextension_dir()
 #endif
 }
 
-void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
-    if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
+void initialize_idtxflow_module(ModuleInitializationLevel p_level)
+{
+    if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE)
+    {
         return;
     }
 
@@ -90,16 +88,14 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     // libidtx_usd.dll, whose lifetime already matches Ar's registry.
     {
         HMODULE self = nullptr;
-        if (!GetModuleHandleExW(
-                GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-                reinterpret_cast<LPCWSTR>(&initialize_idtxflow_module),
-                &self))
+        if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+                                reinterpret_cast<LPCWSTR>(&initialize_idtxflow_module), &self))
         {
             IDTX_LOGF(IDTX_WARN, "could not pin module; expect a crash on shutdown after res:// or user:// use");
         }
     }
 #endif
-    
+
     GDREGISTER_CLASS(UsdStageNode3D)
     GDREGISTER_CLASS(UsdXformNode3D)
     GDREGISTER_CLASS(UsdMeshInstanceNode3D)
@@ -108,7 +104,6 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     GDREGISTER_CLASS(UsdMockDatasourceFloatNode3D)
     GDREGISTER_CLASS(UsdRestDatasourceNode3D)
     GDREGISTER_CLASS(UsdStaticBodyNode3D)
-
     // Diagnostic only: OpenUSD finds its resolver, file-format and schema plugins
     // through plugInfo.json files laid out relative to the binaries
     // (addons/IDTXFlow/bin/<os>/usd/ and bin/plugin/usd/). If an export or a manual
@@ -123,16 +118,16 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
             "../plugin/usd/godot/resources/plugInfo.json",
             "../plugin/usd/usdShaders/resources/plugInfo.json",
         };
-        for (const char* rel : required_plugin_files)
+        for (const char* rel: required_plugin_files)
         {
             const std::filesystem::path full = (std::filesystem::path(extension_dir) / rel).lexically_normal();
             std::error_code ec;
             if (!extension_dir.empty() && (!std::filesystem::exists(full, ec) || ec))
             {
                 IDTX_LOGF(IDTX_ERROR,
-                    "USD plugin file missing: {} - stage conversion will fail "
-                    "(the addon's bin/ tree must sit next to the loaded binaries)",
-                    full.string());
+                          "USD plugin file missing: {} - stage conversion will fail "
+                          "(the addon's bin/ tree must sit next to the loaded binaries)",
+                          full.string());
             }
         }
     }
@@ -141,7 +136,7 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     // activate the mdl material conversion
     std::string extension_dir = get_gdextension_dir();
     std::vector<std::string> additionalModulPaths;
-    if (ProjectSettings *project_settings = godot::ProjectSettings::get_singleton())
+    if (ProjectSettings* project_settings = godot::ProjectSettings::get_singleton())
     {
         // ensure that the projects resource and user directories can be used as mdl module search paths
         additionalModulPaths.emplace_back(project_settings->globalize_path("res://").utf8().get_data());
@@ -149,7 +144,7 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     }
     idtxflow::converter::StartupMdlMaterialConverter(extension_dir, additionalModulPaths);
 #endif
-    
+
     // Configure the HTTP asset resolver with the default IXWebSocket-based fetcher
     pxr::UsdHttpAssetResolver::Configure(
         ProjectSettings::get_singleton()->globalize_path("user://usd_cache").utf8().get_data());
@@ -168,15 +163,17 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
 
     // Run the openExec computation bridge
     idtxflow::exec::ExecBridgeManager::Instance().Start();
-    
+
     IDTX_LOGF(IDTX_INFO, "GDExtension initialized");
 }
 
-void uninitialize_idtxflow_module(ModuleInitializationLevel p_level) {
-    if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
+void uninitialize_idtxflow_module(ModuleInitializationLevel p_level)
+{
+    if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE)
+    {
         return;
     }
-    
+
     // Stop the openExec computation bridge
     idtxflow::exec::ExecBridgeManager::Instance().Cancel();
     // Unregister the host-side environment providers only AFTER the exec worker thread has
@@ -192,19 +189,20 @@ void uninitialize_idtxflow_module(ModuleInitializationLevel p_level) {
     // shutdown the mdl material conversion
     idtxflow::converter::ShutdownMdlMaterialConverter();
 #endif
-    
+
     IDTX_LOGF(IDTX_INFO, "GDExtension uninitialized");
-    
+
     // Clear logger reference
     idtxflow::utils::Log::set_logger(nullptr);
 }
 
-extern "C" {
-    GDExtensionBool GDE_EXPORT idtxflow_library_init(
-        GDExtensionInterfaceGetProcAddress p_get_proc_address,
-        const GDExtensionClassLibraryPtr p_library,
-        GDExtensionInitialization *r_initialization) {
-        
+extern "C"
+{
+    GDExtensionBool GDE_EXPORT idtxflow_library_init(GDExtensionInterfaceGetProcAddress p_get_proc_address,
+                                                     const GDExtensionClassLibraryPtr p_library,
+                                                     GDExtensionInitialization* r_initialization)
+    {
+
         GDExtensionBinding::InitObject init_obj(p_get_proc_address, p_library, r_initialization);
 
         init_obj.register_initializer(initialize_idtxflow_module);

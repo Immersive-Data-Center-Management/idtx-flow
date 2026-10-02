@@ -20,7 +20,10 @@
 #include <dlfcn.h>
 #include <cstdio>
 
-namespace idtxflow_ext { namespace detail {
+namespace idtxflow_ext
+{
+namespace detail
+{
 
 /**
  * Verify that the IDTXFlow shared library is loaded and its symbols are
@@ -28,28 +31,30 @@ namespace idtxflow_ext { namespace detail {
  *
  * @return 0 on success, non-zero if a required symbol cannot be found.
  */
-inline int validateIdtxflowLoaded() {
+inline int validateIdtxflowLoaded()
+{
     // We probe for a well-known C symbol exported by the IDTXFlow Godot
     // GDExtension.  The symbol name "idtxflow_library_init" is the
     // GDExtension entry-point of the base IDTXFlow library.
     const char* probeSymbol = "idtxflow_library_init";
 
     void* sym = dlsym(RTLD_DEFAULT, probeSymbol);
-    if (sym != nullptr) {
-        return 0;  // IDTXFlow is loaded and symbols are resolvable
+    if (sym != nullptr)
+    {
+        return 0; // IDTXFlow is loaded and symbols are resolvable
     }
 
     fprintf(stderr,
-        "[idtxflow_ext] FATAL: Cannot find symbol '%s' in loaded libraries.\n"
-        "  The IDTXFlow base GDExtension must be present at res://addons/IDTXFlow/\n"
-        "  so that Godot loads the shared library before this extension initializes.\n"
-        "  dlerror: %s\n",
-        probeSymbol,
-        dlerror() ? dlerror() : "(none)");
+            "[idtxflow_ext] FATAL: Cannot find symbol '%s' in loaded libraries.\n"
+            "  The IDTXFlow base GDExtension must be present at res://addons/IDTXFlow/\n"
+            "  so that Godot loads the shared library before this extension initializes.\n"
+            "  dlerror: %s\n",
+            probeSymbol, dlerror() ? dlerror() : "(none)");
 
     return 1;
 }
 
-}} // namespace idtxflow_ext::detail
+} // namespace detail
+} // namespace idtxflow_ext
 
 #endif // !_WIN32

@@ -25,7 +25,8 @@ void UsdMeshInstanceNode3D::_ready()
     {
         set_process(true);
         set_process_mode(ProcessMode::PROCESS_MODE_ALWAYS);
-    } else
+    }
+    else
     {
         set_process(false);
     }
@@ -43,7 +44,8 @@ void UsdMeshInstanceNode3D::_process(double delta)
         if (loop_animation_)
         {
             current_anim_time_ = Math::fmod(current_anim_time_, static_cast<double>(animation_->get_length()));
-        } else
+        }
+        else
         {
             current_anim_time_ = animation_->get_length();
         }
@@ -54,11 +56,9 @@ void UsdMeshInstanceNode3D::_process(double delta)
     int tracks = animation_->get_track_count();
     for (int t_idx = 0; t_idx < tracks; ++t_idx)
     {
-        if (!animation_->track_is_enabled(t_idx))
-            continue;
-            
-        if (animation_->track_get_key_count(t_idx) == 0)
-            continue;
+        if (!animation_->track_is_enabled(t_idx)) continue;
+
+        if (animation_->track_get_key_count(t_idx) == 0) continue;
 
         switch (animation_->track_get_type(t_idx))
         {
@@ -73,16 +73,15 @@ void UsdMeshInstanceNode3D::_process(double delta)
             break;
         default:
             break;
-        }                
+        }
     }
 }
 
 void UsdMeshInstanceNode3D::OnComputeComplete(const std::vector<ExecComputeResult>& results)
 {
-    for (const auto& result : results)
+    for (const auto& result: results)
     {
-        if (result.primAttribute == pxr::UsdGeomTokens->size.GetString() &&
-            result.value.IsHolding<double>() &&
+        if (result.primAttribute == pxr::UsdGeomTokens->size.GetString() && result.value.IsHolding<double>() &&
             get_mesh()->is_class("BoxMesh"))
         {
             float size = static_cast<float>(result.value.Get<double>());
@@ -92,9 +91,8 @@ void UsdMeshInstanceNode3D::OnComputeComplete(const std::vector<ExecComputeResul
             box_mesh->call_deferred("set_size", godot::Vector3(size, size, size));
             continue;
         }
-        
-        if (result.primAttribute == pxr::UsdGeomTokens->radius.GetString() &&
-            result.value.IsHolding<double>())
+
+        if (result.primAttribute == pxr::UsdGeomTokens->radius.GetString() && result.value.IsHolding<double>())
         {
             float radius = static_cast<float>(result.value.Get<double>());
             if (get_mesh()->is_class("SphereMesh"))
@@ -140,22 +138,18 @@ void UsdMeshInstanceNode3D::_bind_methods()
 {
     // bind methods from the inherited interface here
     IUSDNODE_IMPLEMENT_BINDINGS(UsdMeshInstanceNode3D)
-    
+
     ClassDB::bind_method(D_METHOD("set_animation", "p_animation"), &UsdMeshInstanceNode3D::set_animation);
     ClassDB::bind_method(D_METHOD("get_animation"), &UsdMeshInstanceNode3D::get_animation);
-    ADD_PROPERTY(
-        PropertyInfo(Variant::OBJECT, "animation",
-            PROPERTY_HINT_NONE, "" ,
-            PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_READ_ONLY ),
-        "set_animation", "get_animation");
+    ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "animation", PROPERTY_HINT_NONE, "",
+                              PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_READ_ONLY),
+                 "set_animation", "get_animation");
 
     ClassDB::bind_method(D_METHOD("set_loop_animation", "p_loop"), &UsdMeshInstanceNode3D::set_loop_animation);
     ClassDB::bind_method(D_METHOD("get_loop_animation"), &UsdMeshInstanceNode3D::get_loop_animation);
-    ADD_PROPERTY(
-        PropertyInfo(Variant::BOOL, "loop_animation",
-            PROPERTY_HINT_NONE, "" ,
-            PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_EDITOR ),
-        "set_loop_animation", "get_loop_animation");
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "loop_animation", PROPERTY_HINT_NONE, "",
+                              PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_EDITOR),
+                 "set_loop_animation", "get_loop_animation");
 }
 
 void UsdMeshInstanceNode3D::_notification(int p_what)

@@ -27,7 +27,8 @@
 
 #include <cstdio>
 
-extern "C" int idtxflow_ext_bootstrap_init() {
+extern "C" int idtxflow_ext_bootstrap_init()
+{
 #ifdef _WIN32
     // On Windows the delay-load hook is already installed via the global
     // __pfnDliNotifyHook2 symbol defined in DelayLoadHook_win32.h.

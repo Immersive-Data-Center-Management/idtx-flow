@@ -35,5 +35,4 @@
 // This suppresses implicit instantiation of the template in consumer TUs.
 // The single instantiation lives in PrimConverterRegistryGodot.cpp inside the
 // IDTXFlow DLL, ensuring exactly one singleton across all modules.
-extern template class IDTXFLOW_GODOT_API
-    idtxflow::converter::PrimConverterRegistry<idtxflow::types::TargetEngineGodot>;
+extern template class IDTXFLOW_GODOT_API idtxflow::converter::PrimConverterRegistry<idtxflow::types::TargetEngineGodot>;

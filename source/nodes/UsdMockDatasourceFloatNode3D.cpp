@@ -21,13 +21,14 @@ void UsdMockDatasourceFloatNode3D::_process(double delta)
     if (!bridge) return;
     const double value = 10.0 + ((90.0 * rand()) / RAND_MAX);
     std::string data = std::format("{{ \"data\": {{ \"value\": {:.2f} }} }}", value);
-    idtxflow::exec::StageAttributeUpdate update{pxr::SdfPath(prim_path_.utf8().get_data()), pxr::IDTXTokens->outputsData, pxr::VtValue(std::move(data)), 0, "mock"};
+    idtxflow::exec::StageAttributeUpdate update{pxr::SdfPath(prim_path_.utf8().get_data()),
+                                                pxr::IDTXTokens->outputsData, pxr::VtValue(std::move(data)), 0, "mock"};
     if (!bridge->EnqueueAttributeUpdate(std::move(update))) godot::print_verbose("Mock datasource update rejected");
 }
 void UsdMockDatasourceFloatNode3D::_enter_tree()
 {
     Node3D::_enter_tree();
-    //set_process_mode(PROCESS_MODE_ALWAYS);
+    // set_process_mode(PROCESS_MODE_ALWAYS);
 }
 
 void UsdMockDatasourceFloatNode3D::_bind_methods()
