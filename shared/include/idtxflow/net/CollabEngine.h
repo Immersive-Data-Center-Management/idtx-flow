@@ -102,14 +102,28 @@ namespace net
         void delete_session(const std::string& session_id);
 
         // --- high-level session flow ---
-        
-        // Drive the whole server-import lifecycle: create the session, compute
-        // the authenticated stage download URL, open the session socket, then
-        // report on_session_ready so the host performs the engine-specific stage
-        // load and attaches it back (attach_stage). Owns the active session id,
-        // mode, and ws-url composition. A create failure is reported through the
-        // existing on_request_failed(Op::CreateSession, ...).
-        void begin_session(const std::string& usd_file, const std::string& mode);
+        //
+        // Two entry points that share the same tail (enter_session): they differ
+        // only in how the SessionInfo is obtained.
+        //
+        //   open_new_session      -> POST /sessions   (create a fresh session)
+        //   open_existing_session -> GET  /sessions/<id> (look up a running one)
+        //
+        // Both then run enter_session: own the active session id/mode, compute the
+        // authenticated stage download URL and the full socket URL, open the
+        // session socket, and report on_session_ready so the host performs the
+        // engine-specific stage load and attaches it back (attach_stage). The
+        // resulting stage_url is a plain http(s):// URL; the authenticated fetch
+        // happens later in the USD http asset resolver (JWT injected at fetch
+        // time), not here.
+
+        // Create a new session for a file, then enter it. A create failure is
+        // reported through on_request_failed(Op::CreateSession, ...).
+        void open_new_session(const std::string& usd_file, const std::string& mode);
+        // Look up an existing session by id, then enter it (join). Unlike
+        // open_new_session this emits no on_session_created (nothing was created).
+        // A lookup failure is reported through on_request_failed(Op::GetSession, ...).
+        void open_existing_session(const std::string& session_id);
         // Tear the active session down: detach the stage, close the socket, and
         // request deletion on the backend, then report on_session_closed. Safe to
         // call with no active session (still reports, with an empty id).
@@ -149,6 +163,12 @@ namespace net
         // remote edit (loopback suppression).
         void on_stage_changed(const model::PrimEdit& edit);
 
+        // Shared tail of open_new_session / open_existing_session: own the session
+        // identity, compute the stage download URL + full socket URL, open the
+        // socket, and report on_session_ready. Does not create or look up the
+        // session itself — the caller supplies the resolved SessionInfo.
+        void enter_session(const model::SessionInfo& session);
+
         bool           initialized_ = false;
         CollabPorts    ports_;
         CollabObserver* observer_ = nullptr;
@@ -160,9 +180,9 @@ namespace net
         bool armed_ = false;
         bool applying_remote_ = false;
 
-        // Identity of the session the high-level flow (begin_session) owns, so
-        // end_session can tear down exactly what it created without the host
-        // tracking the id.
+        // Identity of the session the high-level flow (open_new_session /
+        // open_existing_session -> enter_session) owns, so end_session can tear
+        // down exactly what it entered without the host tracking the id.
         std::string active_session_id_;
         std::string active_mode_;
 

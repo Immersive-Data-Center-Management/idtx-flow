@@ -68,8 +68,11 @@ singleton.
   an Array of session dicts for `list_sessions`, a session dict for `get_session`,
   `{ session_id, committed }` for `commit_session`, and `{ exists: bool }` for the
   two `check_*_exists` probes (a 404 resolves as `exists: false`, not an error).
-- **Session flow:** `begin_server_import(usd_file, mode, on_done)` runs the whole
-  create → open-socket → ready sequence in the core; `end_session()` tears it down.
+- **Session flow:** `open_new_session(usd_file, mode, on_done)` (create) and
+  `open_existing_session(session_id, on_done)` (join) each run the core's
+  obtain → `enter_session` → open-socket → `session_ready` sequence; `end_session()` tears
+  it down. These are distinct from the raw REST `create_session` / `get_session` calls above
+  (which only issue the request and report to the observer).
 - **URL helpers:** `download_url`, `ws_base_url`.
 - **WebSocket:** `open_session_socket`, `close_session_socket`, `is_socket_open`,
   `send_transform(prim_path, xform)`.
@@ -81,7 +84,7 @@ into a Godot signal (and, for a request, into that request's `on_done` dictionar
 
 | Signal | Fired when |
 |---|---|
-| `session_ready` | session created + socket opened; carries the resolved stage download URL |
+| `session_ready` | session created (`open_new_session`) or joined (`open_existing_session`) + socket opened; carries the resolved stage download URL |
 | `session_closed` | `end_session()` completed |
 | `socket_opened` | session WebSocket connected |
 | `handshake_received` | server handshake for the session |

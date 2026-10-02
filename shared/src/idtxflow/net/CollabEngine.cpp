@@ -192,7 +192,33 @@ void CollabEngine::delete_session(const std::string& session_id)
         [this](const model::RestError& e) { if (observer_) observer_->on_request_failed(Op::DeleteSession, e); });
 }
 
-void CollabEngine::begin_session(const std::string& usd_file, const std::string& mode)
+void CollabEngine::enter_session(const model::SessionInfo& si)
+{
+    if (!rest_) return;
+
+    // Own the identity so end_session can tear down what we entered.
+    active_session_id_ = si.session_id;
+    active_mode_       = si.mode;
+
+    // Compute the authenticated stage download URL and the full socket URL
+    // (base + relative ws_url) here. The stage_url is a plain http(s):// URL;
+    // the JWT is injected later by the USD http asset resolver at fetch time.
+    const std::string stage_url = rest_->download_url(si.usd_file);
+    const std::string ws_full =
+        (!si.session_id.empty() && !si.ws_url.empty())
+            ? rest_->ws_base_url() + si.ws_url
+            : std::string();
+
+    if (!ws_full.empty())
+    {
+        open_session_socket(si.session_id, ws_full);
+    }
+
+    // Hand control back to the host for the engine-specific stage load.
+    if (observer_) observer_->on_session_ready(si, stage_url, ws_full);
+}
+
+void CollabEngine::open_new_session(const std::string& usd_file, const std::string& mode)
 {
     if (!rest_) return;
     active_mode_ = mode;
@@ -200,35 +226,31 @@ void CollabEngine::begin_session(const std::string& usd_file, const std::string&
     rest_->create_session(usd_file, mode,
         [this](const model::SessionInfo& si)
         {
-            // Own the identity so end_session can tear down what we created.
-            active_session_id_ = si.session_id;
-
-            // Compute the authenticated stage download URL and the full socket
-            // URL (base + relative ws_url) here, so the host is handed ready-to-
-            // use values rather than composing them itself.
-            const std::string stage_url = rest_->download_url(si.usd_file);
-            const std::string ws_full =
-                (!si.session_id.empty() && !si.ws_url.empty())
-                    ? rest_->ws_base_url() + si.ws_url
-                    : std::string();
-
-            if (!ws_full.empty())
-            {
-                open_session_socket(si.session_id, ws_full);
-            }
-
             // Report the ordinary created callback first (unchanged observable
-            // outcome), then the high-level ready step that hands control back to
-            // the host for the engine-specific stage load.
-            if (observer_)
-            {
-                observer_->on_session_created(si);
-                observer_->on_session_ready(si, stage_url, ws_full);
-            }
+            // outcome), then enter the freshly created session.
+            if (observer_) observer_->on_session_created(si);
+            enter_session(si);
         },
         [this](const model::RestError& e)
         {
             if (observer_) observer_->on_request_failed(Op::CreateSession, e);
+        });
+}
+
+void CollabEngine::open_existing_session(const std::string& session_id)
+{
+    if (!rest_) return;
+
+    rest_->get_session(session_id,
+        [this](const model::SessionInfo& si)
+        {
+            // Joining an existing session: no on_session_created (nothing was
+            // created); just enter it.
+            enter_session(si);
+        },
+        [this](const model::RestError& e)
+        {
+            if (observer_) observer_->on_request_failed(Op::GetSession, e);
         });
 }
 

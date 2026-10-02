@@ -102,12 +102,14 @@ Its public surface, by area:
   `fetch_thumbnail`, `list_files`, `create_session`, `delete_session`,
   `list_sessions`, `get_session`, `commit_session`, `check_download_exists`,
   `check_thumbnail_exists`.
-- **High-level session flow** — `begin_session(usd_file, mode)` drives the whole
-  server-import sequence (create the session, resolve the authenticated stage
-  download URL and the full socket URL, open the socket, then report
-  `on_session_ready` so the host loads the stage and attaches it back).
-  `end_session()` tears the active session down (detach stage, close socket,
-  request backend deletion) and reports `on_session_closed`.
+- **High-level session flow** — two entry points share one tail. `open_new_session(usd_file, mode)`
+  creates a session (`POST /sessions`); `open_existing_session(session_id)` joins an existing one
+  (`GET /sessions/<id>`). Both then run the private `enter_session(SessionInfo)`: own the active
+  session id/mode, resolve the authenticated stage download URL and the full socket URL, open the
+  socket, then report `on_session_ready` so the host loads the stage and attaches it back. (`download_url`
+  only *composes* the URL — the JWT-authenticated fetch happens later in the USD http asset resolver.)
+  `end_session()` tears the active session down (detach stage, close socket, request backend deletion)
+  and reports `on_session_closed`.
 - **Session socket** — `open_session_socket`, `close_session_socket`,
   `is_socket_open`.
 - **Transform sync** — `attach_stage(stage, remote)` / `detach_stage`,

@@ -5,28 +5,52 @@ Godot binding, and the net core — down to the IDTX backend. Per-file detail li
 in [import-manager.md](import-manager.md), [godot-binding.md](godot-binding.md),
 and [net-core.md](net-core.md); this doc shows how they cooperate.
 
-The wizard's **Import** button dispatches one of three flows. The branch is:
+The wizard's **Import** button dispatches a flow based on the **import mode**:
 
 ```mermaid
 graph TB
     IMPORT["Import pressed"]
-    IMPORT -->|source == local| LOCAL["Flow 1: Local import"]
-    IMPORT -->|source == server| SRV{Collaboration<br/>session?}
-    SRV -->|no| DL["Flow 2: Server download import"]
-    SRV -->|yes| SESS["Flow 3: Server collaboration session"]
+    IMPORT -->|action == current / new| DL{source?}
+    DL -->|local| LOCAL["Flow 1: Local import"]
+    DL -->|server| SDL["Flow 2: Server download import"]
+    IMPORT -->|action == create_session| CREATE["Flow 3a: Create session"]
+    IMPORT -->|action == join_session| JOIN["Flow 3b: Join session"]
 ```
 
-- **Local import** — no backend, no auth, no socket.
-- **Server download import** — authenticated download; no session/WebSocket.
-- **Server collaboration session** — authenticated download **plus** a live session
-  WebSocket and real-time transform sync.
+The four import-mode options are:
 
-**Destination (all import flows).** Step 3 also chooses where the stage lands:
-*current scene* imports it under the selected node (or the scene root), while
-*new scene* loads it into a temporary node, packs it into a fresh `res://<name>.tscn`,
-and reopens that as its own scene tab with the stage as root. Every flow below
-supports both; the branch is `_perform_import_into_current_scene` vs.
+1. **Import into current scene** — download only (no session), into the current scene.
+2. **Import into new scene** — download only (no session), into a fresh scene.
+3. **Create collaboration session** — create + open a live session (mode: single_edit
+   / collaborative_edit); always a new scene.
+4. **Join collaboration session** — join a running `collaborative_edit` session for the
+   selected file; always a new scene.
+
+- **Local import** (option 1/2, local source) — no backend, no auth, no socket.
+- **Server download import** (option 1/2, server source) — authenticated download; no
+  session/WebSocket.
+- **Create / Join session** (option 3/4, server only) — authenticated download **plus** a
+  live session WebSocket and real-time transform sync.
+
+**Destination.** Options 1/2 honor their selection; the session options
+(3/4) always import into a new scene. *current scene* imports the stage under the
+selected node (or the scene root), while *new scene* loads it into a temporary node,
+packs it into a fresh `res://<name>.tscn`, and reopens that as its own scene tab with
+the stage as root. The branch is `_perform_import_into_current_scene` vs.
 `_perform_import_into_new_scene`.
+
+> **How authenticated downloads resolve.** `IdtxClient.download_url(usd_file)` (and the
+> core's `RestClient::download_url`) is a **pure string composer** — it returns
+> `base_url + /api/v1/download/<usd_file>` and attaches **no** JWT and fetches nothing.
+> The actual authenticated fetch happens when a `UsdStageNode3D` is given that
+> `http(s)://` URL as its `stage_uri`: OpenUSD routes the URI to the
+> **`UsdHttpAssetResolver`** (registered for the `http`/`https` schemes), whose
+> `_OpenAsset` downloads it via the **JWT-injecting fetcher** installed at startup
+> (`register_types.cpp` → `ConfigureWithFetcher(make_jwt_fetcher(...))`). That fetcher
+> reads the shared token **at fetch time** and adds `Authorization: Bearer …` on every
+> request (including USD sublayer/reference fetches). So every flow below reuses the same
+> mechanism — no per-flow download or auth handling — and the only invariant is that the
+> user stays logged in while the stage loads (`end_session()` does not clear credentials).
 
 ---
 
@@ -62,8 +86,8 @@ no WebSocket.
    shared token provider).
 2. Step 2: browse the server (`ServerFileProvider` -> `IdtxClient.list_files` ->
    `GET /api/v1/files`).
-3. Step 3: leave *Import as collaboration session* **off**, choose destination,
-   **Import** -> `_perform_server_import()` -> `_perform_server_download_import()`.
+3. Step 3: choose **Import into current scene** or **Import into new scene** (no
+   session), **Import** -> `_perform_import()` -> `_perform_server_download_import()`.
 4. The wizard resolves `IdtxClient.download_url(file_path)` and hands that URL to a
    `UsdStageNode3D` (current or new scene). The stage node fetches it through the
    USD HTTP asset resolver, whose `JwtHttpFetcher` attaches the current token, so
@@ -83,26 +107,25 @@ plain local copy.
 
 ---
 
-## Flow 3 — Server collaboration session import
+## Flow 3 — Server collaboration session (Create or Join)
 
 Everything in Flow 2's login/browse, but the import opens a **live session**: a
-WebSocket is opened and the loaded stage is wired for real-time transform sync.
+WebSocket is opened and the loaded stage is wired for real-time transform sync. Two
+entry points share the same tail — they differ only in how the session is obtained:
 
-1. Step 1-2: same login + server browse as Flow 2.
-2. Step 3: turn **Import as collaboration session** on (mode: single or
-   collaborative), **Import** -> `_perform_server_import()` ->
-   `_perform_server_session_import()`.
-3. The wizard connects the `session_ready` signal and calls
-   `IdtxClient.begin_server_import(usd_file, mode)`. The engine then runs the whole
-   sequence: `POST /api/v1/sessions` -> resolve the authenticated `stage_url` and
-   the full `ws_url` -> open the session WebSocket -> report `on_session_ready`.
-4. On `session_ready`, the wizard loads the stage from the resolved `stage_url`
-   (same download-URL mechanism as Flow 2), then calls
-   `attach_transform_sync(stage_node, true)`. The engine attaches the stage bridge
-   and arms broadcasting a few frames later.
-5. Transform sync is now live — see
-   [transform-sync-flow.md](transform-sync-flow.md) for the inbound/outbound edit
-   path.
+- **Create** (`create_session`) → `IdtxClient.open_new_session(usd_file, mode)` →
+  `CollabEngine::open_new_session` → `POST /api/v1/sessions`.
+- **Join** (`join_session`) → `IdtxClient.open_existing_session(session_id)` →
+  `CollabEngine::open_existing_session` → `GET /api/v1/sessions/<id>`.
+
+Both then run the shared `CollabEngine::enter_session`: own the session id/mode,
+resolve the authenticated `stage_url` + full `ws_url`, open the session WebSocket, and
+report `on_session_ready`. On `session_ready` the wizard loads the stage from the
+resolved `stage_url` (same download-resolution mechanism as Flow 2) into a **new scene**,
+then calls `attach_transform_sync(stage_node, true)`; the engine attaches the stage
+bridge and arms broadcasting a few frames later. Transform sync is then live for **both**
+flows — see [transform-sync-flow.md](transform-sync-flow.md) for the inbound/outbound
+edit path.
 
 ```mermaid
 sequenceDiagram
@@ -112,21 +135,52 @@ sequenceDiagram
     participant Engine as CollabEngine
     participant BE as Backend
 
-    Wiz->>Client: begin_server_import usd_file, mode
-    Client->>Engine: begin_session usd_file, mode
-    Engine->>BE: POST /api/v1/sessions
-    BE-->>Engine: session id and ws_url
+    alt Create session
+        Wiz->>Client: open_new_session usd_file, mode
+        Client->>Engine: open_new_session usd_file, mode
+        Engine->>BE: POST /api/v1/sessions
+    else Join session
+        Wiz->>Client: open_existing_session session_id
+        Client->>Engine: open_existing_session session_id
+        Engine->>BE: GET /api/v1/sessions/<id>
+    end
+    BE-->>Engine: SessionInfo (id, usd_file, ws_url, ...)
+    Note over Engine: enter_session (shared tail)
+    Engine->>Engine: resolve stage_url and ws_full (ws_base and ws_url)
     Engine->>BE: open session WebSocket
     Engine-->>Client: on_session_ready session, stage_url, ws_url
     Client-->>Wiz: session_ready session, stage_url
-    Wiz->>Wiz: load stage from stage_url
+    Wiz->>Wiz: load stage from stage_url (new scene)
     Wiz->>Client: attach_transform_sync stage_node, true
     Client->>Engine: attach stage and arm broadcasting after a few frames
 ```
 
-Both destinations are supported: the current-scene path attaches sync to the
-freshly loaded stage node; the new-scene path packs and reopens the stage as its
-own scene, then re-attaches sync to the reopened stage node.
+### Flow 3a — Create session
+
+1. Step 1-2: same login + server browse as Flow 2.
+2. Step 3: select **Create collaboration session** (mode: single_edit or
+   collaborative_edit), **Import** -> `_perform_import()` ->
+   `_perform_server_session_import()`.
+3. The wizard connects the `session_ready` signal and calls
+   `IdtxClient.open_new_session(usd_file, mode)` — the engine creates the session
+   (`POST /api/v1/sessions`) and runs the shared `enter_session` tail described above.
+
+### Flow 3b — Join session
+
+1. Step 1-2: same login + server browse as Flow 2.
+2. Step 3: select **Join collaboration session** and pick a session from the list. **Import** -> `_perform_import()` -> `_perform_server_join_import()`.
+3. The wizard connects the `session_ready` signal and calls
+   `IdtxClient.open_existing_session(session_id)` — the engine looks the session up
+   (`GET /api/v1/sessions/<id>`) and runs the same `enter_session` tail. Unlike Create,
+   no `on_session_created` is emitted (nothing was created).
+
+Both flows import into a new scene: the stage is packed and reopened as its own scene,
+then sync is (re-)attached to the reopened stage node.
+
+Session imports produce a **transient** scene (not a kept project asset) that is cleaned
+up when its tab is closed / the session ends — see
+[import-manager.md](import-manager.md#transient-session-scenes) for the storage location
+and deletion triggers.
 
 ---
 
@@ -147,6 +201,12 @@ recursive listing of every USD file (each with `filepath` + `directory`); the
 provider synthesizes a browsable directory tree from that single response and
 caches it, reloading when the server URL changes.
 
+**List sessions.** Entering step 3 for a server import, the wizard calls
+`IdtxClient.list_sessions()` -> `GET /api/v1/sessions` and filters the result to the
+active `collaborative_edit` sessions **for the selected file** to populate the **Join**
+option's list. An empty result disables Join with an inline hint; a **Refresh** button
+re-queries in place (`refresh_sessions_requested` -> `_refresh_join_sessions()`).
+
 **Thumbnail + cache.** Thumbnails are requested in two places (server browser only —
 the local provider has none). While the file list is populated, the
 `WizardFileBrowser` requests a thumbnail **per file row** (in thumbnail display
@@ -164,11 +224,11 @@ produces it.
 
 ## Session lifecycle
 
-A collaboration session is created by `begin_server_import` and **owned by the
-engine**, not the wizard (the wizard tracks no session state). It is torn down by
-`IdtxClient.end_session()` -> `CollabEngine::end_session()`, which detaches the
-stage, closes the socket, and requests backend deletion, then reports
-`session_closed`.
+A collaboration session is entered by `open_new_session` (Create) or
+`open_existing_session` (Join) and **owned by the engine**, not the wizard (the wizard
+tracks no session state). It is torn down by `IdtxClient.end_session()` ->
+`CollabEngine::end_session()`, which detaches the stage, closes the socket, and requests
+backend deletion, then reports `session_closed`.
 
 The wizard calls `end_session()` from `_teardown_active_session()` on **Cancel**
 and on **plugin/scene exit**, so a session is not leaked on the backend. Socket
@@ -183,5 +243,6 @@ resilience (TLS, keepalive, reconnect) is handled inside the WebSocket transport
 |---|---|---|---|
 | Local | `_perform_local_import`, `UsdStageNode3D` | — | — |
 | Server download | login/browse steps, `_perform_server_download_import` | `IdtxClient.login/list_files/download_url`, JWT asset resolver | `POST /auth/login`, `GET /files`, `GET /download/<path>` |
-| Collaboration | `_perform_server_session_import`, `_on_session_ready` | `IdtxClient.begin_server_import`, `StageBridge` | `CollabEngine.begin_session`, `POST /sessions`, `/ws`, transform sync |
+| Create session | `_perform_server_session_import`, `_on_session_ready` | `IdtxClient.open_new_session`, `StageBridge` | `CollabEngine.open_new_session` → `enter_session`, `POST /sessions`, `/ws`, transform sync |
+| Join session | `_refresh_join_sessions`, `_perform_server_join_import`, `_on_session_ready` | `IdtxClient.list_sessions`, `IdtxClient.open_existing_session`, `StageBridge` | `CollabEngine.open_existing_session` → `enter_session`, `GET /sessions`, `GET /sessions/<id>`, `/ws`, transform sync |
 

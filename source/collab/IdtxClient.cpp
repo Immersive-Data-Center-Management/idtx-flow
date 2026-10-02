@@ -221,10 +221,16 @@ void IdtxClient::check_thumbnail_exists(const String& usd_file, const Callable& 
     engine_.check_thumbnail_exists(usd_file.utf8().get_data());
 }
 
-void IdtxClient::begin_server_import(const String& usd_file, const String& mode, const Callable& on_done)
+void IdtxClient::open_new_session(const String& usd_file, const String& mode, const Callable& on_done)
 {
     if (on_done.is_valid()) create_cbs_.push_back(on_done);
-    engine_.begin_session(usd_file.utf8().get_data(), mode.utf8().get_data());
+    engine_.open_new_session(usd_file.utf8().get_data(), mode.utf8().get_data());
+}
+
+void IdtxClient::open_existing_session(const String& session_id, const Callable& on_done)
+{
+    if (on_done.is_valid()) join_cbs_.push_back(on_done);
+    engine_.open_existing_session(session_id.utf8().get_data());
 }
 
 void IdtxClient::end_session()
@@ -391,7 +397,7 @@ void IdtxClient::on_files(const std::vector<idtxflow::net::model::FileEntry>& fi
 
 void IdtxClient::on_session_created(const idtxflow::net::model::SessionInfo&)
 {
-    // The create result is delivered to the begin_server_import completion from
+    // The create result is delivered to the open_new_session completion from
     // on_session_ready (which fires once the socket is also open); no separate
     // notification is emitted here.
 }
@@ -479,13 +485,16 @@ void IdtxClient::on_session_ready(const idtxflow::net::model::SessionInfo& s,
     d["ws_url"]     = String(ws_url.c_str());
     emit_signal("session_ready", d, String(stage_url.c_str()));
 
-    // The create step succeeded (session created + socket opened); report it to a
-    // begin_server_import completion. The subsequent stage load/ready lifecycle
-    // stays on the session_ready signal.
+    // The enter step succeeded (session created-or-joined + socket opened); report
+    // it to whichever high-level completion is waiting. Only one of these queues
+    // is ever populated per flow (open_new_session -> create_cbs_,
+    // open_existing_session -> join_cbs_), so resolving both is safe. The
+    // subsequent stage load/ready lifecycle stays on the session_ready signal.
     Dictionary ok;
     ok["ok"]     = true;
     ok["result"] = d;
     resolve_next(create_cbs_, ok);
+    resolve_next(join_cbs_, ok);
 }
 
 void IdtxClient::on_session_closed(const std::string& session_id)
@@ -503,7 +512,14 @@ void IdtxClient::on_request_failed(idtxflow::net::Op op, const idtxflow::net::mo
     else if (op == idtxflow::net::Op::ListFiles)     resolve_next(list_cbs_, err);
     else if (op == idtxflow::net::Op::CreateSession) resolve_next(create_cbs_, err);
     else if (op == idtxflow::net::Op::ListSessions)  resolve_next(sessions_cbs_, err);
-    else if (op == idtxflow::net::Op::GetSession)    resolve_next(session_details_cbs_, err);
+    else if (op == idtxflow::net::Op::GetSession)
+    {
+        // Op::GetSession backs both the raw get_session() REST call and the
+        // open_existing_session() join lookup. If a join is in flight (join_cbs_
+        // non-empty), the failure belongs to it; otherwise it is a raw get_session.
+        if (!join_cbs_.empty()) resolve_next(join_cbs_, err);
+        else                    resolve_next(session_details_cbs_, err);
+    }
     else if (op == idtxflow::net::Op::CommitSession) resolve_next(commit_cbs_, err);
     else if (op == idtxflow::net::Op::CheckDownload) resolve_next(download_exists_cbs_, err);
     else if (op == idtxflow::net::Op::CheckThumbnail) resolve_next(thumbnail_exists_cbs_, err);
@@ -575,8 +591,10 @@ void IdtxClient::_bind_methods()
     ClassDB::bind_method(D_METHOD("check_thumbnail_exists", "usd_file", "on_done"),
                          &IdtxClient::check_thumbnail_exists, DEFVAL(Callable()));
 
-    ClassDB::bind_method(D_METHOD("begin_server_import", "usd_file", "mode", "on_done"),
-                         &IdtxClient::begin_server_import, DEFVAL("single_edit"), DEFVAL(Callable()));
+    ClassDB::bind_method(D_METHOD("open_new_session", "usd_file", "mode", "on_done"),
+                         &IdtxClient::open_new_session, DEFVAL("single_edit"), DEFVAL(Callable()));
+    ClassDB::bind_method(D_METHOD("open_existing_session", "session_id", "on_done"),
+                         &IdtxClient::open_existing_session, DEFVAL(Callable()));
     ClassDB::bind_method(D_METHOD("end_session"), &IdtxClient::end_session);
 
     ClassDB::bind_method(D_METHOD("download_url", "usd_file"), &IdtxClient::download_url);
@@ -601,8 +619,9 @@ void IdtxClient::_bind_methods()
     ClassDB::bind_method(D_METHOD("_on_process_frame"), &IdtxClient::_on_process_frame);
     ClassDB::bind_method(D_METHOD("_bootstrap_ticker"), &IdtxClient::_bootstrap_ticker);
 
-    // Session lifecycle: `session_ready` fires once the session is created and its
-    // socket is open, carrying the resolved stage download URL for the host's
+    // Session lifecycle: `session_ready` fires once a session is entered (created
+    // via open_new_session OR joined via open_existing_session) and its socket is
+    // open, carrying the resolved stage download URL for the host's
     // engine-specific stage load; `session_closed` follows end_session().
     ADD_SIGNAL(MethodInfo("session_ready",
         PropertyInfo(Variant::DICTIONARY, "session"), PropertyInfo(Variant::STRING, "stage_url")));
