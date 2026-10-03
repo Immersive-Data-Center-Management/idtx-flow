@@ -510,9 +510,9 @@ func _on_session_stage_ready(session_id: String, stage_url: String) -> void:
 
 	var destination: String = _import_state.get("destination", "current")
 	if destination == "new":
-		_perform_import_into_new_scene(stage_url)
+		_perform_import_into_new_scene(stage_url, true)
 	else:
-		_perform_import_into_current_scene(stage_url)
+		_perform_import_into_current_scene(stage_url, true)
 
 
 ## A create/join request failed in the coordinator; surface the message.
@@ -521,7 +521,7 @@ func _on_session_failed(message: String) -> void:
 
 
 
-func _perform_import_into_current_scene(file_path: String) -> void:
+func _perform_import_into_current_scene(file_path: String, force_fresh: bool = false) -> void:
 	var target_node: Node = _get_target_scene_node()
 	if target_node == null:
 		push_warning("[IDTXFlow] [Import Manager] No target scene node available; open a scene first.")
@@ -539,6 +539,11 @@ func _perform_import_into_current_scene(file_path: String) -> void:
 		_on_stage_loading_finished.bind(stage_node, file_path, false),
 		CONNECT_ONE_SHOT
 	)
+	# For a session open, drop any stale cached download of the root USD so the
+	# first load re-fetches the committed state (the cache serves without
+	# revalidation). Must run before assigning stage_uri, which starts the load.
+	if force_fresh:
+		UsdStageNode3D.evict_http_cache_entry(file_path)
 	stage_node.stage_uri = file_path
 
 
@@ -546,7 +551,7 @@ func _perform_import_into_current_scene(file_path: String) -> void:
 ## triggers the async import. The scene is opened as a new tab only after a
 ## successful import (see `_on_stage_loading_finished`). On failure the
 ## in-memory tree is discarded and nothing touches the disk or the editor.
-func _perform_import_into_new_scene(file_path: String) -> void:
+func _perform_import_into_new_scene(file_path: String, force_fresh: bool = false) -> void:
 	
 	var stage_node := UsdStageNode3D.new()
 	# Parent under the wizard control so the node enters the editor's
@@ -559,6 +564,11 @@ func _perform_import_into_new_scene(file_path: String) -> void:
 		_on_stage_loading_finished.bind(stage_node, file_path, true),
 		CONNECT_ONE_SHOT
 	)
+	# For a session open, drop any stale cached download of the root USD so the
+	# first load re-fetches the committed state (the cache serves without
+	# revalidation). Must run before assigning stage_uri, which starts the load.
+	if force_fresh:
+		UsdStageNode3D.evict_http_cache_entry(file_path)
 	stage_node.stage_uri = file_path
 
 

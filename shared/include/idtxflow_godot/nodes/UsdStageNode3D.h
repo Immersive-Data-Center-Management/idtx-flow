@@ -68,6 +68,28 @@ public:
     godot::String get_cached_scene_name() const { return cached_scene_name_; }
 
     /**
+     * Force a fresh (re)load of the stage at the current `stage_uri_`, bypassing
+     * both the URI-equality short-circuit in set_stage_uri() and the cached-scene
+     * reuse in _reconstruct_node(): tears down the stage + converted children and
+     * re-runs the open/convert path.
+     *
+     * When `clear_http_cache` is true (default) this URL is evicted first so it is
+     * re-downloaded; referenced assets keep their cache. The stale .scn is not deleted,
+     * the convert path ignores it and overwrites it only on a successful rebuild.
+     *
+     * No-op when `stage_uri_` is empty, the node is not in the tree, or a load is
+     * already running.
+     */
+    void reload(bool clear_http_cache = true);
+
+    /**
+     * Evict a single URL from the shared HTTP asset cache. Static so the import
+     * flow can force-fresh a session root *before* assigning it to `stage_uri`,
+     * giving a single fresh load instead of a load-then-reload.
+     */
+    static void evict_http_cache_entry(const godot::String& url);
+
+    /**
      * Opens the stage at stage_uri_ asynchronously on a background thread,
      * then calls the method passed to it via name with call_deferred to continue execution on the main thread
      */

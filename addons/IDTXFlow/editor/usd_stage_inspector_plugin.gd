@@ -3,23 +3,20 @@ extends EditorInspectorPlugin
 
 ## Custom Inspector plugin for UsdStageNode3D (experimental).
 ##
-## Adds a "Connect" button next to the `stage_uri` property. Setting `stage_uri`
-## is what triggers the USD import, and Godot's Inspector only re-runs the setter
-## when the value changes, so this button re-applies the current URI to (re)load.
+## Adds a "Reload" button next to `stage_uri` that calls the node's bound
+## `reload()` — a fresh re-download + rebuild regardless of whether the URI
+## changed (re-setting an unchanged `stage_uri` is a no-op in the setter).
 ##
-## Known limitation: when the URI is unchanged the button is a no-op —
-## UsdStageNode3D::set_stage_uri early-returns on an equal value, so there is no
-## forced reload/retry. A true reload/retry for a server stage would also need
-## the authenticated login + session context that the Import wizard sets up
-## (bearer token / collaboration session), which this standalone inspector does
-## not have, so it is intentionally left out here.
+## Works for any UsdStageNode3D — a plain local/HTTP stage node or one backed by
+## a collaboration session. For a server stage the fetch still relies on the
+## auth/session context the Import wizard established (bearer token); the button
+## does not set that up, it only re-triggers the load.
 ##
-## Possible future direction: expose an explicit reload entry point on the native
-## node — a bound reload() (or reopen_stage()) that re-runs the open/convert path
-## regardless of the current value — and have "Connect" call object.call("reload")
-## instead of re-setting stage_uri (relaxing the setter's equality guard is worse,
-## as it would also reload on redundant editor writes). For a server stage this
-## reload path would still need the importer's auth + session context.
+## WARNING — not safe during an ACTIVE collaboration session. reload() drops the
+## stage and its (in-memory) session layer and re-downloads only the committed
+## root USD; uncommitted in-session edits (local and peers') are NOT reapplied on
+## rebuild, so the local view desyncs from the live session until a fresh edit or
+## a rejoin. Use only outside a session (or commit first). See ENH-18.
 
 
 func _can_handle(object) -> bool:
@@ -42,16 +39,16 @@ func _parse_property(object, type, name, hint_type, hint_string, usage_flags, wi
 	)
 	hbox.add_child(line_edit)
 
-	# "Connect" re-applies the current URI. No-op while the URI is unchanged
-	# (set_stage_uri ignores an equal value); see the header for why a forced
-	# server reload is out of scope here.
-	var connect_btn := Button.new()
-	connect_btn.text = "Connect"
-	connect_btn.tooltip_text = "Re-applies the URI; reloads only when it changed."
-	connect_btn.pressed.connect(func() -> void:
+	var reload_btn := Button.new()
+	reload_btn.text = "Reload"
+	reload_btn.tooltip_text = "Re-download and rebuild this stage, bypassing cached data. Not safe during an active collaboration session: uncommitted in-session edits are not reapplied."
+	reload_btn.pressed.connect(func() -> void:
+		# Commit any pending edit to the URI first, then force the reload.
 		object.set("stage_uri", line_edit.text)
+		if object.has_method("reload"):
+			object.call("reload")
 	)
-	hbox.add_child(connect_btn)
+	hbox.add_child(reload_btn)
 
 	add_property_editor(name, hbox)
 	return true

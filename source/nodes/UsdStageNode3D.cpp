@@ -14,6 +14,7 @@
 
 #include "converter/UsdGodotStageConverter.h"
 #include "collab/IdtxClient.h"
+#include <idtxflow/resolver/HttpResolver.h>
 
 
 using namespace godot;
@@ -102,6 +103,45 @@ void UsdStageNode3D::set_stage_uri(const String& path)
     if (!is_inside_tree()) return;
     
     _reconstruct_node();
+}
+
+void UsdStageNode3D::evict_http_cache_entry(const godot::String& url)
+{
+    if (url.is_empty()) return;
+    pxr::UsdHttpAssetResolver::EvictFromCache(url.utf8().get_data());
+}
+
+void UsdStageNode3D::reload(bool clear_http_cache)
+{
+    if (stage_uri_.is_empty()) return;
+    // Deserialize-time setter calls can arrive before the node is in the tree;
+    // the _enter_tree lifecycle will open the stage, so there is nothing to do.
+    if (!is_inside_tree()) return;
+    if (is_loading_) return;
+
+    // Evict so the worker re-downloads this URL (see EvictFromCache). Scoped to it.
+    if (clear_http_cache)
+    {
+        evict_http_cache_entry(stage_uri_);
+    }
+
+    // Tear down like a URI change, then force the convert path (not
+    // _reconstruct_node) so the cached .scn is bypassed; the stale .scn is left
+    // in place — _convert_stage ignores it and overwrites it on success.
+    cached_scene_name_ = "";
+    if (stage_handle_)
+        emit_signal("stage_unloading");
+    stage_handle_.reset();
+    _cleanup_nodes();
+
+    if (pending_load_task_)
+    {
+        pending_load_task_->Cancel();
+        pending_load_task_.reset();
+    }
+    is_loading_ = false;
+
+    open_stage_and_then("_convert_stage");
 }
 
 void UsdStageNode3D::open_stage_and_then(const godot::StringName& next_method_name)
@@ -443,6 +483,8 @@ void UsdStageNode3D::_bind_methods()
     
     ClassDB::bind_method(D_METHOD("set_stage_uri", "path"), &UsdStageNode3D::set_stage_uri);
     ClassDB::bind_method(D_METHOD("get_stage_uri"), &UsdStageNode3D::get_stage_uri);
+    ClassDB::bind_method(D_METHOD("reload", "clear_http_cache"), &UsdStageNode3D::reload, DEFVAL(true));
+    ClassDB::bind_static_method("UsdStageNode3D", D_METHOD("evict_http_cache_entry", "url"), &UsdStageNode3D::evict_http_cache_entry);
     ADD_PROPERTY(PropertyInfo(Variant::STRING, "stage_uri", PROPERTY_HINT_FILE, "*.usd,*.usda,*.usdc,*.usdz"), "set_stage_uri", "get_stage_uri");
 
     ClassDB::bind_method(D_METHOD("set_cached_scene_name", "name"), &UsdStageNode3D::set_cached_scene_name);

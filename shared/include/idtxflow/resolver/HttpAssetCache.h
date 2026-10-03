@@ -394,10 +394,15 @@ namespace resolver
             if (it != entries_.end())
             {
                 std::lock_guard entry_lock(it->second->mutex);
-                if (it->second->fetch_thread.joinable())
+                // gate on the live Fetching state and join a finished thread before evicting.
+                if (it->second->state == FetchState::Fetching)
                 {
                     IDTX_LOG(IDTX_WARN, "Cannot evict URL while fetch is in progress: {}", url);
                     return;
+                }
+                if (it->second->fetch_thread.joinable())
+                {
+                    it->second->fetch_thread.join();
                 }
                 std::error_code ec;
                 std::filesystem::remove_all(it->second->local_path.parent_path(), ec);

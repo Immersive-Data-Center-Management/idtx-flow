@@ -149,7 +149,55 @@ public:
         {
             return typed_cache->IsCached(url);
         };
+        EvictFunction() = [typed_cache](const std::string& url)
+        {
+            typed_cache->Evict(url);
+        };
+        ClearCacheFunction() = [typed_cache]()
+        {
+            typed_cache->ClearCache();
+        };
         IDTX_LOG(IDTX_INFO, "Configured with cache dir: {} (custom fetcher)", cache_dir.string());
+    }
+
+    /**
+     * Invalidate a single URL in the configured cache (deletes its local file), so
+     * the next resolve of that URL re-downloads it. No-op if nothing is cached.
+     * Works for both the default and custom-fetcher (type-erased) caches.
+     * 
+     * Use to force a fresh fetch of a URL whose remote content may have changed —
+     * HttpAssetCache::Resolve() otherwise serves the existing cached file as-is, without revalidation.
+     */
+    static inline void EvictFromCache(const std::string& url)
+    {
+        std::lock_guard lock(ConfigMutex());
+        if (EvictFunction())
+        {
+            EvictFunction()(url);
+            return;
+        }
+        if (Cache())
+        {
+            Cache()->Evict(url);
+        }
+    }
+
+    /**
+     * Clear the entire cache (all downloaded files). Scoped broadly; prefer
+     * EvictFromCache() for a single URL. Works for both cache configurations.
+     */
+    static inline void ClearCache()
+    {
+        std::lock_guard lock(ConfigMutex());
+        if (ClearCacheFunction())
+        {
+            ClearCacheFunction()();
+            return;
+        }
+        if (Cache())
+        {
+            Cache()->ClearCache();
+        }
     }
 
 protected:
@@ -371,6 +419,8 @@ private:
     using ResolveFn = std::function<std::optional<std::filesystem::path>(const std::string&)>;
     using PrefetchFn = std::function<void(const std::string&)>;
     using IsCachedFn = std::function<bool(const std::string&)>;
+    using EvictFn = std::function<void(const std::string&)>;
+    using ClearCacheFn = std::function<void()>;
 
     static inline ResolveFn& ResolveFunction()
     {
@@ -387,6 +437,18 @@ private:
     static inline IsCachedFn& IsCachedFunction()
     {
         static IsCachedFn fn;
+        return fn;
+    }
+
+    static inline EvictFn& EvictFunction()
+    {
+        static EvictFn fn;
+        return fn;
+    }
+
+    static inline ClearCacheFn& ClearCacheFunction()
+    {
+        static ClearCacheFn fn;
         return fn;
     }
 };
