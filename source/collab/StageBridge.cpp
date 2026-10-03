@@ -92,7 +92,14 @@ void StageBridge::build_index()
         for (int i = 0; i < n->get_child_count(); ++i)
         {
             Node* child = n->get_child(i);
-            stack.push_back(child);
+
+            // A nested UsdStageNode3D is a referenced sub-stage with its own stage
+            // and child-relative paths. Track the sub-stage node itself (it is a
+            // reference prim in THIS stage, so moving it as a whole syncs), but do
+            // not descend into its subtree.
+            const bool is_sub_stage = (Object::cast_to<UsdStageNode3D>(child) != nullptr);
+            if (!is_sub_stage)
+                stack.push_back(child);
 
             IUsdNode3D* usd = IUsdNode3D::from_node(child);
             if (!usd)
@@ -102,6 +109,11 @@ void StageBridge::build_index()
                 continue;
             const String prim_path = usd->get_prim_path();
             if (prim_path.is_empty())
+                continue;
+
+            // Skip the stage's placement root (its defaultPrim, e.g. "/World"):
+            // display-only transform, never synced.
+            if (is_stage_root(std::string(prim_path.utf8().get_data())))
                 continue;
 
             Tracked t;
@@ -267,6 +279,16 @@ bool StageBridge::author_to_usd(const std::string& prim_path, const Transform3D&
     }
     matrix_op.Set(m);
     return true;
+}
+
+bool StageBridge::is_stage_root(const std::string& prim_path) const
+{
+    if (!stage_)
+        return false;
+    const pxr::UsdPrim def = stage_->GetDefaultPrim();
+    if (!def)
+        return false;
+    return def.GetPath().GetString() == prim_path;
 }
 
 bool StageBridge::read_prim_transform(const std::string& prim_path, Transform3D& out) const

@@ -358,33 +358,66 @@ void IdtxClient::notify_local_transform_changed(Node* node)
     const String prim_path = usd->get_prim_path();
     if (prim_path.is_empty())
     {
-        IDTX_LOG(IDTX_DEBUG, "[trace] A notify_local_transform_changed: EMPTY prim_path, ignored");
         return;
     }
 
-    // Route to the session whose stage bridge wraps this node's stage node. If
-    // the node isn't part of a live session's stage, there is nothing to sync.
-    UsdStageNode3D* owning_stage = usd->get_stage_node();
-    std::string sid;
-    for (const auto& [id, binding] : bindings_)
+    // Resolve the owning session by containment: a node belongs to the session
+    // whose bound stage node is its NEAREST ancestor UsdStageNode3D. The nearest
+    // (not merely first bound) ancestor is what isolates referenced sub-stages:
+    //   - main-stage prim (/World/Cone)        -> nearest = bound main stage -> syncs
+    //   - whole referenced sub-stage node       -> it is a reference prim in the main
+    //     (/World/ExternalContent)                 stage -> nearest = main stage -> syncs
+    //   - inner prim of a referenced sub-stage   -> nearest = that unbound child stage
+    //     (its own /World/Cube)                   -> NOT synced (child-relative path,
+    //                                                 belongs to the child's session)
+    UsdStageNode3D* nearest_stage = nullptr;
+    // A moved node that is itself a UsdStageNode3D is a reference prim in its
+    // containing stage, so start the search at its parent; else at the node.
+    Node* search_start = Object::cast_to<UsdStageNode3D>(node) ? node->get_parent() : node;
+    for (Node* anc = search_start; anc != nullptr; anc = anc->get_parent())
     {
-        if (binding.bridge && binding.bridge->stage_node() == owning_stage)
+        if (UsdStageNode3D* s = Object::cast_to<UsdStageNode3D>(anc))
+        {
+            nearest_stage = s;
+            break;
+        }
+    }
+    if (nearest_stage == nullptr)
+    {
+        return;
+    }
+
+    std::string sid;
+    SessionBinding* owning = nullptr;
+    for (auto& [id, binding] : bindings_)
+    {
+        if (binding.bridge && binding.bridge->stage_node() == nearest_stage)
         {
             sid = id;
+            owning = &binding;
             break;
         }
     }
     if (sid.empty())
     {
-        IDTX_LOG(IDTX_DEBUG, "[trace] A notify_local_transform_changed: no live session for node's stage, ignored");
         return;
     }
 
-    IDTX_LOG(IDTX_DEBUG, "[trace] A notify_local_transform_changed session='{}' prim='{}'",
-             sid, std::string(prim_path.utf8().get_data()));
+    // Never sync the stage's placement root (its defaultPrim, e.g. "/World"):
+    // display-only MPU/up-axis transform with no authored USD opinion.
+    const std::string prim_path_str = std::string(prim_path.utf8().get_data());
+    if (owning->bridge->is_stage_root(prim_path_str))
+    {
+        return;
+    }
+
+    // Author the node's LOCAL transform. Note on parent moves: dragging the
+    // placement root fires TRANSFORM_CHANGED on each child (its *world* transform
+    // changed) but the child's *local* transform is unchanged; authoring that is a
+    // USD no-op (no change notice -> no broadcast), so children are not synced.
     engine_.notify_local_edit(
         sid,
-        gxform::transform_to_prim_edit(std::string(prim_path.utf8().get_data()), n3d->get_transform()));
+        gxform::transform_to_prim_edit(prim_path_str, n3d->get_transform()));
 }
 
 // ---------------------------------------------------------------------------

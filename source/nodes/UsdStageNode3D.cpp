@@ -13,6 +13,7 @@
 #include <idtxflow_godot/converter/UsdGodotTypeConverter.h>
 
 #include "converter/UsdGodotStageConverter.h"
+#include "collab/IdtxClient.h"
 
 
 using namespace godot;
@@ -55,6 +56,18 @@ void UsdStageNode3D::_notification(int p_what)
         if (stage_handle_)
             emit_signal("stage_unloading");
         stage_handle_.reset();
+    }
+    else if (p_what == NOTIFICATION_TRANSFORM_CHANGED)
+    {
+        // This UsdStageNode3D is a reference prim in its parent stage; moving the
+        // whole node is a local edit on that prim. Forward to the collab client
+        // (which routes/gates it). Gate on node_ready_ so placement writes during
+        // conversion/attach do not produce phantom broadcasts.
+        if (!node_ready_) return;
+        if (IdtxClient* client = IdtxClient::get_singleton())
+        {
+            client->notify_local_transform_changed(this);
+        }
     }
 }
 
@@ -300,16 +313,16 @@ void UsdStageNode3D::_configure_nodes_recursive(godot::Node3D* node, godot::Node
     IUsdNode3D* usd_node = IUsdNode3D::from_node(node);
     if (usd_node)
         usd_node->set_stage_node(this);
-
-    // if this is a UsdStageNode3D itself, skip traversing the childrens, as this node takes care of it
-    // on it's own
-    if (dynamic_cast<UsdStageNode3D*>(node)) return;
-
+    
     // Enable Godot transform-changed notifications so local gizmo/script edits
     // are routed to the IDTX transform sync. Nodes that override _notification
     // (e.g. UsdXformNode3D) then author the change into the live USD stage and
-    // conditionally broadcast it.
+    // conditionally broadcast it.  Must run for a child UsdStageNode3D too (whole-sub-stage repositioning)
     node->set_notify_transform(true);
+    
+    // if this is a UsdStageNode3D itself, skip traversing the childrens, as this node takes care of it
+    // on it's own
+    if (dynamic_cast<UsdStageNode3D*>(node)) return;
     
     // if "register_compute" is true, the configuration happens during loading of a cached stage scene. Thus, the 
     // stage converter did not run and registered compute attributes into the ExecComputeBridge. Do this here now

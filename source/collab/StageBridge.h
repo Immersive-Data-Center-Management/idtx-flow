@@ -49,6 +49,12 @@ namespace collab
         /// binding to match a prim node back to its session's bridge.
         UsdStageNode3D* stage_node() const { return stage_node_; }
 
+        /// Whether `prim_path` is this stage's placement root (its defaultPrim,
+        /// e.g. "/World"). The root carries display-only placement (MPU scale +
+        /// up-axis rotation), no authored transform, so it is never synced either
+        /// way. Resolved from defaultPrim, so it survives the .scn cache reload
+        bool is_stage_root(const std::string& prim_path) const;
+
         // IStageBridge
         void build_index() override;
         bool read_prim(const std::string& prim_path, net::model::PrimEdit& out) const override;
