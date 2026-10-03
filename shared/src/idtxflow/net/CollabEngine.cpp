@@ -371,42 +371,63 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
         ports_.dispatcher->post([this, sid, path, uri]
         { if (observer_) observer_->on_handshake(sid, path, uri); });
     });
-    s.socket->on_remote_edit([this, session_id](const model::PrimEdit& edit, const std::string& from)
+    s.socket->on_remote_edit([this, session_id](const model::PrimEdit& edit, const std::string& from,
+                                                uint64_t server_seq)
     {
-        ports_.dispatcher->post([this, session_id, edit, from]
+        ports_.dispatcher->post([this, session_id, edit, from, server_seq]
         {
-            // Apply the inbound edit to this session's stage with loopback
-            // suppression so the resulting stage change is not re-broadcast,
-            // then report it. The session may have ended in the meantime.
+            IDTX_LOG(IDTX_DEBUG, "[trace] H on_remote_edit session='{}' prim='{}' from='{}' server_seq={}",
+                     session_id, edit.prim_path, from, server_seq);
+            // Apply inbound to the stage with loopback suppression (so our author
+            // isn't re-broadcast), then report. The broadcast's server_seq (incl. a
+            // correction sent only to us) becomes our base, keeping updates non-stale.
             Session* sp = find_session(session_id);
             if (sp && sp->stage)
             {
                 sp->applying_remote = true;
                 sp->stage->apply_remote_edit(edit);
                 sp->applying_remote = false;
+                advance_server_seq(*sp, server_seq);
             }
             else if (sp)
             {
                 // No stage yet (snapshot arrived before the stage attached):
                 // buffer for replay in attach_stage rather than drop the edit.
                 sp->pending_remote.push_back(edit);
+                advance_server_seq(*sp, server_seq);
             }
             if (observer_) observer_->on_remote_edit(session_id, edit, from);
         });
     });
-    s.socket->on_snapshot_complete([this, session_id]
+    s.socket->on_snapshot_complete([this, session_id](uint64_t server_seq)
     {
-        ports_.dispatcher->post([this, session_id]
+        ports_.dispatcher->post([this, session_id, server_seq]
         {
             // Latch so a late reader (is_snapshot_complete) sees it, then report.
-            if (Session* sp = find_session(session_id)) sp->snapshot_complete = true;
+            if (Session* sp = find_session(session_id))
+            {
+                sp->snapshot_complete = true;
+                advance_server_seq(*sp, server_seq);
+            }
             if (observer_) observer_->on_snapshot_complete(session_id);
         });
     });
-    s.socket->on_ack([this, session_id](bool ok, const std::string& error)
+    s.socket->on_ack([this, session_id](bool ok, const std::string& error,
+                                        uint64_t request_id, uint64_t server_seq)
     {
-        ports_.dispatcher->post([this, session_id, ok, error]
-        { if (observer_) observer_->on_ack(session_id, ok, error); });
+        ports_.dispatcher->post([this, session_id, ok, error, request_id, server_seq]
+        {
+            IDTX_LOG(IDTX_DEBUG, "[trace] H on_ack session='{}' ok={} error='{}' req_id={} server_seq={}",
+                     session_id, ok, error, request_id, server_seq);
+            // Adopt the ack's server_seq, then let the socket resolve the request
+            // (clear on success, resend on rejection — see SessionSocket::handle_ack).
+            if (Session* sp = find_session(session_id))
+            {
+                advance_server_seq(*sp, server_seq);
+                if (sp->socket) sp->socket->handle_ack(ok, error, request_id);
+            }
+            if (observer_) observer_->on_ack(session_id, ok, error);
+        });
     });
     s.socket->on_error([this, session_id](const std::string& code, const std::string& message)
     {
@@ -507,6 +528,19 @@ void CollabEngine::notify_local_edit(const std::string& session_id, const model:
     {
         s->stage->author_local_edit(edit);
     }
+}
+
+void CollabEngine::advance_server_seq(Session& s, uint64_t server_seq)
+{
+    // 0 means "no state" (messages that don't reflect stage state, or Acks of
+    // rejected updates) — ignore for ordering. Otherwise take the max so the
+    // base never regresses, and keep the socket's outbound base in sync.
+    if (server_seq == 0)
+        return;
+    if (server_seq > s.server_seq)
+        s.server_seq = server_seq;
+    if (s.socket)
+        s.socket->set_base_server_seq(s.server_seq);
 }
 
 void CollabEngine::on_stage_changed(const std::string& session_id, const model::PrimEdit& edit)

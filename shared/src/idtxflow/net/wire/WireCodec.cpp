@@ -21,6 +21,10 @@ bool decode(const std::string& bytes, DecodedMessage& out)
         return false;
     }
 
+    // Envelope ordering fields apply regardless of payload kind.
+    out.server_seq = msg.server_seq();
+    out.request_id = msg.request_id();
+
     switch (msg.message_case())
     {
     case idtxcore::BaseMessage::kHandshake:
@@ -99,10 +103,17 @@ bool decode(const std::string& bytes, DecodedMessage& out)
     }
 }
 
-std::string encode_transform_update(const std::string& session_id, const model::PrimEdit& edit)
+std::string encode_transform_update(const std::string& session_id,
+                                    const model::PrimEdit& edit,
+                                    uint64_t base_server_seq,
+                                    uint64_t request_id)
 {
     idtxcore::BaseMessage msg;
     msg.set_session_id(session_id);
+    // Envelope ordering: base server_seq (the update's base) + a client-chosen
+    // request_id echoed back on the Ack.
+    msg.set_server_seq(base_server_seq);
+    msg.set_request_id(request_id);
 
     idtxcore::TransformUpdate* upd = msg.mutable_xform_update();
     upd->set_session_id(session_id);

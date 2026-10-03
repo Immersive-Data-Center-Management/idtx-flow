@@ -42,7 +42,6 @@ namespace wire
         bool        ok = false;
         std::string error;
     };
-
     /// A protocol-level error reported by the backend.
     struct ErrorMsg
     {
@@ -60,6 +59,11 @@ namespace wire
         RemoteEditMsg remote_edit;
         AckMsg       ack;
         ErrorMsg     error;
+
+        // Envelope ordering fields (see base.proto): server_seq of the described
+        // state (0 = none), and request_id echoed on an Ack (0 = unset).
+        uint64_t     server_seq = 0;
+        uint64_t     request_id = 0;
     };
 
     /// Parse a serialized BaseMessage. Returns false if the bytes don't parse or
@@ -68,7 +72,12 @@ namespace wire
 
     /// Serialize a TransformUpdate BaseMessage for one prim edit. The matrix is
     /// written row-major (m00..m33); the separate form fills the T/R/S fields.
-    std::string encode_transform_update(const std::string& session_id, const model::PrimEdit& edit);
+    /// @p base_server_seq is the client's current applied server_seq (the update's
+    /// base for the server's stale check); @p request_id correlates the Ack.
+    std::string encode_transform_update(const std::string& session_id,
+                                        const model::PrimEdit& edit,
+                                        uint64_t base_server_seq,
+                                        uint64_t request_id);
 
     /// Assert at startup that the linked protobuf runtime matches the headers the
     /// generated messages were compiled against, failing fast on a version skew

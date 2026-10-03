@@ -210,12 +210,21 @@ namespace net
             // Frames remaining before outbound broadcasting auto-arms after a
             // remote stage attaches; -1 means disabled. Counted down in poll().
             int  arm_countdown = -1;
+            // Latest server_seq this session has received+applied. Outbound updates
+            // carry it as their base (the server's stale check); advanced from every
+            // ordered server message (broadcast/ack/snapshot). 0 = no state yet.
+            uint64_t server_seq = 0;
         };
 
         // Invoked by a session's stage bridge when its live stage changes;
         // broadcasts the edit only for that session when it is armed + remote and
         // not currently applying a remote edit (loopback suppression).
         void on_stage_changed(const std::string& session_id, const model::PrimEdit& edit);
+
+        // Monotonically advance a session's applied server_seq from an inbound
+        // server message and push the new base to its socket (so subsequent
+        // outbound updates carry a current, non-stale base). Never decreases.
+        void advance_server_seq(Session& s, uint64_t server_seq);
 
         // Shared tail of open_new_session / open_existing_session: record the
         // session, mint + open its socket, compute the stage download URL + full

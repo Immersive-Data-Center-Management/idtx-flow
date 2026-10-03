@@ -18,6 +18,31 @@ message Handshake {
 message SnapshotComplete {
 }
 
+// Ordering:
+//   - Every session processes incoming commands strictly one at a time, in the
+//     order the server received them. That order is authoritative.
+//   - server_seq is a per-session version counter. It is incremented once for
+//     every stage change the server applies. Server messages that reflect
+//     stage state (TransformBroadcast, Ack, SnapshotComplete) carry the
+//     server_seq of the state they describe, so clients can order them and
+//     detect stale data. The values a client receives never go down, but
+//     several messages can share one value (an update's Ack and its
+//     broadcasts, all frames of a join snapshot). 0 means "no state": it is
+//     used by messages that do not reflect state and by Acks of rejected
+//     updates (queue_full, session_closing); clients ignore it for ordering.
+//     A correction (see Ack) is a TransformBroadcast sent to one client only;
+//     it advances server_seq without changing the stage, so other clients can
+//     see gaps in the values they receive.
+//   - On a TransformUpdate sent by a client, server_seq is the base of the
+//     update: the highest server_seq the client had received and applied when
+//     it created the update. The server rejects the update as "stale" if the
+//     prim was changed by someone else after the base, and as "invalid_base"
+//     if the base is higher than any server_seq sent to that client. 0 is a
+//     valid base (the state before the first change) and is checked like any
+//     other value.
+//   - request_id is chosen by the client for each TransformUpdate (for example
+//     a per-connection counter) and echoed back unchanged in the matching Ack.
+//     0 means "not set".
 message BaseMessage {
   optional string session_id = 1;
   oneof message {
@@ -28,4 +53,6 @@ message BaseMessage {
     Error error = 6;
     SnapshotComplete snapshot_complete = 7;
   }
+  uint64 request_id = 8;
+  uint64 server_seq = 9;
 }

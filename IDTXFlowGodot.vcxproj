@@ -266,6 +266,9 @@
     <Content Include="scons\idtxflow_ext.py" />
     <Content Include="scons\idtxflow_sdk.py" />
     <Content Include="scons\openusdextension.py" />
+    <Content Include="shared\proto\idtxcore\base.proto" />
+    <Content Include="shared\proto\idtxcore\session.proto" />
+    <Content Include="shared\proto\idtxcore\transform.proto" />
     <Content Include="templates\extension_template\addons\MyIdtxflowExtension\my_idtxflow_extension.gdextension" />
     <Content Include="templates\extension_template\README.md" />
     <Content Include="templates\extension_template\SConstruct" />
