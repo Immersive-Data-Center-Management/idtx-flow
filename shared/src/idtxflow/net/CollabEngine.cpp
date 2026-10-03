@@ -361,8 +361,14 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
     {
         ports_.dispatcher->post([this, session_id]
         {
-            // A (re)connect restarts the snapshot handshake; clear the latch.
-            if (Session* sp = find_session(session_id)) sp->snapshot_complete = false;
+            // A (re)connect restarts the snapshot handshake: clear the latch and
+            // re-gate arming so we never broadcast on a stale base.
+            if (Session* sp = find_session(session_id))
+            {
+                sp->snapshot_complete = false;
+                sp->armed = false;
+                sp->settle_done = false;
+            }
             if (observer_) observer_->on_socket_opened(session_id);
         });
     });
@@ -408,6 +414,7 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
             {
                 sp->snapshot_complete = true;
                 advance_server_seq(*sp, server_seq);
+                try_arm(*sp);   // snapshot gate satisfied; arm if settle also done
             }
             if (observer_) observer_->on_snapshot_complete(session_id);
         });
@@ -466,10 +473,10 @@ void CollabEngine::attach_stage(const std::string& session_id, ports::IStageBrid
     s->remote = remote;
     s->armed = false;
     s->applying_remote = false;
-    // Auto-arm a few frames after a remote stage attaches, so the transform
-    // writes performed during USD conversion/load settle first (they would
-    // otherwise phantom-broadcast). Counted down in poll() via the frame ticker.
+    // Gate outbound arming: start the settle countdown for remote sessions;
+    // snapshot_complete is the other gate.
     s->arm_countdown = remote ? kArmAfterTicks : -1;
+    s->settle_done = false;
     if (s->stage)
     {
         s->stage->set_on_changed([this, session_id](const model::PrimEdit& edit)
@@ -543,6 +550,16 @@ void CollabEngine::advance_server_seq(Session& s, uint64_t server_seq)
         s.socket->set_base_server_seq(s.server_seq);
 }
 
+void CollabEngine::try_arm(Session& s)
+{
+    // Both gates must hold. NOTE: depends on the server always sending
+    // SnapshotComplete; if it never arrives, the client never arms.
+    if (!s.remote || s.armed || !s.settle_done || !s.snapshot_complete)
+        return;
+    s.armed = true;
+    IDTX_LOG(IDTX_DEBUG, "[trace] E try_arm session='{}' ARMED (settle_done + snapshot_complete)", s.id);
+}
+
 void CollabEngine::on_stage_changed(const std::string& session_id, const model::PrimEdit& edit)
 {
     Session* s = find_session(session_id);
@@ -572,13 +589,14 @@ void CollabEngine::poll()
         if (s.arm_countdown > 0)
         {
             --s.arm_countdown;
-            IDTX_LOG(IDTX_DEBUG, "[trace] E poll session='{}' auto-arm countdown={} armed={}",
+            IDTX_LOG(IDTX_DEBUG, "[trace] E poll session='{}' settle countdown={} armed={}",
                      id, s.arm_countdown, s.armed);
             if (s.arm_countdown == 0)
             {
-                s.armed = true;
+                // Settle elapsed; arm iff the snapshot gate is also satisfied.
                 s.arm_countdown = -1;
-                IDTX_LOG(IDTX_DEBUG, "[trace] E poll session='{}' AUTO-ARMED (armed=true)", id);
+                s.settle_done = true;
+                try_arm(s);
             }
         }
 

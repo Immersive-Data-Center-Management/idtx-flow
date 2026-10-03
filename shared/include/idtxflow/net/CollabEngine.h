@@ -207,9 +207,10 @@ namespace net
             // replayed onto the stage in attach_stage so a late-joiner / reconnect
             // snapshot lands regardless of socket-vs-stage-load ordering.
             std::vector<model::PrimEdit> pending_remote;
-            // Frames remaining before outbound broadcasting auto-arms after a
-            // remote stage attaches; -1 means disabled. Counted down in poll().
+            // Post-attach settle: frames left before conversion-time writes are
+            // deemed done; -1 = disabled/elapsed. Counted down in poll().
             int  arm_countdown = -1;
+            bool settle_done = false;   // settle elapsed (one of the two arming gates)
             // Latest server_seq this session has received+applied. Outbound updates
             // carry it as their base (the server's stale check); advanced from every
             // ordered server message (broadcast/ack/snapshot). 0 = no state yet.
@@ -225,6 +226,12 @@ namespace net
         // server message and push the new base to its socket (so subsequent
         // outbound updates carry a current, non-stale base). Never decreases.
         void advance_server_seq(Session& s, uint64_t server_seq);
+
+        // Arm outbound broadcasting only when BOTH gates hold: the post-attach
+        // settle elapsed (settle_done — conversion-time writes done) AND the join
+        // snapshot completed (snapshot_complete). The protocol forbids sending
+        // updates before SnapshotComplete; this enforces it. No-op unless remote.
+        void try_arm(Session& s);
 
         // Shared tail of open_new_session / open_existing_session: record the
         // session, mint + open its socket, compute the stage download URL + full
