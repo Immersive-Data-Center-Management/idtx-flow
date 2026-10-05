@@ -10,7 +10,8 @@ It lives in:
 
 | Path | Contents |
 |---|---|
-| `source/collab/` | `IdtxClient`, `StageBridge`, `TransformCodec`, `Dispatcher`, `Ticker` |
+| `source/collab/` | `IdtxClient`, `Dispatcher`, `Ticker` |
+| `source/stage_ops/` | `StageBridge`, `StageEditController`, `TransformCodec` (see [stage-authoring.md](stage-authoring.md)) |
 | `source/nodes/` | USD node types (`UsdStageNode3D` + converted prim nodes) |
 | `source/register_types.cpp` | Module boot: class registration, singleton, composition root |
 
@@ -86,7 +87,9 @@ singleton.
 - **Session state:** `is_socket_open(session_id)`. (Socket lifecycle is owned by the engine's
   session flow; there are no separate open/close-socket calls.)
 - **Session sync binding (per session):** `bind_session(session_id, stage_node, remote)`,
-  `unbind_session(session_id)`, `notify_local_transform_changed(node)`.
+  `unbind_session(session_id)`. (Binding records which stage node a session drives and borrows
+  that node's bridge; local transform authoring is driven node-side — see
+  [stage-authoring.md](stage-authoring.md).)
 
 **Signals.** `IdtxClient` implements `CollabObserver` and converts each socket-lifecycle
 callback into a Godot signal (and, for a request, into that request's `on_done` dictionary).
@@ -116,13 +119,17 @@ These are the ports the net core requires that can only be implemented in terms 
 Godot (and, for the stage, OpenUSD). Everything else (transports, token, clock) is
 reused from `shared/` — see [net-core.md](net-core.md).
 
-- **`StageBridge`** (`IStageBridge`) — the single place Godot and OpenUSD types
-  coexist. It authors edits into the live USD stage (the free local save), applies
+- **`StageBridge`** (`IStageBridge`) — where Godot and OpenUSD types meet **for the
+  net binding's transform authoring/reading**, **owned by the `UsdStageNode3D`**
+  (not the engine); a session borrows it.
+  It authors edits into the live USD stage (the free local save), applies
   inbound edits with **loopback suppression** (a flag set while it authors, so the
   resulting change notice isn't re-broadcast), reads prim transforms, and reports
   genuine stage changes back to the core through a USD change-notice (`TfNotice`)
-  listener. It also handles the spine-axis presentation rotation for Cone/Cylinder
-  (see [transform-sync-flow.md](transform-sync-flow.md)).
+  listener. It lives in `source/stage_ops/` with `StageEditController` (which
+  applies the local-or-session authoring decision) — see
+  [stage-authoring.md](stage-authoring.md). It also handles the spine-axis
+  presentation rotation for Cone/Cylinder (see [transform-sync-flow.md](transform-sync-flow.md)).
 - **`TransformCodec`** — converts a Godot `Transform3D` to/from the core's
   `PrimEdit`/`Mat4`. Godot-only (no pxr); shared by both `IdtxClient` (outbound
   origin and inbound signal) and `StageBridge` (USD authoring), so the marshalling
@@ -147,7 +154,9 @@ The imported stage is represented as a tree of Godot `Node3D`s:
   `UsdMultiMeshInstanceNode3D`, `UsdSkeletonNode3D`, `UsdStaticBodyNode3D`. They
   share the `IUsdNode3D` mixin (which carries the prim path and a back-pointer to
   the stage node) and are the **outbound origin**: a gizmo move fires
-  `NOTIFICATION_TRANSFORM_CHANGED`, which reaches `IdtxClient::notify_local_transform_changed`.
+  `NOTIFICATION_TRANSFORM_CHANGED`, which the owning `UsdStageNode3D` routes through
+  `author_node_transform` → `StageEditController` → its bridge (see
+  [stage-authoring.md](stage-authoring.md)).
 
 > `UsdRestDatasourceNode3D` and `UsdMockDatasourceFloatNode3D` also live here but
 > belong to the separate compute/exec-bridge feature, not the collaboration client.

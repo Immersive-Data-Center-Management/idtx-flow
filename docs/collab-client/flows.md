@@ -154,7 +154,7 @@ sequenceDiagram
     Engine->>Engine: resolve stage_url and ws_full (ws_base and ws_url)
     Engine->>BE: open session WebSocket
     Engine-->>Client: on_session_ready session, stage_url, ws_url
-    Client-->>Wiz: on_done result (session_id, stage_url, ws_url) → session_stage_ready
+    Client-->>Wiz: on_done result (session_id, stage_url, ws_url) -> session_stage_ready
     Wiz->>Wiz: load stage from stage_url (new scene)
     Wiz->>Client: bind_session session_id, stage_node, true
     Client->>Engine: attach stage and arm broadcasting after a few frames

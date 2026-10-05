@@ -14,9 +14,12 @@ system: a pure, standard-library-only **core** (`idtxflow::net`) that knows noth
 about Godot, the WebSocket library (IXWebSocket), protobuf-on-the-wire, or OpenUSD.
 Everything engine- or library-specific lives in thin **adapters** behind the core's
 **ports**. The engine-specific part is the whole **Godot binding** — `source/collab/*`
-(`IdtxClient`, `StageBridge`, `TransformCodec`, `Dispatcher`, `Ticker`), the USD nodes
+(`IdtxClient`, `Dispatcher`, `Ticker`), the node-owned stage authoring in
+`source/stage_ops/*` (`StageBridge`, `StageEditController`, `TransformCodec`), the USD nodes
 in `source/nodes/*`, and module registration (`register_types.cpp`). Within that
-binding, `StageBridge` is the single place Godot and OpenUSD types meet. A different
+binding, `StageBridge` is where Godot and OpenUSD types meet for transform
+authoring/reading (not the project's only such boundary — the USD converter and
+asset resolver also bridge the two). A different
 host engine reuses the entire core and swaps only these adapters — see
 [net-core.md](net-core.md) for the ports contract and
 [Extending the system](net-core.md#extending-the-system) for how new behavior is added.
@@ -36,7 +39,7 @@ graph TB
         WIZ["editor/import/<br/>import wizard: steps, providers, widgets"]
     end
 
-    subgraph BIND["Godot binding — C++ GDExtension (source/collab/, source/nodes/)"]
+    subgraph BIND["Godot binding — C++ GDExtension (source/collab/, source/stage_ops/, source/nodes/)"]
         CLIENT["IdtxClient<br/>engine singleton · observer · composition root"]
         BRIDGE["StageBridge<br/>USD stage &lt;-&gt; Godot nodes"]
         NODES["USD nodes<br/>UsdStageNode3D, UsdXformNode3D, ..."]
@@ -87,9 +90,10 @@ graph TB
             SESS["editor/session_scene/<br/>coordinator + live-session indicators"]
         end
 
-        subgraph BIND["Godot binding — source/collab, source/nodes (godot-cpp + USD)"]
+        subgraph BIND["Godot binding — source/collab, source/stage_ops, source/nodes (godot-cpp + USD)"]
             CLIENT["IdtxClient<br/>Node · singleton · CollabObserver · composition root"]
-            BRIDGE["StageBridge<br/>IStageBridge — only godot+USD meeting point"]
+            CTL["StageEditController<br/>applies the author decision"]
+            BRIDGE["StageBridge<br/>IStageBridge — godot+USD for transform authoring"]
             CODEC2["TransformCodec<br/>Transform3D &lt;-&gt; PrimEdit/Mat4"]
             DISP["Dispatcher<br/>IMainThreadDispatcher"]
             TICK["Ticker<br/>IFrameTicker"]
@@ -109,7 +113,9 @@ graph TB
     WIZ -->|Engine.get_singleton · methods · signals · on_done| CLIENT
     WIZUI --> CLIENT
     REG -->|create singleton, initialize| CLIENT
-    NODES -->|transform changed| CLIENT
+    NODES -->|transform changed| CTL
+    CTL -->|author_local_edit| BRIDGE
+    CTL -.uses.- CODEC2
     BRIDGE -.uses.- CODEC2
     CLIENT -.uses.- CODEC2
 
@@ -120,7 +126,7 @@ graph TB
 
     classDef engine fill:#fff0e6,stroke:#d9822b,color:#5c2d0b;
     classDef ref fill:#eeeeee,stroke:#888888,color:#333333,stroke-dasharray: 5 3;
-    class ENGINESPECIFIC,UI,PLUGIN,WIZ,WIZUI,SESS,BIND,CLIENT,BRIDGE,CODEC2,DISP,TICK,NODES,REG engine;
+    class ENGINESPECIFIC,UI,PLUGIN,WIZ,WIZUI,SESS,BIND,CLIENT,CTL,BRIDGE,CODEC2,DISP,TICK,NODES,REG engine;
     class ENGINEREF,PORTSREF ref;
 ```
 
@@ -219,7 +225,7 @@ graph TB
 | Layer | Location | Key pieces |
 |---|---|---|
 | Net core | `shared/idtxflow/net/` | `CollabEngine`, `CollabObserver`, `protocol/` (RestClient, SessionSocket), `wire/WireCodec`, `model/`, `ports/`, `adapters/`, `CollabComposition` |
-| Godot binding | `source/collab/`, `source/nodes/`, `source/register_types.cpp` | `IdtxClient`, `StageBridge`, `TransformCodec`, `Dispatcher`, `Ticker`, USD nodes, module boot |
+| Godot binding | `source/collab/`, `source/stage_ops/`, `source/nodes/`, `source/register_types.cpp` | `IdtxClient`, `Dispatcher`, `Ticker`; `StageBridge`, `StageEditController`, `TransformCodec` (stage_ops); USD nodes; module boot |
 | Editor UI | `addons/IDTXFlow/` | `plugin.gd`, `editor/import/` (wizard), `editor/session_scene/` (session-scene lifecycle + indicators), `editor/inspector/` |
 
 ---
@@ -238,6 +244,12 @@ graph TB
   session) and the session lifecycle.
 - **[transform-sync-flow.md](transform-sync-flow.md)** — deep dive on how a single transform
   edit travels inbound and outbound between the editor and collaborating peers.
+- **[stage-authoring.md](stage-authoring.md)** — how a Godot transform edit is authored onto the
+  live USD stage via the node-owned bridge: the local-or-session gate, placement-root and
+  nested-stage (reference/payload holder) handling
+- **[usage.md](usage.md)** — intended usage & how-to: what runs in the editor vs. at runtime,
+  driving a session (open/join → load stage → `bind_session`), local authoring and its
+  prerequisites, a runtime flow, and behavior / limitations / gaps.
 
 ---
 

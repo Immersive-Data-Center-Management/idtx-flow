@@ -258,7 +258,9 @@
     <Content Include="docs\collab-client\import-manager.md" />
     <Content Include="docs\collab-client\net-core.md" />
     <Content Include="docs\collab-client\overview.md" />
+    <Content Include="docs\collab-client\stage-authoring.md" />
     <Content Include="docs\collab-client\transform-sync-flow.md" />
+    <Content Include="docs\collab-client\usage.md" />
     <Content Include="docs\DATAFLOW_ARCHITECTURE.md" />
     <Content Include="docs\PLUGIN_ARCHITECTURE.md" />
     <Content Include="README.md" />

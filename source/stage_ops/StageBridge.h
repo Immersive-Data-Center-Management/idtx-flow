@@ -4,7 +4,8 @@
  * @file StageBridge.h
  * @brief IStageBridge over a live USD stage and its converted Godot nodes.
  *
- * This is the only place Godot and OpenUSD types meet. It authors edits onto USD
+ * Where Godot and OpenUSD types meet for the net binding's transform
+ * authoring/reading. It authors edits onto USD
  * prims (the free local save), applies inbound edits with loopback suppression,
  * reads prim transforms, and reports stage-originated changes back to the engine
  * through a TfNotice listener so the engine can gate and coalesce the broadcast.
