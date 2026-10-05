@@ -173,9 +173,6 @@ namespace net
         // Enable broadcasting for a session once its stage has settled, so
         // conversion-time writes don't phantom-broadcast.
         void arm_sync(const std::string& session_id);
-        // Author a node's local edit into a session's stage (the free local save);
-        // the stage's change report then drives that session's gated broadcast.
-        void notify_local_edit(const std::string& session_id, const model::PrimEdit& edit);
 
         /// Drain outbound coalescing. Driven by the frame ticker.
         void poll();

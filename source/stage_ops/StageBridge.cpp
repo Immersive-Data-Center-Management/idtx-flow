@@ -1,5 +1,7 @@
 #include "StageBridge.h"
 
+#include <cmath>
+#include <unordered_set>
 #include <vector>
 
 #include <godot_cpp/classes/node.hpp>
@@ -64,8 +66,9 @@ namespace
     }
 } // namespace
 
-StageBridge::StageBridge(UsdStageNode3D* stage_node, pxr::UsdStageRefPtr stage)
-    : stage_node_(stage_node), stage_(std::move(stage))
+StageBridge::StageBridge(UsdStageNode3D* stage_node, pxr::UsdStageRefPtr stage,
+                         EditTarget edit_target)
+    : stage_node_(stage_node), stage_(std::move(stage)), edit_target_(edit_target)
 {
 }
 
@@ -162,6 +165,11 @@ void StageBridge::_on_objects_changed(const pxr::UsdNotice::ObjectsChanged& noti
     if (!stage_ || !stage_->GetRootLayer())
         return;
 
+    // One authored Set emits several paths within a single notice (the attribute
+    // path and its prim path) and USD may follow with a second info-only notice;
+    // without coalescing, the same prim would be reported — and broadcast —
+    // multiple times for one edit. De-dupe by prim key for this dispatch.
+    std::unordered_set<std::string> reported;
     auto consider = [&](const pxr::SdfPath& path)
     {
         const pxr::SdfPath prim_path = path.IsPropertyPath() ? path.GetPrimPath() : path;
@@ -170,6 +178,8 @@ void StageBridge::_on_objects_changed(const pxr::UsdNotice::ObjectsChanged& noti
         IDTX_LOG(IDTX_DEBUG, "[trace] C consider path='{}' key='{}' tracked={}",
                  path.GetString(), key, is_tracked);
         if (tracked_.find(key) == tracked_.end())
+            return;
+        if (!reported.insert(key).second)
             return;
 
         net::model::PrimEdit edit;
@@ -240,19 +250,37 @@ bool StageBridge::author_to_usd(const std::string& prim_path, const Transform3D&
     // The stage may have been released (node left the tree) between an inbound
     // edit being queued and applied; bail rather than touch a dead stage.
     if (!stage_ || !stage_->GetRootLayer())
+    {
+        IDTX_LOG(IDTX_DEBUG, "author_to_usd bail: stage released");
         return false;
+    }
 
     const pxr::SdfPath sdf_path(prim_path);
     pxr::UsdPrim prim = stage_->GetPrimAtPath(sdf_path);
     if (!prim)
+    {
+        IDTX_LOG(IDTX_DEBUG, "author_to_usd bail: prim not found '{}'", prim_path);
         return false;
+    }
 
+    // A prim that holds a reference/payload is authored as a typeless `def` whose
+    // local transform (the arc's placement in the referencing layer) still lives
+    // on this prim. Such a prim is not an xformable by schema type, yet carries a
+    // valid xformOpOrder, so author onto it as well; only bail when there is no
+    // transform to drive at all.
     pxr::UsdGeomXformable xformable(prim);
-    if (!xformable)
+    if (!xformable && !prim.HasAttribute(pxr::UsdGeomTokens->xformOpOrder))
+    {
+        IDTX_LOG(IDTX_DEBUG, "author_to_usd bail: no transform to author '{}'", prim_path);
         return false;
+    }
 
-    // Author into the session layer.
-    pxr::UsdEditContext edit_ctx(stage_, stage_->GetSessionLayer());
+    // Non-destructive by default: overrides go to the session layer, leaving the
+    // opened file untouched unless RootLayer was requested.
+    pxr::SdfLayerHandle target_layer = (edit_target_ == EditTarget::RootLayer)
+                                           ? stage_->GetRootLayer()
+                                           : stage_->GetSessionLayer();
+    pxr::UsdEditContext edit_ctx(stage_, target_layer);
 
     bool reset_stack = false;
     std::vector<pxr::UsdGeomXformOp> ops = xformable.GetOrderedXformOps(&reset_stack);
@@ -277,7 +305,35 @@ bool StageBridge::author_to_usd(const std::string& prim_path, const Transform3D&
         xformable.ClearXformOpOrder();
         matrix_op = xformable.AddTransformOp();
     }
+    else
+    {
+        // Skip authoring when the value is unchanged. Godot fires
+        // NOTIFICATION_TRANSFORM_CHANGED on a prim when an ancestor moves (its
+        // world transform changed) even though its local transform did not; and
+        // conversion-time writes re-set the imported value. Re-authoring the same
+        // value is a redundant USD write that still trips a TfNotice (and, in a
+        // session, a broadcast), so bail when the stored matrix already matches.
+        pxr::GfMatrix4d current(1.0);
+        if (matrix_op.Get(&current))
+        {
+            bool unchanged = true;
+            for (int i = 0; i < 4 && unchanged; ++i)
+                for (int j = 0; j < 4; ++j)
+                    if (std::abs(current[i][j] - m[i][j]) > 1e-9)
+                    {
+                        unchanged = false;
+                        break;
+                    }
+            if (unchanged)
+            {
+                IDTX_LOG(IDTX_DEBUG, "unchanged, not re-authored '{}'", prim_path);
+                return false;
+            }
+        }
+    }
     matrix_op.Set(m);
+    IDTX_LOG(IDTX_DEBUG, "authored xform on '{}' (target={})", prim_path,
+             edit_target_ == EditTarget::RootLayer ? "root" : "session");
     return true;
 }
 
@@ -299,9 +355,12 @@ bool StageBridge::read_prim_transform(const std::string& prim_path, Transform3D&
     if (!prim)
         return false;
     pxr::UsdGeomXformable xformable(prim);
-    if (!xformable)
+    // A typeless reference/payload holder carries a valid local transform via its
+    // xformOpOrder even though it is not an xformable by schema type; read it so
+    // the holder's placement can be reported. GetLocalTransformation works
+    // regardless of the typed-schema check.
+    if (!xformable && !prim.HasAttribute(pxr::UsdGeomTokens->xformOpOrder))
         return false;
-
     pxr::GfMatrix4d local(1.0);
     bool resets = false;
     if (!xformable.GetLocalTransformation(&local, &resets))

@@ -39,7 +39,13 @@ namespace collab
     class StageBridge : public net::ports::IStageBridge, public pxr::TfWeakBase
     {
     public:
-        StageBridge(UsdStageNode3D* stage_node, pxr::UsdStageRefPtr stage);
+        /// Which composed layer author_to_usd writes into. SessionLayer is the
+        /// in-memory override slot (non-destructive); RootLayer edits the opened
+        /// file directly. OverrideLayer behaves as SessionLayer.
+        enum class EditTarget { SessionLayer, RootLayer, OverrideLayer };
+
+        StageBridge(UsdStageNode3D* stage_node, pxr::UsdStageRefPtr stage,
+                    EditTarget edit_target = EditTarget::SessionLayer);
         ~StageBridge() override;
 
         StageBridge(const StageBridge&) = delete;
@@ -53,7 +59,7 @@ namespace collab
         /// e.g. "/World"). The root carries display-only placement (MPU scale +
         /// up-axis rotation), no authored transform, so it is never synced either
         /// way. Resolved from defaultPrim, so it survives the .scn cache reload
-        bool is_stage_root(const std::string& prim_path) const;
+        bool is_stage_root(const std::string& prim_path) const override;
 
         // IStageBridge
         void build_index() override;
@@ -61,6 +67,7 @@ namespace collab
         void author_local_edit(const net::model::PrimEdit& edit) override;
         void apply_remote_edit(const net::model::PrimEdit& edit) override;
         void set_on_changed(OnChanged sink) override { on_changed_ = std::move(sink); }
+        bool has_on_changed() const override { return static_cast<bool>(on_changed_); }
 
     private:
         IDTX_LOG_CATEGORY("StageBridge")
@@ -84,6 +91,7 @@ namespace collab
 
         UsdStageNode3D*     stage_node_ = nullptr;   // non-owning
         pxr::UsdStageRefPtr stage_;
+        EditTarget          edit_target_ = EditTarget::SessionLayer;
 
         // Set while authoring programmatically (local author or remote apply) so the
         // resulting TfNotice is not reported back as a local change.

@@ -9,6 +9,7 @@
 #include <pxr/usd/usd/stage.h>
 
 #include <idtxflow/async/StageLoadTask.h>
+#include <idtxflow/net/ports/IStageBridge.h>
 #include <idtxflow_godot/nodes/IUsdNode3D.h>
 #include "idtxflow/converter/StageHandle.h"
 
@@ -109,6 +110,27 @@ public:
      * Check if the stage is currently being loaded asynchronously.
      */
     bool is_loading() const { return is_loading_; }
+
+    /// The authoring bridge for this node's live stage, created on first use.
+    /// Returns null when there is no live stage. Non-owning pointer; the node
+    /// owns the bridge.
+    idtxflow::net::ports::IStageBridge* get_or_create_bridge();
+
+    /// Whether this node authors local (session-less) transform edits into its
+    /// stage. Off by default; collaboration is unaffected either way.
+    void set_local_authoring(bool enabled);
+    bool get_local_authoring() const { return local_authoring_; }
+
+    /// Whether moving the stage's placement root (its defaultPrim, e.g. "/World")
+    /// is authored into USD. Off by default: the root carries display-only
+    /// placement, so its move is not persisted (children are unaffected). On:
+    /// the root's transform is authored too.
+    void set_author_placement_root(bool enabled) { author_placement_root_ = enabled; }
+    bool get_author_placement_root() const { return author_placement_root_; }
+
+    /// Author a converted child's transform into this node's stage (routes
+    /// through the edit controller). Entry point for the node transform triggers.
+    void author_node_transform(godot::Node3D* child);
     
 protected:
     /**
@@ -163,6 +185,15 @@ protected:
     godot::String stage_uri_;
     godot::String cached_scene_name_;
     std::unique_ptr<idtxflow::converter::StageHandle> stage_handle_;
+
+    // Authoring bridge over the live stage; owned here, lifetime == the stage.
+    std::unique_ptr<idtxflow::net::ports::IStageBridge> bridge_;
+
+    // Opt-in: author local (session-less) transform edits into the stage.
+    bool local_authoring_ = false;
+
+    // Opt-in: also author the placement root's transform (default: skip it).
+    bool author_placement_root_ = false;
 
     // --- Async loading state ---
     

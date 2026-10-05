@@ -523,20 +523,6 @@ void CollabEngine::arm_sync(const std::string& session_id)
     s->arm_countdown = -1;
 }
 
-void CollabEngine::notify_local_edit(const std::string& session_id, const model::PrimEdit& edit)
-{
-    Session* s = find_session(session_id);
-    // Author into the live stage (the free local save). Authoring trips the
-    // bridge's change report, which routes back through on_stage_changed for the
-    // gated broadcast.
-    IDTX_LOG(IDTX_DEBUG, "[trace] B notify_local_edit session='{}' prim='{}' has_stage={}",
-             session_id, edit.prim_path, (s != nullptr && s->stage != nullptr));
-    if (s && s->stage)
-    {
-        s->stage->author_local_edit(edit);
-    }
-}
-
 void CollabEngine::advance_server_seq(Session& s, uint64_t server_seq)
 {
     // 0 means "no state" (messages that don't reflect stage state, or Acks of

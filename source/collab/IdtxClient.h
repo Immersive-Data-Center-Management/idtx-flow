@@ -38,8 +38,6 @@
 #include "Dispatcher.h"
 #include "Ticker.h"
 
-namespace idtxflow { namespace collab { class StageBridge; } }
-
 class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
 {
     GDCLASS(IdtxClient, godot::Node)
@@ -151,10 +149,6 @@ public:
     // Stop syncing a session: detach + drop the bridge and forget the binding.
     // Does not end the session or close its socket (see end_session).
     void unbind_session(const godot::String& session_id);
-    // The prim node is the session-agnostic outbound origin (a gizmo edit). The
-    // binding resolves which session's stage the node belongs to and routes the
-    // edit there, so callers (the USD nodes) need not know the session id.
-    void notify_local_transform_changed(godot::Node* node);
 
     // --- CollabObserver ---
     
@@ -239,14 +233,15 @@ private:
     std::unique_ptr<idtxflow::net::ports::ITransportFactory>      transport_factory_;
     idtxflow::net::AgnosticTransports                             transports_;
 
-    // Per-session sync state, keyed by session id. One record owns the node it is
-    // bound to (by ObjectID, stable across the node's _exit_tree/_enter_tree
-    // cycle), the remote flag, and the live StageBridge (null while the node's stage is unloaded).
+    // Per-session sync state, keyed by session id. Records the node it is bound
+    // to (by ObjectID, stable across the node's _exit_tree/_enter_tree cycle) and
+    // the remote flag. The StageBridge is owned by the node, not here; `attached`
+    // tracks whether this session's bridge is currently attached to the engine.
     struct SessionBinding
     {
         uint64_t node_id = 0;          // Godot ObjectID of the bound UsdStageNode3D
         bool     remote  = false;
-        std::unique_ptr<idtxflow::collab::StageBridge> bridge;   // null while unloaded
+        bool     attached = false;     // bridge currently attached to the engine
     };
     std::map<std::string, SessionBinding> bindings_;
 

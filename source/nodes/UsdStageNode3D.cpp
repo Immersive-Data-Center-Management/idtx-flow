@@ -14,11 +14,43 @@
 
 #include "converter/UsdGodotStageConverter.h"
 #include "collab/IdtxClient.h"
+#include "stage_ops/StageBridge.h"
+#include "stage_ops/StageEditController.h"
 #include <idtxflow/resolver/HttpResolver.h>
 
 
 using namespace godot;
 using namespace pxr;
+
+idtxflow::net::ports::IStageBridge* UsdStageNode3D::get_or_create_bridge()
+{
+    if (bridge_)
+        return bridge_.get();
+    if (!get_stage())
+        return nullptr;
+    bridge_ = std::make_unique<idtxflow::collab::StageBridge>(
+        this, get_stage(), idtxflow::collab::StageBridge::EditTarget::SessionLayer);
+    IDTX_LOGF(IDTX_INFO, "Authoring bridge created for stage '{}'", stage_uri_.utf8().get_data());
+    return bridge_.get();
+}
+
+void UsdStageNode3D::set_local_authoring(bool enabled)
+{
+    if (enabled && !local_authoring_)
+        IDTX_LOGF(IDTX_INFO, "Local authoring enabled for stage '{}'", stage_uri_.utf8().get_data());
+    local_authoring_ = enabled;
+}
+
+void UsdStageNode3D::author_node_transform(Node3D* child)
+{
+    idtxflow::net::ports::IStageBridge* bridge = get_or_create_bridge();
+    if (bridge == nullptr)
+    {
+        IDTX_LOGF(IDTX_DEBUG, "author_node_transform: no bridge (no live stage)");
+        return;
+    }
+    idtxflow::collab::StageEditController(bridge).author_from_node(child, local_authoring_, author_placement_root_);
+}
 
 void UsdStageNode3D::_enter_tree()
 {
@@ -56,18 +88,24 @@ void UsdStageNode3D::_notification(int p_what)
         // Notify listeners that our stage is going away, so they can detach before the handle is released.
         if (stage_handle_)
             emit_signal("stage_unloading");
+        bridge_.reset();   // before stage_handle_.reset(): ~bridge revokes its TfNotice on a live stage
         stage_handle_.reset();
     }
     else if (p_what == NOTIFICATION_TRANSFORM_CHANGED)
     {
         // This UsdStageNode3D is a reference prim in its parent stage; moving the
-        // whole node is a local edit on that prim. Forward to the collab client
-        // (which routes/gates it). Gate on node_ready_ so placement writes during
-        // conversion/attach do not produce phantom broadcasts.
+        // whole node is an edit on that prim. Gate on node_ready_ so placement
+        // writes during conversion/attach do not produce phantom broadcasts.
         if (!node_ready_) return;
-        if (IdtxClient* client = IdtxClient::get_singleton())
+        // A moved sub-stage node belongs to its CONTAINING stage, so author against
+        // the nearest ancestor UsdStageNode3D (not this node).
+        for (Node* anc = get_parent(); anc != nullptr; anc = anc->get_parent())
         {
-            client->notify_local_transform_changed(this);
+            if (UsdStageNode3D* stage = Object::cast_to<UsdStageNode3D>(anc))
+            {
+                stage->author_node_transform(this);
+                break;
+            }
         }
     }
 }
@@ -82,6 +120,7 @@ void UsdStageNode3D::set_stage_uri(const String& path)
     // Notify listeners that the old stage is going away, so they can detach before the handle is released.
     if (stage_handle_)
         emit_signal("stage_unloading");
+    bridge_.reset();   // before stage_handle_.reset(): ~bridge revokes its TfNotice on a live stage
     stage_handle_.reset();
     _cleanup_nodes();
     
@@ -131,6 +170,7 @@ void UsdStageNode3D::reload(bool clear_http_cache)
     cached_scene_name_ = "";
     if (stage_handle_)
         emit_signal("stage_unloading");
+    bridge_.reset();   // before stage_handle_.reset(): ~bridge revokes its TfNotice on a live stage
     stage_handle_.reset();
     _cleanup_nodes();
 
@@ -290,6 +330,11 @@ void UsdStageNode3D::_convert_stage()
     // name our-self after the root layer of the stage we opened
     set_name(stage_handle_->Stage()->GetRootLayer()->GetDisplayName().c_str());
 
+    // Build the authoring bridge over the freshly converted stage so transform
+    // edits can be authored into it. No-op when no factory is registered.
+    if (idtxflow::net::ports::IStageBridge* b = get_or_create_bridge())
+        b->build_index();
+
     // generate and store a unique cached scene name for this converted stage
     cached_scene_name_ = _generate_cached_scene_name(stage_uri_);
     
@@ -330,6 +375,11 @@ void UsdStageNode3D::_load_converted_stage()
     
     // release the instantiated packed scene, all children have been copied over to the actual scene tree
     cached_root->queue_free();
+
+    // Build the authoring bridge over the restored stage + children so transform
+    // edits can be authored into it. No-op when no factory is registered.
+    if (idtxflow::net::ports::IStageBridge* author_bridge = get_or_create_bridge())
+        author_bridge->build_index();
     
     // only after we have transferred the cached scene into the current one we can activate the compute bridge
     // as during stage_handle_ instantiation there is no compute property registered yet
@@ -493,6 +543,18 @@ void UsdStageNode3D::_bind_methods()
         PropertyInfo(Variant::STRING, "cached_scene_name", PROPERTY_HINT_NONE, "",
             PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_READ_ONLY),
         "set_cached_scene_name", "get_cached_scene_name");
+
+    ClassDB::bind_method(D_METHOD("set_local_authoring", "enabled"), &UsdStageNode3D::set_local_authoring);
+    ClassDB::bind_method(D_METHOD("get_local_authoring"), &UsdStageNode3D::get_local_authoring);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "local_authoring", PROPERTY_HINT_NONE, "",
+                              PROPERTY_USAGE_DEFAULT),
+                 "set_local_authoring", "get_local_authoring");
+
+    ClassDB::bind_method(D_METHOD("set_author_placement_root", "enabled"), &UsdStageNode3D::set_author_placement_root);
+    ClassDB::bind_method(D_METHOD("get_author_placement_root"), &UsdStageNode3D::get_author_placement_root);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "author_placement_root", PROPERTY_HINT_NONE, "",
+                              PROPERTY_USAGE_DEFAULT),
+                 "set_author_placement_root", "get_author_placement_root");
     
     // Registration required to allow deferred calling
     ClassDB::bind_method(D_METHOD("_pack_and_save_cached_scene"), &UsdStageNode3D::_pack_and_save_cached_scene);

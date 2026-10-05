@@ -42,6 +42,15 @@ namespace ports
         /// fires, letting the core gate the broadcast and coalesce the update.
         using OnChanged = std::function<void(const model::PrimEdit&)>;
         virtual void set_on_changed(OnChanged sink) = 0;
+
+        /// Whether a change-report sink is currently installed. Lets a sink-less
+        /// local-authoring path stand down when another driver owns the stage.
+        virtual bool has_on_changed() const = 0;
+
+        /// Whether `prim_path` is the stage's placement root (its defaultPrim).
+        /// The root carries display-only placement, never an authored transform,
+        /// so it is excluded from authoring/sync.
+        virtual bool is_stage_root(const std::string& prim_path) const = 0;
     };
 
 } // namespace ports

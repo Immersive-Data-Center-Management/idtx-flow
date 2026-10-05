@@ -121,8 +121,9 @@
     <ClInclude Include="source\collab\IdtxClient.h" />
     <ClInclude Include="source\collab\Dispatcher.h" />
     <ClInclude Include="source\collab\Ticker.h" />
-    <ClInclude Include="source\collab\StageBridge.h" />
-    <ClInclude Include="source\collab\TransformCodec.h" />
+    <ClInclude Include="source\stage_ops\StageBridge.h" />
+    <ClInclude Include="source\stage_ops\StageEditController.h" />
+    <ClInclude Include="source\stage_ops\TransformCodec.h" />
     <ClInclude Include="shared\include\idtxflow\net\CollabEngine.h" />
     <ClInclude Include="shared\include\idtxflow\net\CollabComposition.h" />
     <ClInclude Include="shared\include\idtxflow\net\CollabObserver.h" />
@@ -173,8 +174,9 @@
   <ItemGroup>
     <ClCompile Include="source\converter\PrimConverterRegistryGodot.cpp" />
     <ClCompile Include="source\collab\IdtxClient.cpp" />
-    <ClCompile Include="source\collab\StageBridge.cpp" />
-    <ClCompile Include="source\collab\TransformCodec.cpp" />
+    <ClCompile Include="source\stage_ops\StageBridge.cpp" />
+    <ClCompile Include="source\stage_ops\StageEditController.cpp" />
+    <ClCompile Include="source\stage_ops\TransformCodec.cpp" />
     <ClCompile Include="shared\src\idtxflow\net\CollabEngine.cpp" />
     <ClCompile Include="shared\src\idtxflow\net\wire\WireCodec.cpp" />
     <ClCompile Include="shared\src\idtxflow\net\protocol\RestClient.cpp" />
