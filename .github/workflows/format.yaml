@@ -1,0 +1,23 @@
+name: format
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  clang-format:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        #v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      #v3.0.0
+      - uses: j178/prek-action@4e14d07f9231acabce116ccfca13b13dd9755ece
+
+      - name: Check that source/* and shared/* match .clang-format
+        run: prek run --all-files --show-diff-on-failure

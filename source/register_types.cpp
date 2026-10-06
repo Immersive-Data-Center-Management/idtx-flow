@@ -50,12 +50,8 @@ inline std::string get_gdextension_dir()
     char buffer[MAX_PATH];
     HMODULE hm = nullptr;
     // Get handle of the current DLL (this GDExtension)
-    GetModuleHandleExA(
-        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-        GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-        (LPCSTR)&get_gdextension_dir,
-        &hm
-    );
+    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                       (LPCSTR)&get_gdextension_dir, &hm);
     GetModuleFileNameA(hm, buffer, MAX_PATH);
     std::string path(buffer);
     return path.substr(0, path.find_last_of("\\/"));
@@ -71,14 +67,16 @@ inline std::string get_gdextension_dir()
 }
 #endif
 
-void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
-    if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
+void initialize_idtxflow_module(ModuleInitializationLevel p_level)
+{
+    if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE)
+    {
         return;
     }
 
     // Initialize logger
     idtxflow::utils::Log::set_logger(&g_logger);
-    
+
     GDREGISTER_CLASS(UsdStageNode3D)
     GDREGISTER_CLASS(UsdXformNode3D)
     GDREGISTER_CLASS(UsdMeshInstanceNode3D)
@@ -102,7 +100,7 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     // activate the mdl material conversion
     std::string extension_dir = get_gdextension_dir();
     std::vector<std::string> additionalModulPaths;
-    if (ProjectSettings *project_settings = godot::ProjectSettings::get_singleton())
+    if (ProjectSettings* project_settings = godot::ProjectSettings::get_singleton())
     {
         // ensure that the projects resource and user directories can be used as mdl module search paths
         additionalModulPaths.emplace_back(project_settings->globalize_path("res://").utf8().get_data());
@@ -133,15 +131,17 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
 
     // Run the openExec computation bridge
     idtxflow::exec::ExecBridgeManager::Instance().Start();
-    
+
     IDTX_LOGF(IDTX_INFO, "GDExtension initialized");
 }
 
-void uninitialize_idtxflow_module(ModuleInitializationLevel p_level) {
-    if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
+void uninitialize_idtxflow_module(ModuleInitializationLevel p_level)
+{
+    if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE)
+    {
         return;
     }
-    
+
     // Stop the openExec computation bridge
     idtxflow::exec::ExecBridgeManager::Instance().Cancel();
 
@@ -165,19 +165,20 @@ void uninitialize_idtxflow_module(ModuleInitializationLevel p_level) {
     // shutdown the mdl material conversion
     idtxflow::converter::ShutdownMdlMaterialConverter();
 #endif
-    
+
     IDTX_LOGF(IDTX_INFO, "GDExtension uninitialized");
-    
+
     // Clear logger reference
     idtxflow::utils::Log::set_logger(nullptr);
 }
 
-extern "C" {
-    GDExtensionBool GDE_EXPORT idtxflow_library_init(
-        GDExtensionInterfaceGetProcAddress p_get_proc_address,
-        const GDExtensionClassLibraryPtr p_library,
-        GDExtensionInitialization *r_initialization) {
-        
+extern "C"
+{
+    GDExtensionBool GDE_EXPORT idtxflow_library_init(GDExtensionInterfaceGetProcAddress p_get_proc_address,
+                                                     const GDExtensionClassLibraryPtr p_library,
+                                                     GDExtensionInitialization* r_initialization)
+    {
+
         GDExtensionBinding::InitObject init_obj(p_get_proc_address, p_library, r_initialization);
 
         init_obj.register_initializer(initialize_idtxflow_module);
