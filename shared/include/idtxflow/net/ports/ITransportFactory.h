@@ -22,16 +22,16 @@ namespace net
 {
 namespace ports
 {
-    struct ITransportFactory
-    {
-        virtual ~ITransportFactory() = default;
+struct ITransportFactory
+{
+    virtual ~ITransportFactory() = default;
 
-        /// Create an HTTP transport (fresh instance, ownership transferred).
-        virtual std::unique_ptr<IHttpTransport> make_http() = 0;
+    /// Create an HTTP transport (fresh instance, ownership transferred).
+    virtual std::unique_ptr<IHttpTransport> make_http() = 0;
 
-        /// Create a WebSocket transport (fresh instance, ownership transferred).
-        virtual std::unique_ptr<IWebSocketTransport> make_websocket() = 0;
-    };
+    /// Create a WebSocket transport (fresh instance, ownership transferred).
+    virtual std::unique_ptr<IWebSocketTransport> make_websocket() = 0;
+};
 
 } // namespace ports
 } // namespace net

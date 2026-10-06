@@ -95,7 +95,7 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level)
     IdtxClient::set_singleton(idtx_client);
     Engine::get_singleton()->register_singleton("IdtxClient", idtx_client);
     idtx_client->initialize(std::make_unique<idtxflow::net::adapters::IxTransportFactory>());
-    
+
 #ifdef IDTXFLOW_MDL_ENABLED
     // activate the mdl material conversion
     std::string extension_dir = get_gdextension_dir();
@@ -108,7 +108,7 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level)
     }
     idtxflow::converter::StartupMdlMaterialConverter(extension_dir, additionalModulPaths);
 #endif
-    
+
     // Configure the HTTP asset resolver with a JWT-injecting fetcher so protected
     // /api/v1/download/<usd_file> assets can be fetched. The shared composition
     // helper builds the fetcher (a transport from the factory + the shared token, read at fetch time)

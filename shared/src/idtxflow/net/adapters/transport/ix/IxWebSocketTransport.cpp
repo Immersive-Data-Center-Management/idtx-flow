@@ -38,15 +38,14 @@ void IxWebSocketTransport::connect(std::string url)
     if (!headers_.empty())
     {
         ix::WebSocketHttpHeaders headers;
-        for (const auto& [key, value] : headers_)
+        for (const auto& [key, value]: headers_)
         {
             headers[key] = value;
         }
         ws_->setExtraHeaders(headers);
     }
 
-    ws_->setOnMessageCallback([this](const ix::WebSocketMessagePtr& msg)
-    {
+    ws_->setOnMessageCallback([this](const ix::WebSocketMessagePtr& msg) {
         switch (msg->type)
         {
         case ix::WebSocketMessageType::Open:
@@ -63,21 +62,18 @@ void IxWebSocketTransport::connect(std::string url)
             break;
 
         case ix::WebSocketMessageType::Close:
-            IDTX_LOG(IDTX_INFO, "[trace] WS Close code={} reason='{}'",
-                     static_cast<int>(msg->closeInfo.code), msg->closeInfo.reason);
+            IDTX_LOG(IDTX_INFO, "[trace] WS Close code={} reason='{}'", static_cast<int>(msg->closeInfo.code),
+                     msg->closeInfo.reason);
             is_open_ = false;
             if (on_state_)
             {
-                on_state_(State::Disconnected,
-                          static_cast<int>(msg->closeInfo.code),
-                          msg->closeInfo.reason);
+                on_state_(State::Disconnected, static_cast<int>(msg->closeInfo.code), msg->closeInfo.reason);
             }
             break;
 
         case ix::WebSocketMessageType::Error:
-            IDTX_LOG(IDTX_ERROR,
-                     "[trace] WS Error reason='{}' http_status={} retries={}",
-                     msg->errorInfo.reason, msg->errorInfo.http_status, msg->errorInfo.retries);
+            IDTX_LOG(IDTX_ERROR, "[trace] WS Error reason='{}' http_status={} retries={}", msg->errorInfo.reason,
+                     msg->errorInfo.http_status, msg->errorInfo.retries);
             if (on_state_)
             {
                 on_state_(State::Error, 0, msg->errorInfo.reason);
@@ -122,8 +118,8 @@ void IxWebSocketTransport::close()
 
 void IxWebSocketTransport::send_binary(const std::string& bytes)
 {
-    IDTX_LOG(IDTX_DEBUG, "[trace] G Ix::send_binary ws={} is_open_={} bytes={}",
-             ws_ != nullptr, is_open_, bytes.size());
+    IDTX_LOG(IDTX_DEBUG, "[trace] G Ix::send_binary ws={} is_open_={} bytes={}", ws_ != nullptr, is_open_,
+             bytes.size());
     if (ws_ && is_open_)
     {
         ws_->sendBinary(bytes);

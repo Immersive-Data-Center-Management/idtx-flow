@@ -40,40 +40,46 @@ namespace net
 {
 namespace ports
 {
-    struct IWebSocketTransport
+struct IWebSocketTransport
+{
+    virtual ~IWebSocketTransport() = default;
+
+    /// Connection lifecycle states reported through OnState.
+    enum class State
     {
-        virtual ~IWebSocketTransport() = default;
-
-        /// Connection lifecycle states reported through OnState.
-        enum class State { Disconnected, Connecting, Connected, Error };
-
-        /// Inbound binary frame payload (raw bytes).
-        using OnBinary = std::function<void(const std::string&)>;
-        /// Connection-state change: (state, code, reason). `code` is the
-        /// WebSocket close code on Disconnected (0 otherwise); `reason` is the
-        /// close/error text when available, empty otherwise.
-        using OnState  = std::function<void(State, int, std::string)>;
-
-        /// Headers sent on the upgrade (e.g. Authorization).
-        virtual void set_headers(std::map<std::string, std::string> headers) = 0;
-
-        /// Open the socket to `url`, replacing any existing connection.
-        virtual void connect(std::string url) = 0;
-        /// Close the connection and release the socket.
-        virtual void close() = 0;
-        /// Send one binary frame; no-op if the socket is not open.
-        virtual void send_binary(const std::string& bytes) = 0;
-        /// True while the socket is open.
-        virtual bool is_open() const = 0;
-
-        /// Register the inbound-binary-frame callback.
-        virtual void set_on_binary(OnBinary callback) = 0;
-        /// Register the connection-state callback.
-        virtual void set_on_state(OnState callback) = 0;
-
-        /// Pump the transport's I/O; a self-threaded implementation may no-op.
-        virtual void poll() = 0;
+        Disconnected,
+        Connecting,
+        Connected,
+        Error
     };
+
+    /// Inbound binary frame payload (raw bytes).
+    using OnBinary = std::function<void(const std::string&)>;
+    /// Connection-state change: (state, code, reason). `code` is the
+    /// WebSocket close code on Disconnected (0 otherwise); `reason` is the
+    /// close/error text when available, empty otherwise.
+    using OnState = std::function<void(State, int, std::string)>;
+
+    /// Headers sent on the upgrade (e.g. Authorization).
+    virtual void set_headers(std::map<std::string, std::string> headers) = 0;
+
+    /// Open the socket to `url`, replacing any existing connection.
+    virtual void connect(std::string url) = 0;
+    /// Close the connection and release the socket.
+    virtual void close() = 0;
+    /// Send one binary frame; no-op if the socket is not open.
+    virtual void send_binary(const std::string& bytes) = 0;
+    /// True while the socket is open.
+    virtual bool is_open() const = 0;
+
+    /// Register the inbound-binary-frame callback.
+    virtual void set_on_binary(OnBinary callback) = 0;
+    /// Register the connection-state callback.
+    virtual void set_on_state(OnState callback) = 0;
+
+    /// Pump the transport's I/O; a self-threaded implementation may no-op.
+    virtual void poll() = 0;
+};
 
 } // namespace ports
 } // namespace net

@@ -13,7 +13,7 @@
  * Scope: transform edits only. A new edit kind would get its own sibling codec rather than
  * being folded in here.
  *
- * Boundary: Godot types are allowed here, but this must stay free of OpenUSD (pxr). The only 
+ * Boundary: Godot types are allowed here, but this must stay free of OpenUSD (pxr). The only
  * place Godot and pxr meet is StageBridge, which builds its GfMatrix4d on top of these helpers.
  */
 
@@ -29,46 +29,50 @@ namespace collab
 {
 namespace xform
 {
-    /// Godot Transform3D -> row-major wire PrimEdit (matrix form). Basis row i
-    /// maps to wire row i; translation goes on the bottom row.
-    net::model::PrimEdit transform_to_prim_edit(const std::string& prim_path,
-                                                const godot::Transform3D& t);
+/// Godot Transform3D -> row-major wire PrimEdit (matrix form). Basis row i
+/// maps to wire row i; translation goes on the bottom row.
+net::model::PrimEdit transform_to_prim_edit(const std::string& prim_path, const godot::Transform3D& t);
 
-    /// In-place variant of transform_to_prim_edit for callers that fill an
-    /// existing PrimEdit.
-    void transform_to_prim_edit(const std::string& prim_path, const godot::Transform3D& t,
-                                net::model::PrimEdit& out);
+/// In-place variant of transform_to_prim_edit for callers that fill an
+/// existing PrimEdit.
+void transform_to_prim_edit(const std::string& prim_path, const godot::Transform3D& t, net::model::PrimEdit& out);
 
-    /// Row-major wire Mat4 -> Godot Transform3D. Inverse of the matrix packing
-    /// above (basis rows from wire rows, translation from the bottom row).
-    godot::Transform3D mat4_to_transform(const net::model::Mat4& mm);
+/// Row-major wire Mat4 -> Godot Transform3D. Inverse of the matrix packing
+/// above (basis rows from wire rows, translation from the bottom row).
+godot::Transform3D mat4_to_transform(const net::model::Mat4& mm);
 
-    /// SeparateXform (T/R/S, rotation in Euler degrees USD convention) -> Godot
-    /// Transform3D.
-    godot::Transform3D separate_to_transform(const net::model::SeparateXform& s);
+/// SeparateXform (T/R/S, rotation in Euler degrees USD convention) -> Godot
+/// Transform3D.
+godot::Transform3D separate_to_transform(const net::model::SeparateXform& s);
 
-    /// PrimEdit -> Godot Transform3D, choosing the matrix or separate branch by
-    /// PrimEdit::is_matrix.
-    godot::Transform3D prim_edit_to_transform(const net::model::PrimEdit& e);
+/// PrimEdit -> Godot Transform3D, choosing the matrix or separate branch by
+/// PrimEdit::is_matrix.
+godot::Transform3D prim_edit_to_transform(const net::model::PrimEdit& e);
 
-    /// The spine axis a USD Cone/Cylinder "grows" along. Mirrors the load-time
-    /// bake in UsdGodotTypeConverter::toTransform: the converter post-rotates the
-    /// Godot basis so the prim points up (Godot's Y), because Godot's primitive
-    /// meshes are Y-spined while USD's default is also Y but authored prims may
-    /// pick X or Z. This enum lets the collaboration path invert that same bake.
-    enum class SpineAxis { None, X, Y, Z };
+/// The spine axis a USD Cone/Cylinder "grows" along. Mirrors the load-time
+/// bake in UsdGodotTypeConverter::toTransform: the converter post-rotates the
+/// Godot basis so the prim points up (Godot's Y), because Godot's primitive
+/// meshes are Y-spined while USD's default is also Y but authored prims may
+/// pick X or Z. This enum lets the collaboration path invert that same bake.
+enum class SpineAxis
+{
+    None,
+    X,
+    Y,
+    Z
+};
 
-    /// Re-apply the load-time spine-axis rotation to a Godot basis (the presentation
-    /// rotation UsdGodotTypeConverter::toTransform bakes in). Identity for Y/None.
-    /// Used on inbound: the wire/USD basis is raw (unrotated), and the live
-    /// Godot node must carry the presentation rotation to match the imported prim.
-    godot::Basis apply_spine_axis(const godot::Basis& basis, SpineAxis axis);
+/// Re-apply the load-time spine-axis rotation to a Godot basis (the presentation
+/// rotation UsdGodotTypeConverter::toTransform bakes in). Identity for Y/None.
+/// Used on inbound: the wire/USD basis is raw (unrotated), and the live
+/// Godot node must carry the presentation rotation to match the imported prim.
+godot::Basis apply_spine_axis(const godot::Basis& basis, SpineAxis axis);
 
-    /// Strip the load-time spine-axis rotation from a Godot basis (inverse of
-    /// apply_spine_axis). Identity for Y/None. Used on outbound / before authoring
-    /// to USD: the Godot node basis carries the presentation rotation, which must
-    /// be removed so USD stores the raw (unrotated) orientation.
-    godot::Basis strip_spine_axis(const godot::Basis& basis, SpineAxis axis);
+/// Strip the load-time spine-axis rotation from a Godot basis (inverse of
+/// apply_spine_axis). Identity for Y/None. Used on outbound / before authoring
+/// to USD: the Godot node basis carries the presentation rotation, which must
+/// be removed so USD stores the raw (unrotated) orientation.
+godot::Basis strip_spine_axis(const godot::Basis& basis, SpineAxis axis);
 
 } // namespace xform
 } // namespace collab

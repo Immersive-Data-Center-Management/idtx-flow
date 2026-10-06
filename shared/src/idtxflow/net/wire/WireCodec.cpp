@@ -27,8 +27,7 @@ bool decode(const std::string& bytes, DecodedMessage& out)
 
     switch (msg.message_case())
     {
-    case idtxcore::BaseMessage::kHandshake:
-    {
+    case idtxcore::BaseMessage::kHandshake: {
         const auto& h = msg.handshake();
         out.kind = DecodedMessage::Kind::Handshake;
         out.handshake.session_id = h.session_id();
@@ -36,8 +35,7 @@ bool decode(const std::string& bytes, DecodedMessage& out)
         out.handshake.usd_uri = h.usd_uri();
         return true;
     }
-    case idtxcore::BaseMessage::kXformBroadcast:
-    {
+    case idtxcore::BaseMessage::kXformBroadcast: {
         const auto& b = msg.xform_broadcast();
         const auto& u = b.update();
 
@@ -52,14 +50,10 @@ bool decode(const std::string& bytes, DecodedMessage& out)
         {
             edit.is_matrix = true;
             const auto& m = u.matrix();
-            edit.matrix.m = {
-                m.m00(), m.m01(), m.m02(), m.m03(),
-                m.m10(), m.m11(), m.m12(), m.m13(),
-                m.m20(), m.m21(), m.m22(), m.m23(),
-                m.m30(), m.m31(), m.m32(), m.m33()
-            };
+            edit.matrix.m = {m.m00(), m.m01(), m.m02(), m.m03(), m.m10(), m.m11(), m.m12(), m.m13(),
+                             m.m20(), m.m21(), m.m22(), m.m23(), m.m30(), m.m31(), m.m32(), m.m33()};
         }
-        else if (u.has_seperate())   // the wire field name is intentionally "seperate"
+        else if (u.has_seperate()) // the wire field name is intentionally "seperate"
         {
             edit.is_matrix = false;
             const auto& s = u.seperate();
@@ -75,24 +69,21 @@ bool decode(const std::string& bytes, DecodedMessage& out)
         }
         return true;
     }
-    case idtxcore::BaseMessage::kAck:
-    {
+    case idtxcore::BaseMessage::kAck: {
         const auto& a = msg.ack();
         out.kind = DecodedMessage::Kind::Ack;
         out.ack.ok = a.ok();
         out.ack.error = a.error();
         return true;
     }
-    case idtxcore::BaseMessage::kError:
-    {
+    case idtxcore::BaseMessage::kError: {
         const auto& e = msg.error();
         out.kind = DecodedMessage::Kind::Error;
         out.error.code = e.code();
         out.error.message = e.message();
         return true;
     }
-    case idtxcore::BaseMessage::kSnapshotComplete:
-    {
+    case idtxcore::BaseMessage::kSnapshotComplete: {
         // Terminal marker of the late-joiner snapshot: no payload to extract, just
         // the boundary signal that the client now has the full current state.
         out.kind = DecodedMessage::Kind::SnapshotComplete;
@@ -103,10 +94,8 @@ bool decode(const std::string& bytes, DecodedMessage& out)
     }
 }
 
-std::string encode_transform_update(const std::string& session_id,
-                                    const model::PrimEdit& edit,
-                                    uint64_t base_server_seq,
-                                    uint64_t request_id)
+std::string encode_transform_update(const std::string& session_id, const model::PrimEdit& edit,
+                                    uint64_t base_server_seq, uint64_t request_id)
 {
     idtxcore::BaseMessage msg;
     msg.set_session_id(session_id);
@@ -117,7 +106,7 @@ std::string encode_transform_update(const std::string& session_id,
 
     idtxcore::TransformUpdate* upd = msg.mutable_xform_update();
     upd->set_session_id(session_id);
-    upd->set_usd_file("");           // backend ignores; prim_path is authoritative
+    upd->set_usd_file(""); // backend ignores; prim_path is authoritative
     upd->set_prim_path(edit.prim_path);
     upd->set_timestamp(edit.timestamp);
 
@@ -125,14 +114,26 @@ std::string encode_transform_update(const std::string& session_id,
     {
         idtxcore::Matrix4dTransform* m = upd->mutable_matrix();
         const auto& a = edit.matrix.m;
-        m->set_m00(a[0]);  m->set_m01(a[1]);  m->set_m02(a[2]);  m->set_m03(a[3]);
-        m->set_m10(a[4]);  m->set_m11(a[5]);  m->set_m12(a[6]);  m->set_m13(a[7]);
-        m->set_m20(a[8]);  m->set_m21(a[9]);  m->set_m22(a[10]); m->set_m23(a[11]);
-        m->set_m30(a[12]); m->set_m31(a[13]); m->set_m32(a[14]); m->set_m33(a[15]);
+        m->set_m00(a[0]);
+        m->set_m01(a[1]);
+        m->set_m02(a[2]);
+        m->set_m03(a[3]);
+        m->set_m10(a[4]);
+        m->set_m11(a[5]);
+        m->set_m12(a[6]);
+        m->set_m13(a[7]);
+        m->set_m20(a[8]);
+        m->set_m21(a[9]);
+        m->set_m22(a[10]);
+        m->set_m23(a[11]);
+        m->set_m30(a[12]);
+        m->set_m31(a[13]);
+        m->set_m32(a[14]);
+        m->set_m33(a[15]);
     }
     else
     {
-        idtxcore::SeparateTransform* s = upd->mutable_seperate();   // "seperate" (sic)
+        idtxcore::SeparateTransform* s = upd->mutable_seperate(); // "seperate" (sic)
         s->mutable_translation()->set_x(edit.separate.translation[0]);
         s->mutable_translation()->set_y(edit.separate.translation[1]);
         s->mutable_translation()->set_z(edit.separate.translation[2]);

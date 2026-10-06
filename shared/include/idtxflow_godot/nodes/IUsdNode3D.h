@@ -55,14 +55,20 @@ class IDTXFLOW_GODOT_API IUsdNode3D
      * Store the StageNode3D reference that owns this node that has been converted from an UsdPrim
      * @param node The Reference to the StageNode
      */
-    void set_stage_node(UsdStageNode3D* node) { stage_node_ = node; }
+    void set_stage_node(UsdStageNode3D* node)
+    {
+        stage_node_ = node;
+    }
 
     /**
      * Getter for the stage node that owns this converted node.
      * @return stage_node_
      */
-    UsdStageNode3D* get_stage_node() const { return stage_node_; }
-    
+    UsdStageNode3D* get_stage_node() const
+    {
+        return stage_node_;
+    }
+
     /**
      * Getter for the path to the stage referred to by the stage_node_.
      * @return prim_path
@@ -120,7 +126,7 @@ class IDTXFLOW_GODOT_API IUsdNode3D
 
     /**
      * Getter for the prim type name of the prim this node has been converted from
-     * @return 
+     * @return
      */
     virtual godot::String get_prim_type() const
     {

@@ -113,40 +113,71 @@ class UsdStageNode3D : public godot::Node3D, public IUsdNode3D
      * @return the live stage, or an empty UsdStageRefPtr when none is loaded
      */
     [[nodiscard]]
-    pxr::UsdStageRefPtr get_stage() const { return stage_handle_ ? stage_handle_->Stage() : pxr::UsdStageRefPtr(); }
+    pxr::UsdStageRefPtr get_stage() const
+    {
+        return stage_handle_ ? stage_handle_->Stage() : pxr::UsdStageRefPtr();
+    }
 
     /**
      * Check if the stage is currently being loaded asynchronously.
      */
-    bool is_loading() const { return is_loading_; }
+    bool is_loading() const
+    {
+        return is_loading_;
+    }
 
-    /// The authoring bridge for this node's live stage, created on first use.
-    /// Returns null when there is no live stage. Non-owning pointer; the node
-    /// owns the bridge.
+    /**
+     * The authoring bridge for this node's live stage, created on first use.
+     * Returns null when there is no live stage. Non-owning pointer; the node
+     * owns the bridge.
+     * @return the authoring bridge, or null when no live stage exists
+     */
     idtxflow::net::ports::IStageBridge* get_or_create_bridge();
 
-    /// Whether this node authors local (session-less) transform edits into its
-    /// stage. Off by default; collaboration is unaffected either way.
+    /**
+     * Whether this node authors local (session-less) transform edits into its
+     * stage. Off by default; collaboration is unaffected either way.
+     * @param enabled true to author local transform edits
+     */
     void set_local_authoring(bool enabled);
-    bool get_local_authoring() const { return local_authoring_; }
+    bool get_local_authoring() const
+    {
+        return local_authoring_;
+    }
 
-    /// Whether moving the stage's placement root (its defaultPrim, e.g. "/World")
-    /// is authored into USD. Off by default: the root carries display-only
-    /// placement, so its move is not persisted (children are unaffected). On:
-    /// the root's transform is authored too.
-    void set_author_placement_root(bool enabled) { author_placement_root_ = enabled; }
-    bool get_author_placement_root() const { return author_placement_root_; }
+    /**
+     * Whether moving the stage's placement root (its defaultPrim, e.g. "/World")
+     * is authored into USD. Off by default: the root carries display-only
+     * placement, so its move is not persisted (children are unaffected). On:
+     * the root's transform is authored too.
+     * @param enabled true to author the placement root's transform
+     */
+    void set_author_placement_root(bool enabled)
+    {
+        author_placement_root_ = enabled;
+    }
+    bool get_author_placement_root() const
+    {
+        return author_placement_root_;
+    }
 
-    /// Author a converted child's transform into this node's stage (routes
-    /// through the edit controller). Entry point for the node transform triggers.
+    /**
+     * Author a converted child's transform into this node's stage (routes
+     * through the edit controller). Entry point for the node transform triggers.
+     * @param child The converted child node whose transform to author
+     */
     void author_node_transform(godot::Node3D* child);
 
-    /// Save a flattened snapshot of this node's live stage to a new USD file at
-    /// @p out_uri (res://, user://, or absolute; extension selects the encoding).
-    /// Non-destructive; the source is untouched. Returns OK or a Godot Error.
+    /**
+     * Save a flattened snapshot of this node's live stage to a new USD file at
+     * out_uri (res://, user://, or absolute; extension selects the encoding).
+     * Non-destructive; the source is untouched.
+     * @param out_uri Target path for the new USD file
+     * @return OK on success, else a Godot Error
+     */
     godot::Error save_stage(const godot::String& out_uri);
-    
-protected:
+
+  protected:
     /**
      * reconstructing the node either after loading the scene this node is contained in, or during an
      * _exit_tree -> _enter_tree cycle

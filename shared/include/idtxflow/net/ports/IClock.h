@@ -14,14 +14,14 @@ namespace net
 {
 namespace ports
 {
-    struct IClock
-    {
-        virtual ~IClock() = default;
+struct IClock
+{
+    virtual ~IClock() = default;
 
-        /// Milliseconds since an arbitrary but monotonic-enough epoch, used to
-        /// stamp outbound edits.
-        virtual int64_t now_millis() const = 0;
-    };
+    /// Milliseconds since an arbitrary but monotonic-enough epoch, used to
+    /// stamp outbound edits.
+    virtual int64_t now_millis() const = 0;
+};
 
 } // namespace ports
 } // namespace net

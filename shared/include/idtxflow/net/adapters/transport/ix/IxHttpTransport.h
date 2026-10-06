@@ -25,25 +25,25 @@ namespace net
 {
 namespace adapters
 {
-    class IxHttpTransport : public ports::IHttpTransport
-    {
-    public:
-        IxHttpTransport() = default;
+class IxHttpTransport : public ports::IHttpTransport
+{
+  public:
+    IxHttpTransport() = default;
 
-        void set_base_url(std::string url) override;
-        std::string base_url() const override;
+    void set_base_url(std::string url) override;
+    std::string base_url() const override;
 
-        void request_async(const Request& request, Cb callback) override;
-        Response request_sync(const Request& request) override;
+    void request_async(const Request& request, Cb callback) override;
+    Response request_sync(const Request& request) override;
 
-        void set_timeouts(int connect_ms, int transfer_ms) override;
+    void set_timeouts(int connect_ms, int transfer_ms) override;
 
-    private:
-        std::string base_url_; // empty until set_base_url() is called
-        int         connect_ms_ = 30000;
-        int         transfer_ms_ = 120000;
-        utils::ThreadPool pool_{2};
-    };
+  private:
+    std::string base_url_; // empty until set_base_url() is called
+    int connect_ms_ = 30000;
+    int transfer_ms_ = 120000;
+    utils::ThreadPool pool_{2};
+};
 
 } // namespace adapters
 } // namespace net

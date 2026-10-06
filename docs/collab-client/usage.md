@@ -227,6 +227,14 @@ Server-side / cross-component:
   referenced file as a nested stage; a commit to that child by someone editing it
   directly is not propagated to sessions that merely reference it (the server matches
   only same-file sessions, and there is no referenced-sublayer-changed notification).
+- **A server commit can rewrite relative payload/reference paths to absolute, breaking
+  downloads** — committing a session flattens the composed layer stack back into the
+  file. For a file whose payloads/references are authored as **relative** paths, the
+  flatten re-anchors them to **absolute** paths on the server's filesystem. The committed
+  file is then written with those absolute paths, overwriting the previously-relative
+  ones; a client that downloads it cannot resolve the payloads because the paths point at
+  a location on the server rather than inside the downloaded file set. Observed with
+  nested-payload scenes.
 
 ### Developer notes / technical debt
 

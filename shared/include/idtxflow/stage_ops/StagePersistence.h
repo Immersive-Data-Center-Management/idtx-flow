@@ -32,7 +32,7 @@ namespace stage_ops
 /// human-readable description.
 struct SaveResult
 {
-    bool        ok = false;
+    bool ok = false;
     std::string error;
 };
 
@@ -42,49 +42,30 @@ class StagePersistence
 {
     IDTX_LOG_CATEGORY("StagePersistence")
 
-public:
-    /**
-     * @brief Export the flattened layer stack of @p stage to @p out_os_path.
-     * @param stage        Live stage (session layer over the source root stack).
-     * @param out_os_path  Absolute OS filesystem path of the new file to write.
-     *                     The extension selects the encoding (.usda/.usdc/.usdz).
-     * @return SaveResult{true,""} on success; {false,<reason>} on any failure.
-     *         The target is only replaced atomically once the write fully
-     *         succeeds, so a failed export never leaves a truncated file.
-     */
-    static SaveResult ExportFlattened(const pxr::UsdStageRefPtr& stage,
-                                      const std::string& out_os_path);
+  public:
+    /// Export the flattened layer stack of @p stage to @p out_os_path (an absolute
+    /// OS path; the extension selects the encoding .usda/.usdc/.usdz). Returns
+    /// SaveResult{true,""} on success, else {false,<reason>}. The target is only
+    /// replaced atomically once the write fully succeeds, so a failed export never
+    /// leaves a truncated file.
+    static SaveResult ExportFlattened(const pxr::UsdStageRefPtr& stage, const std::string& out_os_path);
 
-    /**
-     * @brief Pure, side-effect-free guard: reject targets that must never be
-     *        written (empty path, or anything under a download/`.scn` cache).
-     * @param out_os_path  Candidate OS path.
-     * @param cache_dir_os Absolute OS path of the forbidden cache directory.
-     *                     Empty disables the cache check.
-     * @param out_error    Set to the reason when the target is rejected.
-     * @return true when the target is acceptable to write.
-     */
-    static bool IsValidTarget(const std::string& out_os_path,
-                              const std::string& cache_dir_os,
-                              std::string& out_error);
+    /// Pure, side-effect-free guard: reject targets that must never be written
+    /// (empty path, or anything under @p cache_dir_os, the forbidden download/`.scn`
+    /// cache directory; empty disables the cache check). On rejection, sets
+    /// @p out_error and returns false; true when the target is acceptable to write.
+    static bool IsValidTarget(const std::string& out_os_path, const std::string& cache_dir_os, std::string& out_error);
 
-    /**
-     * @brief Pure, side-effect-free scheme check: is @p source_uri a local,
-     *        writable source rather than a remote (http/https) one whose on-disk
-     *        root is a disposable download cache?
-     * @param source_uri A stage source URI (e.g. a local path or http(s)://).
-     * @param out_error  Set to the reason when the source is not locally writable.
-     * @return true for a local source; false for an http(s):// source.
-     */
-    static bool IsLocalWritableSource(const std::string& source_uri,
-                                      std::string& out_error);
+    /// Pure, side-effect-free scheme check: is @p source_uri a local, writable
+    /// source rather than a remote (http/https) one whose on-disk root is a
+    /// disposable download cache? Sets @p out_error and returns false for a remote
+    /// source; true for a local one.
+    static bool IsLocalWritableSource(const std::string& source_uri, std::string& out_error);
 
-private:
-    static SaveResult ExportFlat(const pxr::UsdStageRefPtr& stage,
-                                 const std::string& out_os_path);
+  private:
+    static SaveResult ExportFlat(const pxr::UsdStageRefPtr& stage, const std::string& out_os_path);
 
-    static SaveResult ExportUsdz(const pxr::UsdStageRefPtr& stage,
-                                 const std::string& out_os_path);
+    static SaveResult ExportUsdz(const pxr::UsdStageRefPtr& stage, const std::string& out_os_path);
 };
 
 } // namespace stage_ops

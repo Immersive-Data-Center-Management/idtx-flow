@@ -138,22 +138,10 @@ class UsdHttpAssetResolver : public ArResolver
         ResolveFunction() = [typed_cache](const std::string& url) -> std::optional<std::filesystem::path> {
             return typed_cache->Resolve(url);
         };
-        PrefetchFunction() = [typed_cache](const std::string& url)
-        {
-            typed_cache->Prefetch(url);
-        };
-        IsCachedFunction() = [typed_cache](const std::string& url) -> bool
-        {
-            return typed_cache->IsCached(url);
-        };
-        EvictFunction() = [typed_cache](const std::string& url)
-        {
-            typed_cache->Evict(url);
-        };
-        ClearCacheFunction() = [typed_cache]()
-        {
-            typed_cache->ClearCache();
-        };
+        PrefetchFunction() = [typed_cache](const std::string& url) { typed_cache->Prefetch(url); };
+        IsCachedFunction() = [typed_cache](const std::string& url) -> bool { return typed_cache->IsCached(url); };
+        EvictFunction() = [typed_cache](const std::string& url) { typed_cache->Evict(url); };
+        ClearCacheFunction() = [typed_cache]() { typed_cache->ClearCache(); };
         IDTX_LOG(IDTX_INFO, "Configured with cache dir: {} (custom fetcher)", cache_dir.string());
     }
 
@@ -161,7 +149,7 @@ class UsdHttpAssetResolver : public ArResolver
      * Invalidate a single URL in the configured cache (deletes its local file), so
      * the next resolve of that URL re-downloads it. No-op if nothing is cached.
      * Works for both the default and custom-fetcher (type-erased) caches.
-     * 
+     *
      * Use to force a fresh fetch of a URL whose remote content may have changed —
      * HttpAssetCache::Resolve() otherwise serves the existing cached file as-is, without revalidation.
      */
@@ -197,7 +185,7 @@ class UsdHttpAssetResolver : public ArResolver
         }
     }
 
-protected:
+  protected:
     // -------------------------------------------------------------------
     // ArResolver interface implementation
     // -------------------------------------------------------------------
@@ -272,15 +260,14 @@ protected:
         std::string asset_path = local_path->generic_string();
         std::error_code ec;
         const auto bytes = std::filesystem::file_size(asset_path, ec);
-        IDTX_LOG(IDTX_DEBUG, "Opening cached asset '{}' from '{}' ({} bytes)",
-                 url, asset_path, ec ? 0 : bytes);
+        IDTX_LOG(IDTX_DEBUG, "Opening cached asset '{}' from '{}' ({} bytes)", url, asset_path, ec ? 0 : bytes);
         auto asset = ArFilesystemAsset::Open(ArResolvedPath(asset_path));
         if (!asset)
         {
             IDTX_LOG(IDTX_ERROR,
-                "Downloaded '{}' to '{}' ({} bytes) but USD could not open it "
-                "(not a valid USD asset? wrong/error response body?).",
-                url, asset_path, ec ? 0 : bytes);
+                     "Downloaded '{}' to '{}' ({} bytes) but USD could not open it "
+                     "(not a valid USD asset? wrong/error response body?).",
+                     url, asset_path, ec ? 0 : bytes);
         }
         return asset;
     }

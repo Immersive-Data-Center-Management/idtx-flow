@@ -34,86 +34,92 @@ namespace idtxflow
 {
 namespace collab
 {
-    class Ticker : public net::ports::IFrameTicker
+class Ticker : public net::ports::IFrameTicker
+{
+  public:
+    Ticker(godot::Object* host, godot::StringName frame_method)
+        : host_(host),
+          frame_method_(std::move(frame_method))
     {
-    public:
-        Ticker(godot::Object* host, godot::StringName frame_method)
-            : host_(host), frame_method_(std::move(frame_method)) {}
+    }
 
-        void set_tick(Tick fn) override
+    void set_tick(Tick fn) override
+    {
+        tick_ = std::move(fn);
+        try_connect();
+    }
+
+    void clear_tick() override
+    {
+        disconnect();
+        tick_ = nullptr;
+    }
+
+    /// Invoked from the host's per-frame method; runs the registered tick.
+    void fire()
+    {
+        if (tick_) tick_();
+    }
+
+    /// Connect to process_frame if not already connected. Idempotent and
+    /// cheap; safe to call repeatedly (e.g. from a deferred bootstrap) until
+    /// the SceneTree exists, since it does not at module-init time.
+    void try_connect()
+    {
+        if (connected_ || !host_ || !tick_)
         {
-            tick_ = std::move(fn);
-            try_connect();
+            return;
         }
-
-        void clear_tick() override
+        godot::SceneTree* tree = scene_tree();
+        if (!tree)
         {
-            disconnect();
-            tick_ = nullptr;
+            return;
         }
-
-        /// Invoked from the host's per-frame method; runs the registered tick.
-        void fire()
+        const godot::Callable cb(host_, frame_method_);
+        if (!tree->is_connected("process_frame", cb))
         {
-            if (tick_) tick_();
+            tree->connect("process_frame", cb);
         }
+        connected_ = true;
+    }
 
-        /// Connect to process_frame if not already connected. Idempotent and
-        /// cheap; safe to call repeatedly (e.g. from a deferred bootstrap) until
-        /// the SceneTree exists, since it does not at module-init time.
-        void try_connect()
+    bool is_connected() const
+    {
+        return connected_;
+    }
+
+  private:
+    void disconnect()
+    {
+        if (!connected_ || !host_)
         {
-            if (connected_ || !host_ || !tick_)
-            {
-                return;
-            }
-            godot::SceneTree* tree = scene_tree();
-            if (!tree)
-            {
-                return;
-            }
-            const godot::Callable cb(host_, frame_method_);
-            if (!tree->is_connected("process_frame", cb))
-            {
-                tree->connect("process_frame", cb);
-            }
-            connected_ = true;
-        }
-
-        bool is_connected() const { return connected_; }
-
-    private:
-        void disconnect()
-        {
-            if (!connected_ || !host_)
-            {
-                connected_ = false;
-                return;
-            }
-            godot::SceneTree* tree = scene_tree();
-            const godot::Callable cb(host_, frame_method_);
-            if (tree && tree->is_connected("process_frame", cb))
-            {
-                tree->disconnect("process_frame", cb);
-            }
             connected_ = false;
+            return;
         }
-
-        static godot::SceneTree* scene_tree()
+        godot::SceneTree* tree = scene_tree();
+        const godot::Callable cb(host_, frame_method_);
+        if (tree && tree->is_connected("process_frame", cb))
         {
-            godot::Engine* engine = godot::Engine::get_singleton();
-            if (!engine)
-            {
-                return nullptr;
-            }
-            return godot::Object::cast_to<godot::SceneTree>(engine->get_main_loop());
+            tree->disconnect("process_frame", cb);
         }
+        connected_ = false;
+    }
 
-        godot::Object*    host_;
-        godot::StringName frame_method_;
-        Tick              tick_;
-        bool              connected_ = false;
-    };
+    static godot::SceneTree* scene_tree()
+    {
+        godot::Engine* engine = godot::Engine::get_singleton();
+        if (!engine)
+        {
+            return nullptr;
+        }
+        return godot::Object::cast_to<godot::SceneTree>(engine->get_main_loop());
+    }
+
+    godot::Object* host_;
+    godot::StringName frame_method_;
+    Tick tick_;
+    bool connected_ = false;
+};
 
 } // namespace collab
 } // namespace idtxflow

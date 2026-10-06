@@ -42,12 +42,18 @@ class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
 {
     GDCLASS(IdtxClient, godot::Node)
 
-public:
+  public:
     IdtxClient();
     ~IdtxClient() override;
 
-    static IdtxClient* get_singleton() { return singleton_; }
-    static void set_singleton(IdtxClient* s) { singleton_ = s; }
+    static IdtxClient* get_singleton()
+    {
+        return singleton_;
+    }
+    static void set_singleton(IdtxClient* s)
+    {
+        singleton_ = s;
+    }
 
     /// Construct the adapters and start the engine. Idempotent. The transport factory
     /// (injected by the composition root) creates the concrete HTTP / WebSocket transports
@@ -56,12 +62,12 @@ public:
     void shutdown();
 
     // --- Configuration ---
-    
+
     void set_base_url(const godot::String& url);
     godot::String get_base_url() const;
 
     // --- Auth state ---
-    
+
     bool is_authenticated() const;
     godot::String get_access_token() const;
     void clear_credentials();
@@ -71,7 +77,7 @@ public:
     // a Dictionary { "ok": true, "result": <payload> } on success, or
     // { "ok": false, "http_code": int, "error_code": String, "message": String }
     // on failure.
-    
+
     // Authenticate a username/password and store the returned token for later
     // authenticated calls. result: { access_token: String, expires_in: int }
     void login(const godot::String& username, const godot::String& password,
@@ -109,7 +115,7 @@ public:
     void check_thumbnail_exists(const godot::String& usd_file, const godot::Callable& on_done = godot::Callable());
 
     // --- high-level session flow ---
-    
+
     // Create a new collaboration session for a file, then enter it. `on_done`
     // (optional) reports the per-request completion once the session is created and
     // its socket is open: { "ok": true, "result": { session_id, usd_file, mode,
@@ -117,22 +123,20 @@ public:
     // the stage from `stage_url` and calls bind_session. `end_session` emits
     // `session_closed`.
     void open_new_session(const godot::String& usd_file, const godot::String& mode = "single_edit",
-                          bool auto_commit = false,
-                          const godot::Callable& on_done = godot::Callable());
+                          bool auto_commit = false, const godot::Callable& on_done = godot::Callable());
     // Join an existing collaboration session by id, then enter it. Same per-request
     // completion as open_new_session (`on_done` result with session_id + stage_url +
     // ws_url), but performs a session lookup instead of a create.
-    void open_existing_session(const godot::String& session_id,
-                               const godot::Callable& on_done = godot::Callable());
+    void open_existing_session(const godot::String& session_id, const godot::Callable& on_done = godot::Callable());
     void end_session(const godot::String& session_id);
 
     // --- URL helpers (sync) ---
-    
+
     godot::String download_url(const godot::String& usd_file) const;
     godot::String ws_base_url() const;
 
     // --- WebSocket session ---
-    
+
     // Whether the given session's socket is open (false for an unknown id).
     bool is_socket_open(const godot::String& session_id) const;
 
@@ -151,7 +155,7 @@ public:
     void unbind_session(const godot::String& session_id);
 
     // --- CollabObserver ---
-    
+
     void on_login_ok(const idtxflow::net::model::LoginResult& result) override;
     void on_health(const idtxflow::net::model::HealthResult& result) override;
     void on_thumbnail(const idtxflow::net::model::ThumbnailResult& result) override;
@@ -163,26 +167,23 @@ public:
     void on_download_exists(const std::string& usd_file, bool exists) override;
     void on_thumbnail_exists(const std::string& usd_file, bool exists) override;
     void on_request_failed(idtxflow::net::Op op, const idtxflow::net::model::RestError& error) override;
-    void on_session_ready(const idtxflow::net::model::SessionInfo& session,
-                          const std::string& stage_url, const std::string& ws_url) override;
+    void on_session_ready(const idtxflow::net::model::SessionInfo& session, const std::string& stage_url,
+                          const std::string& ws_url) override;
     void on_session_closed(const std::string& session_id) override;
     void on_socket_opened(const std::string& session_id) override;
-    void on_handshake(const std::string& session_id, const std::string& usd_path,
-                      const std::string& usd_uri) override;
+    void on_handshake(const std::string& session_id, const std::string& usd_path, const std::string& usd_uri) override;
     void on_remote_edit(const std::string& session_id, const idtxflow::net::model::PrimEdit& edit,
                         const std::string& from_client_id) override;
     void on_snapshot_complete(const std::string& session_id) override;
     void on_ack(const std::string& session_id, bool ok, const std::string& error) override;
-    void on_socket_error(const std::string& session_id,
-                         const std::string& code, const std::string& message) override;
-    void on_disconnected(const std::string& session_id,
-                         idtxflow::net::model::CloseReason reason, int code,
+    void on_socket_error(const std::string& session_id, const std::string& code, const std::string& message) override;
+    void on_disconnected(const std::string& session_id, idtxflow::net::model::CloseReason reason, int code,
                          const std::string& text) override;
 
-protected:
+  protected:
     static void _bind_methods();
 
-private:
+  private:
     IDTX_LOG_CATEGORY("IdtxClient")
 
     // Bound methods: the dispatcher drain (call_deferred target), the per-frame
@@ -228,10 +229,10 @@ private:
 
     bool initialized_ = false;
 
-    std::unique_ptr<idtxflow::collab::Dispatcher>                 dispatcher_;
-    std::unique_ptr<idtxflow::collab::Ticker>                     ticker_;
-    std::unique_ptr<idtxflow::net::ports::ITransportFactory>      transport_factory_;
-    idtxflow::net::AgnosticTransports                             transports_;
+    std::unique_ptr<idtxflow::collab::Dispatcher> dispatcher_;
+    std::unique_ptr<idtxflow::collab::Ticker> ticker_;
+    std::unique_ptr<idtxflow::net::ports::ITransportFactory> transport_factory_;
+    idtxflow::net::AgnosticTransports transports_;
 
     // Per-session sync state, keyed by session id. Records the node it is bound
     // to (by ObjectID, stable across the node's _exit_tree/_enter_tree cycle) and
@@ -239,9 +240,9 @@ private:
     // tracks whether this session's bridge is currently attached to the engine.
     struct SessionBinding
     {
-        uint64_t node_id = 0;          // Godot ObjectID of the bound UsdStageNode3D
-        bool     remote  = false;
-        bool     attached = false;     // bridge currently attached to the engine
+        uint64_t node_id = 0; // Godot ObjectID of the bound UsdStageNode3D
+        bool remote = false;
+        bool attached = false; // bridge currently attached to the engine
     };
     std::map<std::string, SessionBinding> bindings_;
 

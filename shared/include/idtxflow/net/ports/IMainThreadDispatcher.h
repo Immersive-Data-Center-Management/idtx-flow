@@ -17,13 +17,13 @@ namespace net
 {
 namespace ports
 {
-    struct IMainThreadDispatcher
-    {
-        virtual ~IMainThreadDispatcher() = default;
+struct IMainThreadDispatcher
+{
+    virtual ~IMainThreadDispatcher() = default;
 
-        /// Run fn on the engine main thread soon; delivery by the next frame is fine.
-        virtual void post(std::function<void()> fn) = 0;
-    };
+    /// Run fn on the engine main thread soon; delivery by the next frame is fine.
+    virtual void post(std::function<void()> fn) = 0;
+};
 
 } // namespace ports
 } // namespace net

@@ -31,77 +31,76 @@ namespace net
 {
 namespace adapters
 {
-    struct JwtHttpFetcher
+struct JwtHttpFetcher
+{
+    IDTX_LOG_CATEGORY("JwtHttpFetcher")
+
+    /// Transport used to perform the download. Shared so the value functor
+    /// can be copied into the resolver without dangling.
+    std::shared_ptr<ports::IHttpTransport> http;
+
+    JwtHttpFetcher() = default;
+    explicit JwtHttpFetcher(std::shared_ptr<ports::IHttpTransport> transport)
+        : http(std::move(transport))
     {
-        IDTX_LOG_CATEGORY("JwtHttpFetcher")
+    }
 
-        /// Transport used to perform the download. Shared so the value functor
-        /// can be copied into the resolver without dangling.
-        std::shared_ptr<ports::IHttpTransport> http;
-
-        JwtHttpFetcher() = default;
-        explicit JwtHttpFetcher(std::shared_ptr<ports::IHttpTransport> transport)
-            : http(std::move(transport))
+    /// Download `url` to `dest` with the current bearer token; true on success
+    /// Synchronous (see the file @brief for the threading contract)
+    bool operator()(const std::string& url, const std::filesystem::path& dest) const
+    {
+        if (!http)
         {
+            IDTX_LOG(IDTX_ERROR, "No transport configured; cannot fetch '{}'", url);
+            return false;
         }
 
-        /// Download `url` to `dest` with the current bearer token; true on success
-        /// Synchronous (see the file @brief for the threading contract)
-        bool operator()(const std::string& url, const std::filesystem::path& dest) const
+        std::filesystem::create_directories(dest.parent_path());
+
+        ports::IHttpTransport::Request req;
+        req.method = "GET";
+        req.url = url; // absolute URL used verbatim by the transport
+
+        // Attach the bearer token from the process-wide provider if present.
+        const std::string auth = StaticTokenProvider::instance().auth_header_value();
+        if (!auth.empty())
         {
-            if (!http)
-            {
-                IDTX_LOG(IDTX_ERROR, "No transport configured; cannot fetch '{}'", url);
-                return false;
-            }
-
-            std::filesystem::create_directories(dest.parent_path());
-
-            ports::IHttpTransport::Request req;
-            req.method = "GET";
-            req.url = url; // absolute URL used verbatim by the transport
-
-            // Attach the bearer token from the process-wide provider if present.
-            const std::string auth = StaticTokenProvider::instance().auth_header_value();
-            if (!auth.empty())
-            {
-                req.headers["Authorization"] = auth;
-            }
-
-            const ports::IHttpTransport::Response resp = http->request_sync(req);
-
-            if (!resp.ok())
-            {
-                IDTX_LOG(IDTX_ERROR, "Authenticated download failed for '{}': {} (HTTP {})",
-                    url, resp.error.empty() ? "request failed" : resp.error, resp.status);
-                return false;
-            }
-
-            std::ofstream file(dest, std::ios::binary);
-            if (!file.is_open())
-            {
-                IDTX_LOG(IDTX_ERROR, "Failed to open file for writing: {}", dest.string());
-                return false;
-            }
-
-            file.write(resp.body.data(), static_cast<std::streamsize>(resp.body.size()));
-            file.close();
-
-            if (file.fail())
-            {
-                IDTX_LOG(IDTX_ERROR, "Failed to write file: {}", dest.string());
-                std::error_code ec;
-                std::filesystem::remove(dest, ec);
-                return false;
-            }
-
-            IDTX_LOG(IDTX_INFO, "Downloaded (auth): {} -> {} (HTTP {}, {} bytes)",
-                url, dest.string(), resp.status, resp.body.size());
-            return true;
+            req.headers["Authorization"] = auth;
         }
-    };
+
+        const ports::IHttpTransport::Response resp = http->request_sync(req);
+
+        if (!resp.ok())
+        {
+            IDTX_LOG(IDTX_ERROR, "Authenticated download failed for '{}': {} (HTTP {})", url,
+                     resp.error.empty() ? "request failed" : resp.error, resp.status);
+            return false;
+        }
+
+        std::ofstream file(dest, std::ios::binary);
+        if (!file.is_open())
+        {
+            IDTX_LOG(IDTX_ERROR, "Failed to open file for writing: {}", dest.string());
+            return false;
+        }
+
+        file.write(resp.body.data(), static_cast<std::streamsize>(resp.body.size()));
+        file.close();
+
+        if (file.fail())
+        {
+            IDTX_LOG(IDTX_ERROR, "Failed to write file: {}", dest.string());
+            std::error_code ec;
+            std::filesystem::remove(dest, ec);
+            return false;
+        }
+
+        IDTX_LOG(IDTX_INFO, "Downloaded (auth): {} -> {} (HTTP {}, {} bytes)", url, dest.string(), resp.status,
+                 resp.body.size());
+        return true;
+    }
+};
 
 } // namespace adapters
 } // namespace net
 } // namespace idtxflow
-

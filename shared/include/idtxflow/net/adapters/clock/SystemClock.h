@@ -16,22 +16,22 @@ namespace net
 {
 namespace adapters
 {
-    class SystemClock : public ports::IClock
+class SystemClock : public ports::IClock
+{
+  public:
+    int64_t now_millis() const override
     {
-    public:
-        int64_t now_millis() const override
-        {
-            using namespace std::chrono;
-            return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-        }
+        using namespace std::chrono;
+        return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    }
 
-        /// Process-wide instance; shared freely since it holds no state.
-        static SystemClock& instance()
-        {
-            static SystemClock clock;
-            return clock;
-        }
-    };
+    /// Process-wide instance; shared freely since it holds no state.
+    static SystemClock& instance()
+    {
+        static SystemClock clock;
+        return clock;
+    }
+};
 
 } // namespace adapters
 } // namespace net

@@ -22,28 +22,26 @@ namespace idtxflow
 {
 namespace stage_ops
 {
-    /// Stateless orchestration over StagePersistence. All methods are static; the
-    /// stage and target are supplied by the caller.
-    class StageSaveController
-    {
-    public:
-        /// Save As... - flatten @p stage to the NEW target @p out_uri (res://,
-        /// user://, or absolute). Rejects an empty/cache-dir target. Returns OK or
-        /// a Godot Error.
-        static godot::Error save_as(const pxr::UsdStageRefPtr& stage,
-                                    const godot::String& out_uri);
+/// Stateless orchestration over StagePersistence. All methods are static; the
+/// stage and target are supplied by the caller.
+class StageSaveController
+{
+  public:
+    /// Save As... - flatten @p stage to the NEW target @p out_uri (res://,
+    /// user://, or absolute). Rejects an empty/cache-dir target. Returns OK or
+    /// a Godot Error.
+    static godot::Error save_as(const pxr::UsdStageRefPtr& stage, const godot::String& out_uri);
 
-        /// Overwrite the source with a flattened snapshot. @p source_uri is the
-        /// stage's original URI. A local source is flattened over its file. A
-        /// remote (http/https) source is REFUSED (ERR_UNAVAILABLE) unless
-        /// @p allow_remote is set, in which case the flatten overwrites only the
-        /// local download-cache copy (the stage's root real-path) - a transient
-        /// write that a cache reload/eviction discards; use the server commit or
-        /// save_as for durable output. Returns OK or a Godot Error.
-        static godot::Error save_overwrite(const pxr::UsdStageRefPtr& stage,
-                                           const godot::String& source_uri,
-                                           bool allow_remote = false);
-    };
+    /// Overwrite the source with a flattened snapshot. @p source_uri is the
+    /// stage's original URI. A local source is flattened over its file. A
+    /// remote (http/https) source is REFUSED (ERR_UNAVAILABLE) unless
+    /// @p allow_remote is set, in which case the flatten overwrites only the
+    /// local download-cache copy (the stage's root real-path) - a transient
+    /// write that a cache reload/eviction discards; use the server commit or
+    /// save_as for durable output. Returns OK or a Godot Error.
+    static godot::Error save_overwrite(const pxr::UsdStageRefPtr& stage, const godot::String& source_uri,
+                                       bool allow_remote = false);
+};
 
 } // namespace stage_ops
 } // namespace idtxflow

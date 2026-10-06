@@ -48,7 +48,7 @@ std::string RestClient::url_encode(const std::string& s)
     static const char* hex = "0123456789ABCDEF";
     std::string out;
     out.reserve(s.size() * 3);
-    for (unsigned char c : s)
+    for (unsigned char c: s)
     {
         if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~')
         {
@@ -66,8 +66,7 @@ std::string RestClient::url_encode(const std::string& s)
 
 void RestClient::report_error(const model::RestError& error, const ErrorCb& on_err)
 {
-    IDTX_LOG(IDTX_ERROR, "REST error http={} code='{}' msg='{}'",
-             error.http_code, error.error_code, error.message);
+    IDTX_LOG(IDTX_ERROR, "REST error http={} code='{}' msg='{}'", error.http_code, error.error_code, error.message);
     // A 401 on any protected call means the token is dead; clear it so the caller
     // (and any shared reader, e.g. the USD fetcher) stops sending a stale token.
     if (error.http_code == 401)
@@ -94,7 +93,9 @@ bool RestClient::attach_auth(ports::IHttpTransport::Request& req, const ErrorCb&
         err.http_code = 401;
         err.error_code = "not_authenticated";
         err.message = "Not authenticated: no token; log in first.";
-        dispatcher_->post([err, on_err] { if (on_err) on_err(err); });
+        dispatcher_->post([err, on_err] {
+            if (on_err) on_err(err);
+        });
         return false;
     }
     req.headers["Authorization"] = header;
@@ -108,8 +109,7 @@ void RestClient::health(HealthCb on_ok, ErrorCb on_err)
     req.endpoint = "/api/v1/health";
     // Unauthenticated probe: no Authorization header.
 
-    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp)
-    {
+    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp) {
         if (!resp.ok())
         {
             model::RestError err = adapters::RestCodec::parse_error(resp.status, resp.body, resp.error);
@@ -120,7 +120,9 @@ void RestClient::health(HealthCb on_ok, ErrorCb on_err)
         model::HealthResult hr;
         hr.ok = true;
         hr.http_code = resp.status;
-        dispatcher_->post([hr, on_ok] { if (on_ok) on_ok(hr); });
+        dispatcher_->post([hr, on_ok] {
+            if (on_ok) on_ok(hr);
+        });
     });
 }
 
@@ -133,7 +135,9 @@ void RestClient::fetch_thumbnail(const std::string& usd_file, ThumbnailCb on_ok,
     {
         model::ThumbnailResult hit = cached->second;
         IDTX_LOG(IDTX_DEBUG, "thumbnail cache hit for '{}' ({} bytes)", usd_file, hit.bytes.size());
-        dispatcher_->post([hit, on_ok] { if (on_ok) on_ok(hit); });
+        dispatcher_->post([hit, on_ok] {
+            if (on_ok) on_ok(hit);
+        });
         return;
     }
 
@@ -143,8 +147,7 @@ void RestClient::fetch_thumbnail(const std::string& usd_file, ThumbnailCb on_ok,
     if (!attach_auth(req, on_err)) return;
     IDTX_LOG(IDTX_DEBUG, "thumbnail cache miss -> GET {}", req.endpoint);
 
-    http_->request_async(req, [this, usd_file, on_ok, on_err](const ports::IHttpTransport::Response& resp)
-    {
+    http_->request_async(req, [this, usd_file, on_ok, on_err](const ports::IHttpTransport::Response& resp) {
         if (!resp.ok())
         {
             // Includes 404 "not generated yet" — deliver as an error and do NOT
@@ -162,16 +165,14 @@ void RestClient::fetch_thumbnail(const std::string& usd_file, ThumbnailCb on_ok,
 
         IDTX_LOG(IDTX_DEBUG, "thumbnail OK '{}' ({}B, ct='{}')", usd_file, tr.bytes.size(), tr.content_type);
 
-        dispatcher_->post([this, usd_file, tr, on_ok]
-        {
-            thumb_cache_[usd_file] = tr;   // store on the engine thread
+        dispatcher_->post([this, usd_file, tr, on_ok] {
+            thumb_cache_[usd_file] = tr; // store on the engine thread
             if (on_ok) on_ok(tr);
         });
     });
 }
 
-void RestClient::login(const std::string& username, const std::string& password,
-                       LoginCb on_ok, ErrorCb on_err)
+void RestClient::login(const std::string& username, const std::string& password, LoginCb on_ok, ErrorCb on_err)
 {
     ports::IHttpTransport::Request req;
     req.method = "POST";
@@ -179,8 +180,7 @@ void RestClient::login(const std::string& username, const std::string& password,
     req.body = adapters::RestCodec::make_login_body(username, password);
     req.headers["Content-Type"] = "application/json";
 
-    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp)
-    {
+    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp) {
         if (!resp.ok())
         {
             model::RestError err = adapters::RestCodec::parse_error(resp.status, resp.body, resp.error);
@@ -190,24 +190,22 @@ void RestClient::login(const std::string& username, const std::string& password,
 
         model::LoginResult lr;
         const bool parsed = adapters::RestCodec::parse_login(resp.body, lr);
-        dispatcher_->post([this, parsed, lr, resp, on_ok, on_err]
-        {
+        dispatcher_->post([this, parsed, lr, resp, on_ok, on_err] {
             if (parsed)
             {
                 if (on_ok) on_ok(lr);
             }
             else
             {
-                report_error(adapters::RestCodec::parse_error(resp.status, resp.body,
-                                                              "no access_token in response"),
+                report_error(adapters::RestCodec::parse_error(resp.status, resp.body, "no access_token in response"),
                              on_err);
             }
         });
     });
 }
 
-void RestClient::list_files(const std::string& name_contains, const std::string& extension,
-                            FilesCb on_ok, ErrorCb on_err)
+void RestClient::list_files(const std::string& name_contains, const std::string& extension, FilesCb on_ok,
+                            ErrorCb on_err)
 {
     std::string endpoint = "/api/v1/files";
     std::string query;
@@ -228,8 +226,7 @@ void RestClient::list_files(const std::string& name_contains, const std::string&
     req.endpoint = endpoint;
     if (!attach_auth(req, on_err)) return;
 
-    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp)
-    {
+    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp) {
         if (!resp.ok())
         {
             model::RestError err = adapters::RestCodec::parse_error(resp.status, resp.body, resp.error);
@@ -239,12 +236,14 @@ void RestClient::list_files(const std::string& name_contains, const std::string&
 
         std::vector<model::FileEntry> files;
         adapters::RestCodec::parse_files(resp.body, files);
-        dispatcher_->post([files, on_ok] { if (on_ok) on_ok(files); });
+        dispatcher_->post([files, on_ok] {
+            if (on_ok) on_ok(files);
+        });
     });
 }
 
-void RestClient::create_session(const std::string& usd_file, const std::string& mode,
-                                bool auto_commit, SessionCb on_ok, ErrorCb on_err)
+void RestClient::create_session(const std::string& usd_file, const std::string& mode, bool auto_commit, SessionCb on_ok,
+                                ErrorCb on_err)
 {
     ports::IHttpTransport::Request req;
     req.method = "POST";
@@ -253,8 +252,7 @@ void RestClient::create_session(const std::string& usd_file, const std::string& 
     req.headers["Content-Type"] = "application/json";
     if (!attach_auth(req, on_err)) return;
 
-    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp)
-    {
+    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp) {
         if (!resp.ok())
         {
             model::RestError err = adapters::RestCodec::parse_error(resp.status, resp.body, resp.error);
@@ -264,16 +262,14 @@ void RestClient::create_session(const std::string& usd_file, const std::string& 
 
         model::SessionInfo si;
         const bool parsed = adapters::RestCodec::parse_session(resp.body, si);
-        dispatcher_->post([this, parsed, si, resp, on_ok, on_err]
-        {
+        dispatcher_->post([this, parsed, si, resp, on_ok, on_err] {
             if (parsed)
             {
                 if (on_ok) on_ok(si);
             }
             else
             {
-                report_error(adapters::RestCodec::parse_error(resp.status, resp.body,
-                                                              "no session_id in response"),
+                report_error(adapters::RestCodec::parse_error(resp.status, resp.body, "no session_id in response"),
                              on_err);
             }
         });
@@ -287,8 +283,7 @@ void RestClient::list_sessions(SessionsCb on_ok, ErrorCb on_err)
     req.endpoint = "/api/v1/sessions";
     if (!attach_auth(req, on_err)) return;
 
-    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp)
-    {
+    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp) {
         if (!resp.ok())
         {
             model::RestError err = adapters::RestCodec::parse_error(resp.status, resp.body, resp.error);
@@ -298,7 +293,9 @@ void RestClient::list_sessions(SessionsCb on_ok, ErrorCb on_err)
 
         std::vector<model::SessionInfo> sessions;
         adapters::RestCodec::parse_sessions(resp.body, sessions);
-        dispatcher_->post([sessions, on_ok] { if (on_ok) on_ok(sessions); });
+        dispatcher_->post([sessions, on_ok] {
+            if (on_ok) on_ok(sessions);
+        });
     });
 }
 
@@ -309,8 +306,7 @@ void RestClient::get_session(const std::string& session_id, SessionCb on_ok, Err
     req.endpoint = "/api/v1/sessions/" + session_id;
     if (!attach_auth(req, on_err)) return;
 
-    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp)
-    {
+    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp) {
         if (!resp.ok())
         {
             model::RestError err = adapters::RestCodec::parse_error(resp.status, resp.body, resp.error);
@@ -320,16 +316,14 @@ void RestClient::get_session(const std::string& session_id, SessionCb on_ok, Err
 
         model::SessionInfo si;
         const bool parsed = adapters::RestCodec::parse_session(resp.body, si);
-        dispatcher_->post([this, parsed, si, resp, on_ok, on_err]
-        {
+        dispatcher_->post([this, parsed, si, resp, on_ok, on_err] {
             if (parsed)
             {
                 if (on_ok) on_ok(si);
             }
             else
             {
-                report_error(adapters::RestCodec::parse_error(resp.status, resp.body,
-                                                              "no session_id in response"),
+                report_error(adapters::RestCodec::parse_error(resp.status, resp.body, "no session_id in response"),
                              on_err);
             }
         });
@@ -343,8 +337,7 @@ void RestClient::commit_session(const std::string& session_id, CommitCb on_ok, E
     req.endpoint = "/api/v1/sessions/" + session_id + "/commit";
     if (!attach_auth(req, on_err)) return;
 
-    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp)
-    {
+    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp) {
         if (!resp.ok())
         {
             // Includes 409 "nothing_to_commit" — surfaced to the caller as an error.
@@ -355,7 +348,9 @@ void RestClient::commit_session(const std::string& session_id, CommitCb on_ok, E
 
         model::CommitResult cr;
         adapters::RestCodec::parse_commit(resp.body, cr);
-        dispatcher_->post([cr, on_ok] { if (on_ok) on_ok(cr); });
+        dispatcher_->post([cr, on_ok] {
+            if (on_ok) on_ok(cr);
+        });
     });
 }
 
@@ -366,18 +361,21 @@ void RestClient::check_download_exists(const std::string& usd_file, ExistsCb on_
     req.endpoint = "/api/v1/download/" + usd_file;
     if (!attach_auth(req, on_err)) return;
 
-    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp)
-    {
+    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp) {
         // 2xx => exists; 404 => a definitive "no", not an error. Anything else
         // (405, transport failure, ...) is a genuine error.
         if (resp.ok())
         {
-            dispatcher_->post([on_ok] { if (on_ok) on_ok(true); });
+            dispatcher_->post([on_ok] {
+                if (on_ok) on_ok(true);
+            });
             return;
         }
         if (resp.status == 404)
         {
-            dispatcher_->post([on_ok] { if (on_ok) on_ok(false); });
+            dispatcher_->post([on_ok] {
+                if (on_ok) on_ok(false);
+            });
             return;
         }
         model::RestError err = adapters::RestCodec::parse_error(resp.status, resp.body, resp.error);
@@ -392,16 +390,19 @@ void RestClient::check_thumbnail_exists(const std::string& usd_file, ExistsCb on
     req.endpoint = "/api/v1/thumbnail/" + usd_file;
     if (!attach_auth(req, on_err)) return;
 
-    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp)
-    {
+    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp) {
         if (resp.ok())
         {
-            dispatcher_->post([on_ok] { if (on_ok) on_ok(true); });
+            dispatcher_->post([on_ok] {
+                if (on_ok) on_ok(true);
+            });
             return;
         }
         if (resp.status == 404)
         {
-            dispatcher_->post([on_ok] { if (on_ok) on_ok(false); });
+            dispatcher_->post([on_ok] {
+                if (on_ok) on_ok(false);
+            });
             return;
         }
         model::RestError err = adapters::RestCodec::parse_error(resp.status, resp.body, resp.error);
@@ -409,20 +410,20 @@ void RestClient::check_thumbnail_exists(const std::string& usd_file, ExistsCb on
     });
 }
 
-void RestClient::delete_session(const std::string& session_id,
-                                DeletedCb on_ok, ErrorCb on_err)
+void RestClient::delete_session(const std::string& session_id, DeletedCb on_ok, ErrorCb on_err)
 {
     ports::IHttpTransport::Request req;
     req.method = "DELETE";
     req.endpoint = "/api/v1/sessions/" + session_id;
     if (!attach_auth(req, on_err)) return;
 
-    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp)
-    {
+    http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp) {
         // 204 No Content on success; 404 means already gone — both are "ok".
         if (resp.ok() || resp.status == 404)
         {
-            dispatcher_->post([on_ok] { if (on_ok) on_ok(); });
+            dispatcher_->post([on_ok] {
+                if (on_ok) on_ok();
+            });
             return;
         }
         model::RestError err = adapters::RestCodec::parse_error(resp.status, resp.body, resp.error);
@@ -432,4 +433,3 @@ void RestClient::delete_session(const std::string& session_id,
 
 } // namespace net
 } // namespace idtxflow
-

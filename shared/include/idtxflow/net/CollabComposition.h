@@ -42,42 +42,41 @@ namespace idtxflow
 {
 namespace net
 {
-    /// Owns the engine-agnostic transports produced for one engine instance.
-    /// Keep this alive for as long as the engine holds the ports built from it.
-    /// Only the shared HTTP transport is owned here; per-session WebSocket
-    /// transports are minted by the engine on demand via the injected factory.
-    struct AgnosticTransports
-    {
-        std::unique_ptr<ports::IHttpTransport> http;
-    };
+/// Owns the engine-agnostic transports produced for one engine instance.
+/// Keep this alive for as long as the engine holds the ports built from it.
+/// Only the shared HTTP transport is owned here; per-session WebSocket
+/// transports are minted by the engine on demand via the injected factory.
+struct AgnosticTransports
+{
+    std::unique_ptr<ports::IHttpTransport> http;
+};
 
-    /// Build the engine-agnostic HTTP transport from `factory` and fill the
-    /// agnostic fields of `ports` (http, ws_factory, token, clock). The WebSocket
-    /// is not built here: the engine mints one per session through `ws_factory`.
-    /// The binding still supplies the engine-specific ports (dispatcher, ticker)
-    /// itself. Returns the owned transports; the caller must keep the returned
-    /// value — and `factory` — alive for as long as the engine uses the ports.
-    inline AgnosticTransports make_agnostic_ports(ports::ITransportFactory& factory,
-                                                  CollabPorts& ports)
-    {
-        AgnosticTransports transports;
-        transports.http = factory.make_http();
+/// Build the engine-agnostic HTTP transport from `factory` and fill the
+/// agnostic fields of `ports` (http, ws_factory, token, clock). The WebSocket
+/// is not built here: the engine mints one per session through `ws_factory`.
+/// The binding still supplies the engine-specific ports (dispatcher, ticker)
+/// itself. Returns the owned transports; the caller must keep the returned
+/// value — and `factory` — alive for as long as the engine uses the ports.
+inline AgnosticTransports make_agnostic_ports(ports::ITransportFactory& factory, CollabPorts& ports)
+{
+    AgnosticTransports transports;
+    transports.http = factory.make_http();
 
-        ports.http       = transports.http.get();
-        ports.ws_factory = &factory;
-        ports.token      = &adapters::StaticTokenProvider::instance();
-        ports.clock      = &adapters::SystemClock::instance();
-        return transports;
-    }
+    ports.http = transports.http.get();
+    ports.ws_factory = &factory;
+    ports.token = &adapters::StaticTokenProvider::instance();
+    ports.clock = &adapters::SystemClock::instance();
+    return transports;
+}
 
-    /// Build the JWT-injecting fetcher for the USD HTTP asset resolver: a fresh
-    /// transport from `factory` plus the shared process-wide token (read at fetch
-    /// time). Engine-agnostic; the concrete transport library is named only inside
-    /// the factory.
-    inline adapters::JwtHttpFetcher make_jwt_fetcher(ports::ITransportFactory& factory)
-    {
-        return adapters::JwtHttpFetcher{factory.make_http()};
-    }
+/// Build the JWT-injecting fetcher for the USD HTTP asset resolver: a fresh
+/// transport from `factory` plus the shared process-wide token (read at fetch
+/// time). Engine-agnostic; the concrete transport library is named only inside
+/// the factory.
+inline adapters::JwtHttpFetcher make_jwt_fetcher(ports::ITransportFactory& factory)
+{
+    return adapters::JwtHttpFetcher{factory.make_http()};
+}
 
 } // namespace net
 } // namespace idtxflow

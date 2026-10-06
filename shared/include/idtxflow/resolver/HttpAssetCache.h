@@ -278,92 +278,30 @@ template <HttpFetcherLike Fetcher = DefaultHttpFetcher> class HttpAssetCache
 
         std::unique_lock lock(entry->mutex);
 
-        // Fast path: already cached
+        // Fast path: already cached — but only trust it if the file is still on
+        // disk. A cache dir cleared out-of-band (e.g. the user deleted it while
+        // the editor was running) leaves a stale Cached entry pointing at a
+        // now-missing file; demote it to Idle so the re-fetch block below runs.
         if (entry->state == FetchState::Cached)
         {
-            return entry->local_path;
+            if (std::filesystem::exists(entry->local_path)) return entry->local_path;
+            IDTX_LOG(IDTX_WARN, "Cached file missing on disk for '{}' ('{}'); re-fetching.", url,
+                     entry->local_path.string());
+            entry->state = FetchState::Idle;
         }
 
-        // If idle, kick off the fetch
-        if (entry->state == FetchState::Idle)
+        // If idle or failed, kick off the fetch
+        if (entry->state == FetchState::Idle || entry->state == FetchState::Failed)
         {
-            auto entry = GetOrCreateEntry(url);
-
-            std::unique_lock lock(entry->mutex);
-
-            // Fast path: already cached — but only trust it if the file is still on
-            // disk. A cache dir cleared out-of-band (e.g. the user deleted it while
-            // the editor was running) leaves a stale Cached entry pointing at a
-            // now-missing file; demote it to Idle so the re-fetch block below runs.
-            if (entry->state == FetchState::Cached)
-            {
-                if (std::filesystem::exists(entry->local_path)) return entry->local_path;
-                IDTX_LOG(IDTX_WARN, "Cached file missing on disk for '{}' ('{}'); re-fetching.",
-                         url, entry->local_path.string());
-                entry->state = FetchState::Idle;
-            }
-
-            // If idle or failed, kick off the fetch
-            if (entry->state == FetchState::Idle || entry->state == FetchState::Failed)
-            {
-                entry->state = FetchState::Fetching;
-                entry->local_path = UrlToCachePath(url);
-
-                // Launch fetch on a detached worker — entry lifetime is managed by shared_ptr
-                std::string url_copy = url;
-                auto entry_ref = entry;
-                // ensure a previous running fetch-thread for this entry is joined, otherwise, reassignment will
-                // abort the thread and throw
-                if (entry->fetch_thread.joinable()) entry->fetch_thread.join();
-                entry->fetch_thread = std::thread([this, url_copy, entry_ref]()
-                {
-                    bool success = fetcher_(url_copy, entry_ref->local_path);
-                    {
-                        std::lock_guard lk(entry_ref->mutex);
-                        entry_ref->state = success ? FetchState::Cached : FetchState::Failed;
-                    }
-                    entry_ref->cv.notify_all();
-                });
-            }
-
-            // Wait for completion (Fetching → Cached or Failed)
-            entry->cv.wait(lock, [&entry]()
-            {
-                return entry->state == FetchState::Cached || entry->state == FetchState::Failed;
-            });
-
-            if (entry->state == FetchState::Cached)
-            {
-                return entry->local_path;
-            }
-
-            IDTX_LOG(IDTX_ERROR, "Resolve failed for '{}' (fetch state=Failed; see download log above)", url);
-            return std::nullopt;
-        }
-
-        /**
-         * Initiate a background fetch without waiting for the result.
-         * Useful for pre-warming the cache (e.g., prefetching referenced assets).
-         *
-         * @param url  The HTTP(S) URL to prefetch.
-         */
-        inline void Prefetch(const std::string& url)
-        {
-            auto entry = GetOrCreateEntry(url);
-
-            std::lock_guard lock(entry->mutex);
-
-            if (entry->state != FetchState::Idle)
-            {
-                return; // Already fetching, cached, or failed
-            }
-
             entry->state = FetchState::Fetching;
             entry->local_path = UrlToCachePath(url);
 
             // Launch fetch on a detached worker — entry lifetime is managed by shared_ptr
             std::string url_copy = url;
             auto entry_ref = entry;
+            // ensure a previous running fetch-thread for this entry is joined, otherwise, reassignment will
+            // abort the thread and throw
+            if (entry->fetch_thread.joinable()) entry->fetch_thread.join();
             entry->fetch_thread = std::thread([this, url_copy, entry_ref]() {
                 bool success = fetcher_(url_copy, entry_ref->local_path);
                 {
@@ -383,6 +321,7 @@ template <HttpFetcherLike Fetcher = DefaultHttpFetcher> class HttpAssetCache
             return entry->local_path;
         }
 
+        IDTX_LOG(IDTX_ERROR, "Resolve failed for '{}' (fetch state=Failed; see download log above)", url);
         return std::nullopt;
     }
 
@@ -406,6 +345,7 @@ template <HttpFetcherLike Fetcher = DefaultHttpFetcher> class HttpAssetCache
         entry->state = FetchState::Fetching;
         entry->local_path = UrlToCachePath(url);
 
+        // Launch fetch on a detached worker — entry lifetime is managed by shared_ptr
         std::string url_copy = url;
         auto entry_ref = entry;
         entry->fetch_thread = std::thread([this, url_copy, entry_ref]() {
