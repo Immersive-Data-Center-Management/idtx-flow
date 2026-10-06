@@ -50,5 +50,45 @@ func _parse_property(object, type, name, hint_type, hint_string, usage_flags, wi
 	)
 	hbox.add_child(reload_btn)
 
+	# Save As... — flatten a snapshot to a new file (non-destructive, safe mid-session).
+	var save_btn := Button.new()
+	save_btn.text = "Save As..."
+	save_btn.tooltip_text = "Export a flattened snapshot of this stage (your edits baked in, references preserved) to a new .usda/.usdc/.usdz file. Non-destructive; does not overwrite the source or commit to the server."
+	save_btn.pressed.connect(func() -> void:
+		_open_save_dialog(object)
+	)
+	hbox.add_child(save_btn)
+
 	add_property_editor(name, hbox)
 	return true
+
+
+## Open a Save dialog, then call the node's save_stage(path) with the chosen path.
+func _open_save_dialog(object) -> void:
+	var src := str(object.get("stage_uri"))
+	var stem := src.get_file().get_basename()
+	if stem.is_empty():
+		stem = "stage"
+
+	var dialog := FileDialog.new()
+	dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
+	dialog.access = FileDialog.ACCESS_RESOURCES
+	dialog.add_filter("*.usda", "USD ASCII")
+	dialog.add_filter("*.usdc", "USD binary")
+	dialog.add_filter("*.usdz", "USD package")
+	dialog.current_path = "res://%s_edited.usda" % stem
+	dialog.title = "Save flattened USD stage as..."
+	dialog.file_selected.connect(func(path: String) -> void:
+		if object.has_method("save_stage"):
+			var err: int = object.call("save_stage", path)
+			if err != OK:
+				push_error("IDTXFlow: save_stage failed for '%s' (error %d)" % [path, err])
+		dialog.queue_free()
+	)
+	dialog.canceled.connect(func() -> void:
+		dialog.queue_free()
+	)
+	# Parent the dialog to the editor's base control so it displays modally.
+	EditorInterface.get_base_control().add_child(dialog)
+	dialog.popup_centered_ratio(0.5)
+

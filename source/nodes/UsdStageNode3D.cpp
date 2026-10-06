@@ -16,6 +16,7 @@
 #include "collab/IdtxClient.h"
 #include "stage_ops/StageBridge.h"
 #include "stage_ops/StageEditController.h"
+#include "stage_ops/StageSaveController.h"
 #include <idtxflow/resolver/HttpResolver.h>
 
 
@@ -50,6 +51,11 @@ void UsdStageNode3D::author_node_transform(Node3D* child)
         return;
     }
     idtxflow::collab::StageEditController(bridge).author_from_node(child, local_authoring_, author_placement_root_);
+}
+
+Error UsdStageNode3D::save_stage(const String& out_uri)
+{
+    return idtxflow::stage_ops::StageSaveController::save_as(get_stage(), out_uri);
 }
 
 void UsdStageNode3D::_enter_tree()
@@ -549,6 +555,8 @@ void UsdStageNode3D::_bind_methods()
     ADD_PROPERTY(PropertyInfo(Variant::BOOL, "local_authoring", PROPERTY_HINT_NONE, "",
                               PROPERTY_USAGE_DEFAULT),
                  "set_local_authoring", "get_local_authoring");
+
+    ClassDB::bind_method(D_METHOD("save_stage", "out_uri"), &UsdStageNode3D::save_stage);
 
     ClassDB::bind_method(D_METHOD("set_author_placement_root", "enabled"), &UsdStageNode3D::set_author_placement_root);
     ClassDB::bind_method(D_METHOD("get_author_placement_root"), &UsdStageNode3D::get_author_placement_root);

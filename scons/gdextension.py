@@ -230,6 +230,11 @@ def _build_extension(env):
     net_glob = os.path.join("shared", "src", "idtxflow", "net", "**", "*.cpp")
     net_sources = [extension_env.File(p) for p in glob.glob(net_glob, recursive=True)]
     sources += net_sources
+
+    # Engine-agnostic stage operations under shared/.../stage_ops/
+    stage_ops_glob = os.path.join("shared", "src", "idtxflow", "stage_ops", "**", "*.cpp")
+    stage_ops_sources = [extension_env.File(p) for p in glob.glob(stage_ops_glob, recursive=True)]
+    sources += stage_ops_sources
     
     if build_target in ["editor", "template_debug"]:
         print("Generating doc data..")

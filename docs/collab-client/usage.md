@@ -21,10 +21,11 @@ Godot editor).
 | `UsdStageNode3D` + converted prim nodes | ✅ | ✅ | load a stage, read/author transforms |
 | Local authoring (`local_authoring`) | ✅ | ✅ | a node property; no editor dependency |
 | Session binding (`bind_session` / sync) | ✅ | ✅ | you supply the stage node and session id |
+| Reload / save-export (`reload()`, `save_stage()`) | ✅ | ✅ | bound node methods, callable from code anywhere; the Inspector buttons that call them are editor-only |
 | Import wizard (browse / download / create-join) | ✅ | ❌ | `import_manager.gd` / `plugin.gd` are `@tool` / `EditorPlugin` |
 | Session scenes, scene-tab lifecycle, indicators | ✅ | ❌ | `editor/session_scene/` is strictly editor-tier |
 | Multi-session | ✅ (one per scene tab) | ✅ (ids, usually one active) | the *tab* mechanism is editor-motivated; the engine holds many sessions by id, but a running game typically has one active scene = one session |
-| Inspector "reload" button, commit/save prompts | ✅ | ❌ | editor UI around the stage node |
+| Inspector buttons (reload, Save As..., commit/save prompts) | ✅ | ❌ | editor UI around the stage node; the underlying methods are runtime-callable |
 
 The rule of thumb: **the GDScript UI and editor orchestration (wizard, tabs,
 indicators) are editor-only; the `IdtxClient` public API and the USD nodes are the
@@ -52,6 +53,9 @@ Driven through the plugin's main screen and the 3-step import wizard
   in-memory session layer and re-downloads only the committed root USD, so uncommitted
   in-session edits (local and peers') are not reapplied and the view desyncs until a
   fresh edit or a rejoin. Commit first, or reload only outside a session.
+- **Save As... (experimental)** — the Inspector's Save As... button (next to Reload)
+  flattens a snapshot of the stage to a new USD file. See
+  [Saving / exporting a stage](#saving--exporting-a-stage-experimental) below.
 
 Multi-session in the editor means **one session per scene tab**; closing the tab
 leaves that session. The engine itself holds sessions by id, so a runtime host can
@@ -80,6 +84,24 @@ stages / reference-payload holders route.
 > is enabled (or before a session arms) stays a Godot-only change; ticking the box
 > does nothing retroactively. The stage catches up only when that node is **moved
 > again**. If a prim looks out of sync with the stage, nudge it to re-author.
+
+---
+
+## Saving / exporting a stage (experimental)
+
+Call `UsdStageNode3D.save_stage(out_uri)` (editor and runtime), or the **"Save As..."**
+button next to **Reload** in the inspector. It writes a **flattened snapshot** of the
+live stage to a new USD file: the source's layer stack with your **session-layer edits
+merged in**, composition arcs (references/payloads/variants) preserved as external arcs
+(not inlined). Non-destructive (new file; source and server copy untouched; not a server
+commit), works local and mid-session, encoding chosen by the extension
+(`.usda`/`.usdc`/`.usdz`). The target may be `res://`, `user://`, or absolute, but never
+inside the download cache (`user://usd_cache/`).
+
+> Overwrite-source is available only programmatically (`StageSaveController::save_overwrite`,
+> not on the node); Saving is **synchronous** and may
+> briefly stall on large scenes or `.usdz`.
+
 
 ---
 
@@ -155,7 +177,7 @@ so a runtime host can reconstruct the editor's capabilities without the editor U
 - **Multi-session is editor-tab-oriented** — in the editor it is one session per scene
   tab; at runtime there is no tab metaphor, so you track session ids yourself.
 
-### Caveats / gotchas (correct, but easy to misuse)
+### Caveats / gotchas
 
 - **Enabling `local_authoring` does not author the current pose** — authoring is
   triggered by a transform *change*, so a node moved before the checkbox is enabled
@@ -188,7 +210,7 @@ Client-side:
   edits (local and peers') disappear from the local view until a fresh edit or rejoin.
   The server still holds them.
 
-Server-side / cross-component (surfaces to the user but originates upstream in idtx-core):
+Server-side / cross-component:
 
 - **A peer's commit of a prim you also moved may not appear until you rejoin** — if two
   editors each moved prim P in their own session and one commits, the other receives a
@@ -206,7 +228,7 @@ Server-side / cross-component (surfaces to the user but originates upstream in i
   directly is not propagated to sessions that merely reference it (the server matches
   only same-file sessions, and there is no referenced-sublayer-changed notification).
 
-### Developer notes / technical debt (internal, not user-facing)
+### Developer notes / technical debt
 
 These do not change observable behavior for an end user, but are worth knowing when
 extending the client.

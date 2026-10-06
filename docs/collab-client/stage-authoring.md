@@ -149,15 +149,46 @@ details matter here:
 
 ---
 
+## Saving / exporting a stage (experimental)
+
+`UsdStageNode3D::save_stage(out_uri)` writes a **flattened snapshot** of the live
+stage to a new USD file. The node delegates to the node-agnostic
+`StageSaveController` (resolves the URI to an OS path, guards the target), which
+calls `StagePersistence::ExportFlattened` (pure OpenUSD + stdlib). In the editor a
+**"Save As..."** button next to **Reload** drives it (default
+`res://<stem>_edited.usda`).
+
+The output is the source's **root layer stack with the current session-layer edits
+merged on top** (edits win), via `UsdUtilsFlattenLayerStack` -> `SdfLayer::Export`:
+composition arcs (references, payloads, variants) are **preserved as arcs** - the
+output still points at external sub-USDs and does not inline them, nor does it write
+the inner content of a referenced sub-stage. It is a non-destructive point-in-time
+snapshot (new file; source untouched), works local and mid-session, and the target
+extension picks the encoding (`.usda`/`.usdc`/`.usdz`). Save As... never targets the
+download cache (`user://usd_cache/`).
+
+`StagePersistence` only flattens a stage to an absolute path (save vs
+save-as are just different targets). `StageSaveController` is the Godot-aware menu:
+`save_as` (new target) and `save_overwrite` (local source in place; a remote source
+is refused unless `allow_remote`, which then rewrites only the transient
+download-cache copy).
+
+
 ## Where things live
 
 | Piece | Location |
 |---|---|
-| `StageBridge` (`IStageBridge`), `StageEditController`, `TransformCodec` | `source/stage_ops/` |
-| `UsdStageNode3D` (owns the bridge, `local_authoring` / `author_placement_root`) | `source/nodes/`, `shared/include/idtxflow_godot/nodes/` |
+| `StageBridge` (`IStageBridge`), `StageEditController`, `StageSaveController`, `TransformCodec` | `source/stage_ops/` |
+| `StagePersistence` (flatten/export, engine-agnostic) | `shared/include/idtxflow/stage_ops/`, `shared/src/idtxflow/stage_ops/` |
+| `UsdStageNode3D` (owns the bridge, `local_authoring` / `author_placement_root`, `save_stage`) | `source/nodes/`, `shared/include/idtxflow_godot/nodes/` |
 | Authoring **port** (`IStageBridge`) | `shared/include/idtxflow/net/ports/` |
 
-> Namespace note: these types currently sit in `namespace idtxflow::collab` while
-> living under `source/stage_ops/`. Realigning the namespace to the folder
-> (`idtxflow::stage_ops` / `::authoring`) is a deferred cohesion pass.
+> Namespace note: `StageBridge`, `StageEditController`, and `TransformCodec`
+> currently sit in `namespace idtxflow::collab` while living under
+> `source/stage_ops/`. `StagePersistence` and `StageSaveController` are
+> save-oriented and use `namespace idtxflow::stage_ops`. Realigning the `collab`
+> trio to the folder (`idtxflow::stage_ops` / `::authoring`) is a deferred cohesion
+> pass.
+
+
 

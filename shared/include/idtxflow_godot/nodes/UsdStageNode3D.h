@@ -131,6 +131,11 @@ public:
     /// Author a converted child's transform into this node's stage (routes
     /// through the edit controller). Entry point for the node transform triggers.
     void author_node_transform(godot::Node3D* child);
+
+    /// Save a flattened snapshot of this node's live stage to a new USD file at
+    /// @p out_uri (res://, user://, or absolute; extension selects the encoding).
+    /// Non-destructive; the source is untouched. Returns OK or a Godot Error.
+    godot::Error save_stage(const godot::String& out_uri);
     
 protected:
     /**
