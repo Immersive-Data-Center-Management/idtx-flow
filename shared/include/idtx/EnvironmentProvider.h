@@ -68,109 +68,108 @@
 #include <mutex>
 #include <string>
 
-#include "./api.h"  // IDTX_API
+#include "./api.h" // IDTX_API
 
 namespace idtx
 {
-    /**
-     * @class IEnvironmentProvider
-     * @brief Host-implemented contract that resolves a key string into a value string.
-     *
-     * Implemented by the host application (e.g. the Godot GDExtension) and registered
-     * with the EnvironmentProviderRegistry so the host-agnostic USD computation can call
-     * it across the DLL boundary.
-     *
-     * Implementations MUST be thread-safe and MUST NOT allow exceptions to escape
-     * across the DLL boundary.
-     */
-    class IEnvironmentProvider
-    {
-    public:
-        virtual ~IEnvironmentProvider() = default;
-
-        /**
-         * Resolve @p key to a value.
-         *
-         * @param key   The lookup key WITHOUT the routing prefix. For example, when the
-         *              authored input is "env:PATH", the registry routes to the provider
-         *              registered for prefix "env" and passes "PATH" as @p key.
-         *              For the default (empty-prefix) provider the full authored string
-         *              is passed unchanged.
-         * @param out   Receives the resolved value on success. Left untouched on failure.
-         * @return true if the key was resolved, false otherwise.
-         */
-        virtual bool Resolve(const std::string& key, std::string& out) const = 0;
-    };
+/**
+ * @class IEnvironmentProvider
+ * @brief Host-implemented contract that resolves a key string into a value string.
+ *
+ * Implemented by the host application (e.g. the Godot GDExtension) and registered
+ * with the EnvironmentProviderRegistry so the host-agnostic USD computation can call
+ * it across the DLL boundary.
+ *
+ * Implementations MUST be thread-safe and MUST NOT allow exceptions to escape
+ * across the DLL boundary.
+ */
+class IEnvironmentProvider
+{
+  public:
+    virtual ~IEnvironmentProvider() = default;
 
     /**
-     * @class EnvironmentProviderRegistry
-     * @brief Process-wide, thread-safe registry that owns the mapping from key-prefix to
-     *        provider implementation.
+     * Resolve @p key to a value.
      *
-     * This registry lives in and is exported by the IDTX USD library. Host applications
-     * link against the library and register their provider(s) at startup. The registry
-     * does NOT take ownership of the provider pointers - the host is responsible for the
-     * lifetime of its provider objects and must unregister (or call UnregisterAll())
-     * before those objects are destroyed, and after the exec worker thread has stopped.
+     * @param key   The lookup key WITHOUT the routing prefix. For example, when the
+     *              authored input is "env:PATH", the registry routes to the provider
+     *              registered for prefix "env" and passes "PATH" as @p key.
+     *              For the default (empty-prefix) provider the full authored string
+     *              is passed unchanged.
+     * @param out   Receives the resolved value on success. Left untouched on failure.
+     * @return true if the key was resolved, false otherwise.
      */
-    class EnvironmentProviderRegistry
-    {
-    public:
-        /**
-         * Singleton accessor. Exactly one instance exists inside the USD library.
-         */
-        IDTX_API static EnvironmentProviderRegistry& Instance();
+    virtual bool Resolve(const std::string& key, std::string& out) const = 0;
+};
 
-        /**
-         * Register a provider for a given key prefix.
-         *
-         * @param prefix   The routing prefix WITHOUT the trailing ':' (e.g. "env",
-         *                 "project"). Pass an empty string to register the default
-         *                 provider used for keys that carry no recognized prefix.
-         * @param provider The host-owned provider implementation. Must outlive its
-         *                 registration. Passing nullptr is equivalent to unregistering
-         *                 the prefix.
-         */
-        IDTX_API void RegisterProvider(const std::string& prefix, IEnvironmentProvider* provider);
+/**
+ * @class EnvironmentProviderRegistry
+ * @brief Process-wide, thread-safe registry that owns the mapping from key-prefix to
+ *        provider implementation.
+ *
+ * This registry lives in and is exported by the IDTX USD library. Host applications
+ * link against the library and register their provider(s) at startup. The registry
+ * does NOT take ownership of the provider pointers - the host is responsible for the
+ * lifetime of its provider objects and must unregister (or call UnregisterAll())
+ * before those objects are destroyed, and after the exec worker thread has stopped.
+ */
+class EnvironmentProviderRegistry
+{
+  public:
+    /**
+     * Singleton accessor. Exactly one instance exists inside the USD library.
+     */
+    IDTX_API static EnvironmentProviderRegistry& Instance();
 
-        /**
-         * Remove the provider registered for @p prefix (if any).
-         */
-        IDTX_API void UnregisterProvider(const std::string& prefix);
+    /**
+     * Register a provider for a given key prefix.
+     *
+     * @param prefix   The routing prefix WITHOUT the trailing ':' (e.g. "env",
+     *                 "project"). Pass an empty string to register the default
+     *                 provider used for keys that carry no recognized prefix.
+     * @param provider The host-owned provider implementation. Must outlive its
+     *                 registration. Passing nullptr is equivalent to unregistering
+     *                 the prefix.
+     */
+    IDTX_API void RegisterProvider(const std::string& prefix, IEnvironmentProvider* provider);
 
-        /**
-         * Remove all registered providers. Call this during host de-init AFTER the exec
-         * worker thread has been cancelled to avoid a dangling provider being used by an
-         * in-flight computation.
-         */
-        IDTX_API void UnregisterAll();
+    /**
+     * Remove the provider registered for @p prefix (if any).
+     */
+    IDTX_API void UnregisterProvider(const std::string& prefix);
 
-        /**
-         * Resolve @p fullKey using the appropriate registered provider.
-         *
-         * Routing rules:
-         *  - If @p fullKey contains a ':' the substring before it is treated as the
-         *    prefix and looked up in the registry. On a match, the remainder (after the
-         *    ':') is passed to that provider's Resolve().
-         *  - If there is no ':' , or the prefix is not registered, the default provider
-         *    (registered with an empty prefix) is tried with the full key.
-         *  - If nothing resolves, @p fallback is returned.
-         *
-         * @param fullKey  The authored input key, possibly prefixed (e.g. "env:PATH").
-         * @param fallback Returned when no provider resolves the key.
-         * @return The resolved value, or @p fallback.
-         */
-        IDTX_API std::string Resolve(const std::string& fullKey,
-                                     const std::string& fallback = std::string()) const;
+    /**
+     * Remove all registered providers. Call this during host de-init AFTER the exec
+     * worker thread has been cancelled to avoid a dangling provider being used by an
+     * in-flight computation.
+     */
+    IDTX_API void UnregisterAll();
 
-    private:
-        EnvironmentProviderRegistry() = default;
-        EnvironmentProviderRegistry(const EnvironmentProviderRegistry&) = delete;
-        EnvironmentProviderRegistry& operator=(const EnvironmentProviderRegistry&) = delete;
+    /**
+     * Resolve @p fullKey using the appropriate registered provider.
+     *
+     * Routing rules:
+     *  - If @p fullKey contains a ':' the substring before it is treated as the
+     *    prefix and looked up in the registry. On a match, the remainder (after the
+     *    ':') is passed to that provider's Resolve().
+     *  - If there is no ':' , or the prefix is not registered, the default provider
+     *    (registered with an empty prefix) is tried with the full key.
+     *  - If nothing resolves, @p fallback is returned.
+     *
+     * @param fullKey  The authored input key, possibly prefixed (e.g. "env:PATH").
+     * @param fallback Returned when no provider resolves the key.
+     * @return The resolved value, or @p fallback.
+     */
+    IDTX_API std::string Resolve(const std::string& fullKey, const std::string& fallback = std::string()) const;
 
-        // prefix -> provider. The empty-string key holds the default provider.
-        std::map<std::string, IEnvironmentProvider*> providers_;
-        mutable std::mutex mutex_;
-    };
+  private:
+    EnvironmentProviderRegistry() = default;
+    EnvironmentProviderRegistry(const EnvironmentProviderRegistry&) = delete;
+    EnvironmentProviderRegistry& operator=(const EnvironmentProviderRegistry&) = delete;
+
+    // prefix -> provider. The empty-string key holds the default provider.
+    std::map<std::string, IEnvironmentProvider*> providers_;
+    mutable std::mutex mutex_;
+};
 
 } // namespace idtx
