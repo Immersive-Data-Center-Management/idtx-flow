@@ -20,9 +20,12 @@ using namespace godot;
 static const std::unordered_map<std::string, UsdStaticBodyNode3D::CollisionRole> kInteractionTypeMap = {
     {"Collide", UsdStaticBodyNode3D::CollisionRole::ROLE_COLLIDE},
     {"Select", UsdStaticBodyNode3D::CollisionRole::ROLE_SELECT},
+    {"Grab", UsdStaticBodyNode3D::CollisionRole::ROLE_GRAB},
 };
 
 static const std::unordered_map<std::string, UsdStaticBodyNode3D::ShapeType> kShapeTypeMap = {
+    // "Box" is the schema token (and default); "Cube" is kept as a tolerated alias.
+    {"Box", UsdStaticBodyNode3D::ShapeType::SHAPE_CUBE},
     {"Cube", UsdStaticBodyNode3D::ShapeType::SHAPE_CUBE},
     {"Sphere", UsdStaticBodyNode3D::ShapeType::SHAPE_SPHERE},
     {"Capsule", UsdStaticBodyNode3D::ShapeType::SHAPE_CAPSULE},

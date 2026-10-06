@@ -36,12 +36,14 @@ class UsdStaticBodyNode3D : public godot::StaticBody3D, public IUsdNode3D
     {
         COLLIDE,
         SELECT,
+        GRAB,
     };
 
     enum CollisionRole
     {
         ROLE_COLLIDE = 1 << 0,
         ROLE_SELECT = 1 << 1,
+        ROLE_GRAB = 1 << 2,
     };
 
     // Wrapper methods
@@ -176,6 +178,7 @@ class UsdStaticBodyNode3D : public godot::StaticBody3D, public IUsdNode3D
     float radius_;
     godot::Vector3 axis_;
     godot::Color collider_color_;
-    ShapeType collision_shape_;
-    int collision_interaction_type;
+    // Defaults for when the shape token is unrecognised / no interaction type is set.
+    ShapeType collision_shape_ = SHAPE_CUBE;
+    int collision_interaction_type = ROLE_COLLIDE;
 };
