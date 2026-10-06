@@ -1,0 +1,125 @@
+#pragma once
+
+/**
+ * @file StageBridge.h
+ * @brief IStageBridge over a live USD stage and its converted Godot nodes.
+ *
+ * Where Godot and OpenUSD types meet for the net binding's transform
+ * authoring/reading. It authors edits onto USD
+ * prims (the free local save), applies inbound edits with loopback suppression,
+ * reads prim transforms, and reports stage-originated changes back to the engine
+ * through a TfNotice listener so the engine can gate and coalesce the broadcast.
+ *
+ * Transforms cross the port as model::PrimEdit (matrix form, row-major, matching
+ * the wire convention). USD authoring/reading applies the distinct USD basis
+ * convention internally.
+ */
+
+#include <string>
+#include <unordered_map>
+
+#include <godot_cpp/classes/node3d.hpp>
+#include <godot_cpp/variant/transform3d.hpp>
+
+#include <pxr/base/tf/weakBase.h>
+#include <pxr/base/tf/notice.h>
+#include <pxr/usd/usd/stage.h>
+#include <pxr/usd/usd/notice.h>
+
+#include <idtxflow/net/ports/IStageBridge.h>
+#include <idtxflow/utils/Logger.h>
+
+#include "TransformCodec.h"
+
+class UsdStageNode3D;
+
+namespace idtxflow
+{
+namespace collab
+{
+class StageBridge : public net::ports::IStageBridge, public pxr::TfWeakBase
+{
+  public:
+    /// Which composed layer author_to_usd writes into. SessionLayer is the
+    /// in-memory override slot (non-destructive); RootLayer edits the opened
+    /// file directly. OverrideLayer behaves as SessionLayer.
+    enum class EditTarget
+    {
+        SessionLayer,
+        RootLayer,
+        OverrideLayer
+    };
+
+    StageBridge(UsdStageNode3D* stage_node, pxr::UsdStageRefPtr stage,
+                EditTarget edit_target = EditTarget::SessionLayer);
+    ~StageBridge() override;
+
+    StageBridge(const StageBridge&) = delete;
+    StageBridge& operator=(const StageBridge&) = delete;
+
+    /// The UsdStageNode3D this bridge is bound to (non-owning). Used by the
+    /// binding to match a prim node back to its session's bridge.
+    UsdStageNode3D* stage_node() const
+    {
+        return stage_node_;
+    }
+
+    /// Whether `prim_path` is this stage's placement root (its defaultPrim,
+    /// e.g. "/World"). The root carries display-only placement (MPU scale +
+    /// up-axis rotation), no authored transform, so it is never synced either
+    /// way. Resolved from defaultPrim, so it survives the .scn cache reload
+    bool is_stage_root(const std::string& prim_path) const override;
+
+    // IStageBridge
+    void build_index() override;
+    bool read_prim(const std::string& prim_path, net::model::PrimEdit& out) const override;
+    void author_local_edit(const net::model::PrimEdit& edit) override;
+    void apply_remote_edit(const net::model::PrimEdit& edit) override;
+    void set_on_changed(OnChanged sink) override
+    {
+        on_changed_ = std::move(sink);
+    }
+    bool has_on_changed() const override
+    {
+        return static_cast<bool>(on_changed_);
+    }
+
+  private:
+    IDTX_LOG_CATEGORY("StageBridge")
+
+    // Store the node's Godot ObjectID (a stable POD), not a raw pointer.
+    struct Tracked
+    {
+        uint64_t node_id = 0;
+    }; // Godot ObjectID; 0 == none
+
+    void register_listener();
+    void revoke_listener();
+    void _on_objects_changed(const pxr::UsdNotice::ObjectsChanged& notice, const pxr::UsdStageWeakPtr& sender);
+
+    bool author_to_usd(const std::string& prim_path, const godot::Transform3D& xform);
+    bool read_prim_transform(const std::string& prim_path, godot::Transform3D& out) const;
+
+    // The spine axis baked into the Godot basis at load time for this prim, or
+    // SpineAxis::None when the prim type bakes none
+    // Only UsdGeomCylinder / UsdGeomCone are loaded via toTransform(matrix, axis).
+    // Keep the type set in sync with StageConverter's Cylinder/Cone branches.
+    xform::SpineAxis spine_axis_for(const std::string& prim_path) const;
+
+    UsdStageNode3D* stage_node_ = nullptr; // non-owning
+    pxr::UsdStageRefPtr stage_;
+    EditTarget edit_target_ = EditTarget::SessionLayer;
+
+    // Set while authoring programmatically (local author or remote apply) so the
+    // resulting TfNotice is not reported back as a local change.
+    bool suppress_broadcast_ = false;
+
+    pxr::TfNotice::Key notice_key_;
+    bool listening_ = false;
+
+    std::unordered_map<std::string, Tracked> tracked_; // prim_path -> node
+    OnChanged on_changed_;
+};
+
+} // namespace collab
+} // namespace idtxflow

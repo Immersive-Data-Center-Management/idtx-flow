@@ -102,20 +102,26 @@ Its public surface, by area:
   `fetch_thumbnail`, `list_files`, `create_session`, `delete_session`,
   `list_sessions`, `get_session`, `commit_session`, `check_download_exists`,
   `check_thumbnail_exists`.
-- **High-level session flow** — `begin_session(usd_file, mode)` drives the whole
-  server-import sequence (create the session, resolve the authenticated stage
-  download URL and the full socket URL, open the socket, then report
-  `on_session_ready` so the host loads the stage and attaches it back).
-  `end_session()` tears the active session down (detach stage, close socket,
-  request backend deletion) and reports `on_session_closed`.
+- **High-level session flow** — two entry points share one tail. `open_new_session(usd_file, mode, auto_commit)`
+  creates a session (`POST /sessions` with body `{ usd_file, mode, auto_commit }`; `auto_commit`
+  asks the server to commit overrides back to the file on teardown); `open_existing_session(session_id)` joins an existing one
+  (`GET /sessions/<id>`). Both then run the private `enter_session(SessionInfo)`: own the active
+  session id/mode, resolve the authenticated stage download URL and the full socket URL, open the
+  socket, then report `on_session_ready` so the host loads the stage and attaches it back. (`download_url`
+  only *composes* the URL — the JWT-authenticated fetch happens later in the USD http asset resolver.)
+  `end_session()` tears the active session down (detach stage, close socket, request backend deletion)
+  and reports `on_session_closed`.
 - **Session socket** — `open_session_socket`, `close_session_socket`,
   `is_socket_open`.
 - **Transform sync** — `attach_stage(stage, remote)` / `detach_stage`,
-  `arm_sync`, `notify_local_edit(edit)`, and `poll()`. Broadcasting is gated:
+  `arm_sync`, and `poll()`. The stage bridge is owned by the host node and borrowed
+  here (`attach_stage` installs the engine's change sink on it); authoring is driven
+  node-side (see [stage-authoring.md](stage-authoring.md)). Broadcasting is gated:
   `on_stage_changed` sends only when the session is *remote*, *armed*, and not
-  currently *applying a remote edit* (loopback suppression). Arming is delayed a
-  few frames after attach so USD conversion-time writes settle before they can
-  broadcast.
+  currently *applying a remote edit* (loopback suppression). Arming requires two
+  gates: a short post-attach settle (so USD conversion-time writes do not
+  phantom-broadcast) **and** the join snapshot completing (`SnapshotComplete`) — the
+  protocol forbids sending before the snapshot; a reconnect re-gates both.
 
 The adapters the engine needs are passed in one struct:
 
@@ -175,8 +181,11 @@ implementation. The core depends only on these.
 
 `IStageBridge` is the transform-sync seam: `author_local_edit` writes the live
 stage (the free local save), `apply_remote_edit` applies an inbound edit with
-loopback suppression, `read_prim` reads a transform, and `set_on_changed`
-registers the sink the bridge fires on stage-originated changes.
+loopback suppression, `read_prim` reads a transform, `set_on_changed` /
+`has_on_changed` register and report the sink the bridge fires on stage-originated
+changes, and `is_stage_root` identifies the display-only placement root. The bridge
+is owned by the host stage node and borrowed by the engine — see
+[stage-authoring.md](stage-authoring.md).
 
 `ITokenProvider` is shared by everything that authenticates — REST, the socket
 upgrade, and the USD asset fetcher — and is read at use time so login/logout
@@ -195,6 +204,18 @@ rotation takes effect without reconfiguring readers.
   frame dispatch (handshake / remote edit / ack / error), **per-prim outbound
   coalescing** (a burst of edits to one prim collapses to at most one frame per
   `poll()`), and disconnect classification. Holds no transport or protobuf types.
+  Outbound updates carry two ordering fields:
+  - **`server_seq`** — a per-session version counter the server increments once per
+    applied stage change. Server messages that reflect state (broadcast, ack,
+    `SnapshotComplete`) carry it so clients can order them; an outbound
+    `TransformUpdate` carries, as its *base*, the highest `server_seq` the client had
+    applied, and the server rejects the update if that base is stale.
+  - **`request_id`** — chosen by the client per `TransformUpdate` and echoed in the
+    matching **Ack**, so a client pairs each ack to its update. A rejected update's
+    ack (and a single-client *correction* broadcast, which advances `server_seq`
+    without changing the stage) lets the client re-sync.
+  - **Intent-preserving resend** — on reconnect the latest coalesced edit per prim is
+    re-sent against the fresh base, so a drag made during a blip still lands.
 
 ---
 

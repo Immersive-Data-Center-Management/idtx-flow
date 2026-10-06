@@ -13,14 +13,13 @@ namespace net
 void SessionSocket::connect(const std::string& url, const std::string& bearer_token)
 {
     ws_->set_on_binary([this](const std::string& bytes) { handle_binary(bytes); });
-    ws_->set_on_state([this](ports::IWebSocketTransport::State state, int code, std::string reason)
-    {
+    ws_->set_on_state([this](ports::IWebSocketTransport::State state, int code, std::string reason) {
         handle_state(state, code, reason);
     });
 
     if (!bearer_token.empty())
     {
-        ws_->set_headers({ {"Authorization", "Bearer " + bearer_token} });
+        ws_->set_headers({{"Authorization", "Bearer " + bearer_token}});
     }
 
     ws_->connect(url);
@@ -32,6 +31,7 @@ void SessionSocket::close()
     is_open_ = false;
     std::lock_guard<std::mutex> lock(pending_mutex_);
     pending_.clear();
+    inflight_.clear();
 }
 
 void SessionSocket::handle_binary(const std::string& bytes)
@@ -47,32 +47,31 @@ void SessionSocket::handle_binary(const std::string& bytes)
     case wire::DecodedMessage::Kind::Handshake:
         if (on_handshake_)
         {
-            on_handshake_(decoded.handshake.session_id,
-                          decoded.handshake.usd_path,
-                          decoded.handshake.usd_uri);
+            on_handshake_(decoded.handshake.session_id, decoded.handshake.usd_path, decoded.handshake.usd_uri);
         }
         break;
     case wire::DecodedMessage::Kind::RemoteEdit:
         if (on_remote_edit_)
         {
-            on_remote_edit_(decoded.remote_edit.edit, decoded.remote_edit.from_client_id);
+            on_remote_edit_(decoded.remote_edit.edit, decoded.remote_edit.from_client_id, decoded.server_seq);
         }
         break;
     case wire::DecodedMessage::Kind::Ack:
-        if (on_ack_) on_ack_(decoded.ack.ok, decoded.ack.error);
+        if (on_ack_) on_ack_(decoded.ack.ok, decoded.ack.error, decoded.request_id, decoded.server_seq);
         break;
     case wire::DecodedMessage::Kind::Error:
-        IDTX_LOG(IDTX_WARN, "inbound session error code='{}' msg='{}'",
-                 decoded.error.code, decoded.error.message);
+        IDTX_LOG(IDTX_WARN, "inbound session error code='{}' msg='{}'", decoded.error.code, decoded.error.message);
         if (on_error_) on_error_(decoded.error.code, decoded.error.message);
+        break;
+    case wire::DecodedMessage::Kind::SnapshotComplete:
+        if (on_snapshot_complete_) on_snapshot_complete_(decoded.server_seq);
         break;
     default:
         break;
     }
 }
 
-void SessionSocket::handle_state(ports::IWebSocketTransport::State state, int code,
-                                 const std::string& reason)
+void SessionSocket::handle_state(ports::IWebSocketTransport::State state, int code, const std::string& reason)
 {
     using State = ports::IWebSocketTransport::State;
     switch (state)
@@ -126,14 +125,48 @@ void SessionSocket::flush_pending()
         to_send.swap(pending_);
     }
 
-    IDTX_LOG(IDTX_DEBUG, "[trace] F flush_pending sending {} edit(s) sid='{}'",
-             to_send.size(), session_id_);
+    IDTX_LOG(IDTX_DEBUG, "[trace] F flush_pending sending {} edit(s) sid='{}'", to_send.size(), session_id_);
     const int64_t ts = clock_->now_millis();
-    for (auto& [prim_path, edit] : to_send)
+    for (auto& [prim_path, edit]: to_send)
     {
         edit.timestamp = ts;
-        IDTX_LOG(IDTX_DEBUG, "[trace] F send_binary prim='{}'", prim_path);
-        ws_->send_binary(wire::encode_transform_update(session_id_, edit));
+        const uint64_t request_id = next_request_id_++;
+        IDTX_LOG(IDTX_DEBUG, "[trace] F send_binary prim='{}' base_seq={} req_id={}", prim_path, base_server_seq_,
+                 request_id);
+        {
+            // Remember what we sent so a rejection (stale/invalid_base) can resend
+            // it on the advanced base. Keyed by request_id to correlate the Ack.
+            std::lock_guard<std::mutex> lock(pending_mutex_);
+            inflight_[request_id] = edit;
+        }
+        ws_->send_binary(wire::encode_transform_update(session_id_, edit, base_server_seq_, request_id));
+    }
+}
+
+void SessionSocket::handle_ack(bool ok, const std::string& error, uint64_t request_id)
+{
+    std::lock_guard<std::mutex> lock(pending_mutex_);
+    auto it = inflight_.find(request_id);
+    if (it == inflight_.end())
+    {
+        // No record (request_id 0 / already resolved) — nothing to do.
+        return;
+    }
+    if (ok)
+    {
+        // Applied by the server; stop tracking it.
+        inflight_.erase(it);
+        return;
+    }
+    // Rejected: re-queue our intended edit so the next flush resends it on the
+    // advanced base. Skip if a newer edit for the prim is already pending (a live
+    // drag) so we never clobber fresher intent. Converges on the latest base.
+    model::PrimEdit rejected = it->second;
+    inflight_.erase(it);
+    if (pending_.find(rejected.prim_path) == pending_.end())
+    {
+        IDTX_LOG(IDTX_DEBUG, "[trace] F resend after reject='{}' prim='{}'", error, rejected.prim_path);
+        pending_[rejected.prim_path] = rejected;
     }
 }
 

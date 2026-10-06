@@ -13,10 +13,47 @@
 #include <idtxflow_godot/converter/UsdGodotTypeConverter.h>
 
 #include "converter/UsdGodotStageConverter.h"
-
+#include "collab/IdtxClient.h"
+#include "stage_ops/StageBridge.h"
+#include "stage_ops/StageEditController.h"
+#include "stage_ops/StageSaveController.h"
+#include <idtxflow/resolver/HttpResolver.h>
 
 using namespace godot;
 using namespace pxr;
+
+idtxflow::net::ports::IStageBridge* UsdStageNode3D::get_or_create_bridge()
+{
+    if (bridge_) return bridge_.get();
+    if (!get_stage()) return nullptr;
+    bridge_ = std::make_unique<idtxflow::collab::StageBridge>(this, get_stage(),
+                                                              idtxflow::collab::StageBridge::EditTarget::SessionLayer);
+    IDTX_LOGF(IDTX_INFO, "Authoring bridge created for stage '{}'", stage_uri_.utf8().get_data());
+    return bridge_.get();
+}
+
+void UsdStageNode3D::set_local_authoring(bool enabled)
+{
+    if (enabled && !local_authoring_)
+        IDTX_LOGF(IDTX_INFO, "Local authoring enabled for stage '{}'", stage_uri_.utf8().get_data());
+    local_authoring_ = enabled;
+}
+
+void UsdStageNode3D::author_node_transform(Node3D* child)
+{
+    idtxflow::net::ports::IStageBridge* bridge = get_or_create_bridge();
+    if (bridge == nullptr)
+    {
+        IDTX_LOGF(IDTX_DEBUG, "author_node_transform: no bridge (no live stage)");
+        return;
+    }
+    idtxflow::collab::StageEditController(bridge).author_from_node(child, local_authoring_, author_placement_root_);
+}
+
+Error UsdStageNode3D::save_stage(const String& out_uri)
+{
+    return idtxflow::stage_ops::StageSaveController::save_as(get_stage(), out_uri);
+}
 
 void UsdStageNode3D::_enter_tree()
 {
@@ -43,7 +80,8 @@ void UsdStageNode3D::_notification(int p_what)
     // Teardown: the node is actually being deleted. Keep this minimal and shutdown-safe.
     // Only release our own owned resources that the engine won't:
     // - cancel any in-flight async load and drop the USD stage handle.
-    // - do not call _cleanup_nodes(): a node being destroyed has its children freed automatically by the engine (would double-frees them -> crash on shutdown).
+    // - do not call _cleanup_nodes(): a node being destroyed has its children freed automatically by the engine (would
+    // double-frees them -> crash on shutdown).
     if (p_what == NOTIFICATION_PREDELETE)
     {
         if (pending_load_task_)
@@ -51,7 +89,27 @@ void UsdStageNode3D::_notification(int p_what)
             pending_load_task_->Cancel();
             is_loading_ = false;
         }
+        // Notify listeners that our stage is going away, so they can detach before the handle is released.
+        if (stage_handle_) emit_signal("stage_unloading");
+        bridge_.reset(); // before stage_handle_.reset(): ~bridge revokes its TfNotice on a live stage
         stage_handle_.reset();
+    }
+    else if (p_what == NOTIFICATION_TRANSFORM_CHANGED)
+    {
+        // This UsdStageNode3D is a reference prim in its parent stage; moving the
+        // whole node is an edit on that prim. Gate on node_ready_ so placement
+        // writes during conversion/attach do not produce phantom broadcasts.
+        if (!node_ready_) return;
+        // A moved sub-stage node belongs to its CONTAINING stage, so author against
+        // the nearest ancestor UsdStageNode3D (not this node).
+        for (Node* anc = get_parent(); anc != nullptr; anc = anc->get_parent())
+        {
+            if (UsdStageNode3D* stage = Object::cast_to<UsdStageNode3D>(anc))
+            {
+                stage->author_node_transform(this);
+                break;
+            }
+        }
     }
 }
 
@@ -62,6 +120,9 @@ void UsdStageNode3D::set_stage_uri(const String& path)
 
     // as the stage uri has changed we reset any previous state of this node
     cached_scene_name_ = "";
+    // Notify listeners that the old stage is going away, so they can detach before the handle is released.
+    if (stage_handle_) emit_signal("stage_unloading");
+    bridge_.reset(); // before stage_handle_.reset(): ~bridge revokes its TfNotice on a live stage
     stage_handle_.reset();
     _cleanup_nodes();
 
@@ -83,6 +144,45 @@ void UsdStageNode3D::set_stage_uri(const String& path)
     if (!is_inside_tree()) return;
 
     _reconstruct_node();
+}
+
+void UsdStageNode3D::evict_http_cache_entry(const godot::String& url)
+{
+    if (url.is_empty()) return;
+    pxr::UsdHttpAssetResolver::EvictFromCache(url.utf8().get_data());
+}
+
+void UsdStageNode3D::reload(bool clear_http_cache)
+{
+    if (stage_uri_.is_empty()) return;
+    // Deserialize-time setter calls can arrive before the node is in the tree;
+    // the _enter_tree lifecycle will open the stage, so there is nothing to do.
+    if (!is_inside_tree()) return;
+    if (is_loading_) return;
+
+    // Evict so the worker re-downloads this URL (see EvictFromCache). Scoped to it.
+    if (clear_http_cache)
+    {
+        evict_http_cache_entry(stage_uri_);
+    }
+
+    // Tear down like a URI change, then force the convert path (not
+    // _reconstruct_node) so the cached .scn is bypassed; the stale .scn is left
+    // in place — _convert_stage ignores it and overwrites it on success.
+    cached_scene_name_ = "";
+    if (stage_handle_) emit_signal("stage_unloading");
+    bridge_.reset(); // before stage_handle_.reset(): ~bridge revokes its TfNotice on a live stage
+    stage_handle_.reset();
+    _cleanup_nodes();
+
+    if (pending_load_task_)
+    {
+        pending_load_task_->Cancel();
+        pending_load_task_.reset();
+    }
+    is_loading_ = false;
+
+    open_stage_and_then("_convert_stage");
 }
 
 void UsdStageNode3D::open_stage_and_then(const godot::StringName& next_method_name)
@@ -120,36 +220,34 @@ void UsdStageNode3D::open_stage_and_then(const godot::StringName& next_method_na
     pending_load_task_->LoadAsync(std::move(request), [&, next_method_name](idtxflow::async::StageLoadResult result) {
         // Store the result in a thread-safe manner
         {
-            // Store the result in a thread-safe manner
-            {
-                std::lock_guard<std::mutex> lock(result_mutex_);
-                pending_result_ = std::move(result);
-                is_loading_ = false;
-            }
-            
-            // NOTE: this callback runs on the worker thread. Godot's
-            // emit_signal touches per-node dispatch structures that are not
-            // thread-safe, so any signal we emit from here must be marshalled
-            // to the main thread via call_deferred("emit_signal", ...).
-            // Otherwise Godot rejects the dispatch with a
-            // "Caller thread can't call this function in this node" error
-            // and GDScript subscribers never receive the failure notification.
-            if (!pending_result_.success())
-            {
-                IDTX_LOGF(IDTX_ERROR, "Unable to open Stage. Error: '{}'", result.error_message.c_str());
-                call_deferred("emit_signal", "stage_loading_finished", false);
-                return;
-            }
-    
-            if (!pending_result_.stage)
-            {
-                call_deferred("emit_signal", "stage_loading_finished", false);
-                return;
-            }
-            
-            // Marshal to main thread via call_deferred
-            call_deferred(next_method_name);
-        });
+            std::lock_guard<std::mutex> lock(result_mutex_);
+            pending_result_ = std::move(result);
+            is_loading_ = false;
+        }
+
+        // NOTE: this callback runs on the worker thread. Godot's
+        // emit_signal touches per-node dispatch structures that are not
+        // thread-safe, so any signal we emit from here must be marshalled
+        // to the main thread via call_deferred("emit_signal", ...).
+        // Otherwise Godot rejects the dispatch with a
+        // "Caller thread can't call this function in this node" error
+        // and GDScript subscribers never receive the failure notification.
+        if (!pending_result_.success())
+        {
+            IDTX_LOGF(IDTX_ERROR, "Unable to open Stage. Error: '{}'", result.error_message.c_str());
+            call_deferred("emit_signal", "stage_loading_finished", false);
+            return;
+        }
+
+        if (!pending_result_.stage)
+        {
+            call_deferred("emit_signal", "stage_loading_finished", false);
+            return;
+        }
+
+        // Marshal to main thread via call_deferred
+        call_deferred(next_method_name);
+    });
 }
 
 void UsdStageNode3D::_reconstruct_node()
@@ -175,9 +273,10 @@ void UsdStageNode3D::_reconstruct_node()
                 }
             }
 
-            // coming here is most likely the case, when the scene has been loaded or after an _exit_tree -> _enter_tree
-            // cycle. If the node has a cached scene name stored, it has been saved in the converted state and thus does
-            // not trigger conversion again as all nodes has been loaded already. Otherwise trigger conversion.
+            // coming here is most likely the case, when the scene has been loaded or after an _exit_tree ->
+            // _enter_tree cycle. If the node has a cached scene name stored, it has been saved in the converted
+            // state and thus does not trigger conversion again as all nodes has been loaded already. Otherwise
+            // trigger conversion.
             if (cached_scene_name_.is_empty() || !FileAccess::file_exists(cached_scene_name_))
             {
                 _cleanup_nodes();
@@ -228,12 +327,16 @@ void UsdStageNode3D::_convert_stage()
     {
         _configure_nodes_recursive(
             node, this);       // we set the owner here, but defer this to ensure adding to the tree happens first
-        this->add_child(node); // this invokes _ready() on node at earliest convenient from Godot engine point of view,
-                               // which expects the "config" already run
+        this->add_child(node); // this invokes _ready() on node at earliest convenient from Godot engine point of
+                               // view, which expects the "config" already run
     }
 
     // name our-self after the root layer of the stage we opened
     set_name(stage_handle_->Stage()->GetRootLayer()->GetDisplayName().c_str());
+
+    // Build the authoring bridge over the freshly converted stage so transform
+    // edits can be authored into it. No-op when no factory is registered.
+    if (idtxflow::net::ports::IStageBridge* b = get_or_create_bridge()) b->build_index();
 
     // generate and store a unique cached scene name for this converted stage
     cached_scene_name_ = _generate_cached_scene_name(stage_uri_);
@@ -280,6 +383,10 @@ void UsdStageNode3D::_load_converted_stage()
     // release the instantiated packed scene, all children have been copied over to the actual scene tree
     cached_root->queue_free();
 
+    // Build the authoring bridge over the restored stage + children so transform
+    // edits can be authored into it. No-op when no factory is registered.
+    if (idtxflow::net::ports::IStageBridge* author_bridge = get_or_create_bridge()) author_bridge->build_index();
+
     // only after we have transferred the cached scene into the current one we can activate the compute bridge
     // as during stage_handle_ instantiation there is no compute property registered yet
     auto bridge = idtxflow::exec::ExecBridgeManager::Instance().GetExecBridgeForStage(stage_handle_->Stage());
@@ -300,20 +407,19 @@ void UsdStageNode3D::_configure_nodes_recursive(godot::Node3D* node, godot::Node
 
     // store the owning StageNode3D
     IUsdNode3D* usd_node = IUsdNode3D::from_node(node);
-    if (usd_node)
-        usd_node->set_stage_node(this);
+    if (usd_node) usd_node->set_stage_node(this);
+
+    // Enable Godot transform-changed notifications so local gizmo/script edits
+    // are routed to the IDTX transform sync. Nodes that override _notification
+    // (e.g. UsdXformNode3D) then author the change into the live USD stage and
+    // conditionally broadcast it.  Must run for a child UsdStageNode3D too (whole-sub-stage repositioning)
+    node->set_notify_transform(true);
 
     // if this is a UsdStageNode3D itself, skip traversing the childrens, as this node takes care of it
     // on it's own
     if (dynamic_cast<UsdStageNode3D*>(node)) return;
 
-    // Enable Godot transform-changed notifications so local gizmo/script edits
-    // are routed to the IDTX transform sync. Nodes that override _notification
-    // (e.g. UsdXformNode3D) then author the change into the live USD stage and
-    // conditionally broadcast it.
-    node->set_notify_transform(true);
-    
-    // if "register_compute" is true, the configuration happens during loading of a cached stage scene. Thus, the 
+    // if "register_compute" is true, the configuration happens during loading of a cached stage scene. Thus, the
     // stage converter did not run and registered compute attributes into the ExecComputeBridge. Do this here now
     if (register_compute && usd_node && stage_handle_)
     {
@@ -393,9 +499,9 @@ godot::String UsdStageNode3D::_generate_cached_scene_name(const godot::String& s
     const String file_hash = String::num_int64(stage_uri.hash());
 
     String suffix;
-    // if the stage/layer was opened with a provided overlay layer we create a unique hash based on the layer contents
-    // to ensure the same original stage can be used and cached with different override layers that result in different
-    // converted contents for the scene
+    // if the stage/layer was opened with a provided overlay layer we create a unique hash based on the layer
+    // contents to ensure the same original stage can be used and cached with different override layers that result
+    // in different converted contents for the scene
     if (has_meta("USD_OVERRIDE_LAYER"))
     {
         const String override_content = get_meta("USD_OVERRIDE_LAYER");
@@ -441,6 +547,9 @@ void UsdStageNode3D::_bind_methods()
 
     ClassDB::bind_method(D_METHOD("set_stage_uri", "path"), &UsdStageNode3D::set_stage_uri);
     ClassDB::bind_method(D_METHOD("get_stage_uri"), &UsdStageNode3D::get_stage_uri);
+    ClassDB::bind_method(D_METHOD("reload", "clear_http_cache"), &UsdStageNode3D::reload, DEFVAL(true));
+    ClassDB::bind_static_method("UsdStageNode3D", D_METHOD("evict_http_cache_entry", "url"),
+                                &UsdStageNode3D::evict_http_cache_entry);
     ADD_PROPERTY(PropertyInfo(Variant::STRING, "stage_uri", PROPERTY_HINT_FILE, "*.usd,*.usda,*.usdc,*.usdz"),
                  "set_stage_uri", "get_stage_uri");
 
@@ -449,6 +558,18 @@ void UsdStageNode3D::_bind_methods()
     ADD_PROPERTY(PropertyInfo(Variant::STRING, "cached_scene_name", PROPERTY_HINT_NONE, "",
                               PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_READ_ONLY),
                  "set_cached_scene_name", "get_cached_scene_name");
+
+    ClassDB::bind_method(D_METHOD("set_local_authoring", "enabled"), &UsdStageNode3D::set_local_authoring);
+    ClassDB::bind_method(D_METHOD("get_local_authoring"), &UsdStageNode3D::get_local_authoring);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "local_authoring", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT),
+                 "set_local_authoring", "get_local_authoring");
+
+    ClassDB::bind_method(D_METHOD("save_stage", "out_uri"), &UsdStageNode3D::save_stage);
+
+    ClassDB::bind_method(D_METHOD("set_author_placement_root", "enabled"), &UsdStageNode3D::set_author_placement_root);
+    ClassDB::bind_method(D_METHOD("get_author_placement_root"), &UsdStageNode3D::get_author_placement_root);
+    ADD_PROPERTY(PropertyInfo(Variant::BOOL, "author_placement_root", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT),
+                 "set_author_placement_root", "get_author_placement_root");
 
     // Registration required to allow deferred calling
     ClassDB::bind_method(D_METHOD("_pack_and_save_cached_scene"), &UsdStageNode3D::_pack_and_save_cached_scene);
@@ -460,4 +581,8 @@ void UsdStageNode3D::_bind_methods()
     // Signals for async loading lifecycle
     ADD_SIGNAL(MethodInfo("stage_loading_started"));
     ADD_SIGNAL(MethodInfo("stage_loading_finished", PropertyInfo(Variant::BOOL, "success")));
+
+    // Emitted right before the stage handle and converted child nodes are torn down, so listeners can drop
+    // references to this stage (set_stage_uri + NOTIFICATION_PREDELETE)
+    ADD_SIGNAL(MethodInfo("stage_unloading"));
 }

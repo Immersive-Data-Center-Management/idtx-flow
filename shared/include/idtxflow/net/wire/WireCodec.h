@@ -21,59 +21,74 @@ namespace net
 {
 namespace wire
 {
-    /// The handshake that opens a session: identifiers and the USD location.
-    struct HandshakeMsg
+/// The handshake that opens a session: identifiers and the USD location.
+struct HandshakeMsg
+{
+    std::string session_id;
+    std::string usd_path;
+    std::string usd_uri;
+};
+
+/// A transform edit broadcast by a peer.
+struct RemoteEditMsg
+{
+    std::string from_client_id;
+    model::PrimEdit edit;
+};
+
+/// Acknowledgement of a submitted update.
+struct AckMsg
+{
+    bool ok = false;
+    std::string error;
+};
+/// A protocol-level error reported by the backend.
+struct ErrorMsg
+{
+    std::string code;
+    std::string message;
+};
+
+/// A decoded inbound frame: exactly one payload is populated per `kind`.
+struct DecodedMessage
+{
+    enum class Kind
     {
-        std::string session_id;
-        std::string usd_path;
-        std::string usd_uri;
+        None,
+        Handshake,
+        RemoteEdit,
+        Ack,
+        Error,
+        SnapshotComplete
     };
 
-    /// A transform edit broadcast by a peer.
-    struct RemoteEditMsg
-    {
-        std::string     from_client_id;
-        model::PrimEdit edit;
-    };
+    Kind kind = Kind::None;
+    HandshakeMsg handshake;
+    RemoteEditMsg remote_edit;
+    AckMsg ack;
+    ErrorMsg error;
 
-    /// Acknowledgement of a submitted update.
-    struct AckMsg
-    {
-        bool        ok = false;
-        std::string error;
-    };
+    // Envelope ordering fields (see base.proto): server_seq of the described
+    // state (0 = none), and request_id echoed on an Ack (0 = unset).
+    uint64_t server_seq = 0;
+    uint64_t request_id = 0;
+};
 
-    /// A protocol-level error reported by the backend.
-    struct ErrorMsg
-    {
-        std::string code;
-        std::string message;
-    };
+/// Parse a serialized BaseMessage. Returns false if the bytes don't parse or
+/// carry a payload this client doesn't handle (out.kind stays None).
+bool decode(const std::string& bytes, DecodedMessage& out);
 
-    /// A decoded inbound frame: exactly one payload is populated per `kind`.
-    struct DecodedMessage
-    {
-        enum class Kind { None, Handshake, RemoteEdit, Ack, Error };
+/// Serialize a TransformUpdate BaseMessage for one prim edit. The matrix is
+/// written row-major (m00..m33); the separate form fills the T/R/S fields.
+/// @p base_server_seq is the client's current applied server_seq (the update's
+/// base for the server's stale check); @p request_id correlates the Ack.
+std::string encode_transform_update(const std::string& session_id, const model::PrimEdit& edit,
+                                    uint64_t base_server_seq, uint64_t request_id);
 
-        Kind         kind = Kind::None;
-        HandshakeMsg handshake;
-        RemoteEditMsg remote_edit;
-        AckMsg       ack;
-        ErrorMsg     error;
-    };
-
-    /// Parse a serialized BaseMessage. Returns false if the bytes don't parse or
-    /// carry a payload this client doesn't handle (out.kind stays None).
-    bool decode(const std::string& bytes, DecodedMessage& out);
-
-    /// Serialize a TransformUpdate BaseMessage for one prim edit. The matrix is
-    /// written row-major (m00..m33); the separate form fills the T/R/S fields.
-    std::string encode_transform_update(const std::string& session_id, const model::PrimEdit& edit);
-
-    /// Assert at startup that the linked protobuf runtime matches the headers the
-    /// generated messages were compiled against, failing fast on a version skew
-    /// instead of corrupting memory later. A no-op when versions agree.
-    void verify_protobuf_version();
+/// Assert at startup that the linked protobuf runtime matches the headers the
+/// generated messages were compiled against, failing fast on a version skew
+/// instead of corrupting memory later. A no-op when versions agree.
+void verify_protobuf_version();
 
 } // namespace wire
 } // namespace net

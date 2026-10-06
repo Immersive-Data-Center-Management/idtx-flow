@@ -27,62 +27,65 @@ namespace idtxflow
 {
 namespace collab
 {
-    class Dispatcher : public net::ports::IMainThreadDispatcher
+class Dispatcher : public net::ports::IMainThreadDispatcher
+{
+  public:
+    Dispatcher(godot::Object* host, godot::StringName drain_method)
+        : host_(host),
+          drain_method_(std::move(drain_method))
     {
-    public:
-        Dispatcher(godot::Object* host, godot::StringName drain_method)
-            : host_(host), drain_method_(std::move(drain_method)) {}
+    }
 
-        void post(std::function<void()> fn) override
+    void post(std::function<void()> fn) override
+    {
         {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (!active_ || !host_)
+            {
+                return;
+            }
+            queue_.push(std::move(fn));
+        }
+        // Ask the host to drain on the main thread next frame.
+        host_->call_deferred(drain_method_);
+    }
+
+    /// Run all queued callbacks. Invoked on the main thread by the host's
+    /// bound drain method.
+    void drain()
+    {
+        for (;;)
+        {
+            std::function<void()> fn;
             {
                 std::lock_guard<std::mutex> lock(mutex_);
-                if (!active_ || !host_)
+                if (queue_.empty())
                 {
                     return;
                 }
-                queue_.push(std::move(fn));
+                fn = std::move(queue_.front());
+                queue_.pop();
             }
-            // Ask the host to drain on the main thread next frame.
-            host_->call_deferred(drain_method_);
+            if (fn) fn();
         }
+    }
 
-        /// Run all queued callbacks. Invoked on the main thread by the host's
-        /// bound drain method.
-        void drain()
-        {
-            for (;;)
-            {
-                std::function<void()> fn;
-                {
-                    std::lock_guard<std::mutex> lock(mutex_);
-                    if (queue_.empty())
-                    {
-                        return;
-                    }
-                    fn = std::move(queue_.front());
-                    queue_.pop();
-                }
-                if (fn) fn();
-            }
-        }
+    /// Stop accepting work and discard anything still queued.
+    void shutdown()
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        active_ = false;
+        std::queue<std::function<void()>> empty;
+        queue_.swap(empty);
+    }
 
-        /// Stop accepting work and discard anything still queued.
-        void shutdown()
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            active_ = false;
-            std::queue<std::function<void()>> empty;
-            queue_.swap(empty);
-        }
-
-    private:
-        godot::Object*     host_;
-        godot::StringName  drain_method_;
-        std::mutex         mutex_;
-        std::queue<std::function<void()>> queue_;
-        bool               active_ = true;
-    };
+  private:
+    godot::Object* host_;
+    godot::StringName drain_method_;
+    std::mutex mutex_;
+    std::queue<std::function<void()>> queue_;
+    bool active_ = true;
+};
 
 } // namespace collab
 } // namespace idtxflow

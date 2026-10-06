@@ -27,57 +27,59 @@ namespace net
 {
 namespace adapters
 {
-    class StaticTokenProvider : public ports::ITokenProvider
+class StaticTokenProvider : public ports::ITokenProvider
+{
+  public:
+    IDTXFLOW_API std::string get() const override
     {
-    public:
-        IDTXFLOW_API std::string get() const override
+        std::lock_guard<std::mutex> lock(mutex_);
+        return token_;
+    }
+
+    IDTXFLOW_API void set(std::string access_token, std::string type = "Bearer") override
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        token_ = std::move(access_token);
+        token_type_ = type.empty() ? std::string("Bearer") : std::move(type);
+    }
+
+    IDTXFLOW_API void clear() override
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        token_.clear();
+    }
+
+    IDTXFLOW_API std::string auth_header_value() const override
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (token_.empty())
         {
-            std::lock_guard<std::mutex> lock(mutex_);
-            return token_;
+            return {};
         }
+        return token_type_ + " " + token_;
+    }
 
-        IDTXFLOW_API void set(std::string access_token, std::string type = "Bearer") override
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            token_ = std::move(access_token);
-            token_type_ = type.empty() ? std::string("Bearer") : std::move(type);
-        }
+    /// The process-wide provider shared by the engine and the USD fetcher.
+    IDTXFLOW_API static StaticTokenProvider& instance()
+    {
+        static StaticTokenProvider provider;
+        return provider;
+    }
 
-        IDTXFLOW_API void clear() override
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            token_.clear();
-        }
+  private:
+    explicit StaticTokenProvider()
+    {
+    }
+    ~StaticTokenProvider() = default;
 
-        IDTXFLOW_API std::string auth_header_value() const override
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            if (token_.empty())
-            {
-                return {};
-            }
-            return token_type_ + " " + token_;
-        }
+    // disallow copy construct on the StaticTokenProvider
+    StaticTokenProvider(const StaticTokenProvider&) = delete;
+    StaticTokenProvider& operator=(const StaticTokenProvider&) = delete;
 
-        /// The process-wide provider shared by the engine and the USD fetcher.
-        IDTXFLOW_API static StaticTokenProvider& instance()
-        {
-            static StaticTokenProvider provider;
-            return provider;
-        }
-
-    private:
-        explicit StaticTokenProvider() {}
-        ~StaticTokenProvider() = default;
-
-        // disallow copy construct on the StaticTokenProvider 
-        StaticTokenProvider(const StaticTokenProvider&) = delete;
-        StaticTokenProvider& operator=(const StaticTokenProvider&) = delete;
-
-        std::string token_type_ = "Bearer";
-        std::string token_;
-        mutable std::mutex mutex_;
-    };
+    std::string token_type_ = "Bearer";
+    std::string token_;
+    mutable std::mutex mutex_;
+};
 
 } // namespace adapters
 } // namespace net

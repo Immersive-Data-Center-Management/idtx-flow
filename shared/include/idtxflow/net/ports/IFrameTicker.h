@@ -15,18 +15,18 @@ namespace net
 {
 namespace ports
 {
-    struct IFrameTicker
-    {
-        virtual ~IFrameTicker() = default;
+struct IFrameTicker
+{
+    virtual ~IFrameTicker() = default;
 
-        using Tick = std::function<void()>;
+    using Tick = std::function<void()>;
 
-        /// Run fn once per frame on the main thread.
-        virtual void set_tick(Tick fn) = 0;
+    /// Run fn once per frame on the main thread.
+    virtual void set_tick(Tick fn) = 0;
 
-        /// Stop ticking (called from shutdown).
-        virtual void clear_tick() = 0;
-    };
+    /// Stop ticking (called from shutdown).
+    virtual void clear_tick() = 0;
+};
 
 } // namespace ports
 } // namespace net

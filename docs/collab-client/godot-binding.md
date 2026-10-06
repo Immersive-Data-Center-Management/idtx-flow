@@ -10,7 +10,8 @@ It lives in:
 
 | Path | Contents |
 |---|---|
-| `source/collab/` | `IdtxClient`, `StageBridge`, `TransformCodec`, `Dispatcher`, `Ticker` |
+| `source/collab/` | `IdtxClient`, `Dispatcher`, `Ticker` |
+| `source/stage_ops/` | `StageBridge`, `StageEditController`, `TransformCodec` (see [stage-authoring.md](stage-authoring.md)) |
 | `source/nodes/` | USD node types (`UsdStageNode3D` + converted prim nodes) |
 | `source/register_types.cpp` | Module boot: class registration, singleton, composition root |
 
@@ -60,7 +61,7 @@ singleton.
 - **Config / auth:** `set_base_url`, `get_base_url`, `is_authenticated`,
   `get_access_token`, `clear_credentials`.
 - **REST (async):** `login`, `health`, `fetch_thumbnail`, `list_files`,
-  `create_session`, `delete_session`, `list_sessions`, `get_session`,
+  `list_sessions`, `get_session`,
   `commit_session`, `check_download_exists`, `check_thumbnail_exists`. Each
   optionally takes an `on_done` Callable that receives a result Dictionary —
   `{ "ok": true, "result": <payload> }` on success, or
@@ -68,22 +69,39 @@ singleton.
   an Array of session dicts for `list_sessions`, a session dict for `get_session`,
   `{ session_id, committed }` for `commit_session`, and `{ exists: bool }` for the
   two `check_*_exists` probes (a 404 resolves as `exists: false`, not an error).
-- **Session flow:** `begin_server_import(usd_file, mode, on_done)` runs the whole
-  create → open-socket → ready sequence in the core; `end_session()` tears it down.
+- **Session flow (multi-session):** `open_new_session(usd_file, mode, auto_commit, on_done)` (create) and
+  `open_existing_session(session_id, on_done)` (join) each run the core's
+  obtain → `enter_session` → open-socket sequence and then report the per-request
+  `on_done` completion (result carries `session_id`, `stage_url`, `ws_url`);
+  `end_session(session_id)` tears down that one session. The client can hold several
+  concurrent sessions, each keyed by
+  its id with its own socket + stage. `open_existing_session` refuses a session already held,
+  failing fast with `error_code: "already_joined"` (no round-trip) — the server currently can't detect a
+  same-client re-join, so this guard is client-side. The Godot client is
+  leave-only: it never creates a bare session or destroys one server-side
+  (the backend auto-tears-down a session once its last client leaves), so
+  `open_new_session` / `end_session` are the only session-lifecycle entry
+  points exposed here. This is distinct from the raw REST calls
+  above (which only issues the request).
 - **URL helpers:** `download_url`, `ws_base_url`.
-- **WebSocket:** `open_session_socket`, `close_session_socket`, `is_socket_open`,
-  `send_transform(prim_path, xform)`.
-- **Transform sync:** `attach_transform_sync(stage_node, remote)`,
-  `detach_transform_sync`, `arm_transform_sync`, `notify_local_transform_changed(node)`.
+- **Session state:** `is_socket_open(session_id)`. (Socket lifecycle is owned by the engine's
+  session flow; there are no separate open/close-socket calls.)
+- **Session sync binding (per session):** `bind_session(session_id, stage_node, remote)`,
+  `unbind_session(session_id)`. (Binding records which stage node a session drives and borrows
+  that node's bridge; local transform authoring is driven node-side — see
+  [stage-authoring.md](stage-authoring.md).)
 
-**Signals.** `IdtxClient` implements `CollabObserver` and converts each callback
-into a Godot signal (and, for a request, into that request's `on_done` dictionary):
+**Signals.** `IdtxClient` implements `CollabObserver` and converts each socket-lifecycle
+callback into a Godot signal (and, for a request, into that request's `on_done` dictionary).
+Session **acquisition** (create/join) is reported only via the per-request `on_done`
+completion (result includes `session_id` + resolved `stage_url` + `ws_url`)
+Every socket-lifecycle signal carries the `session_id` it belongs to,
+so a host tracking multiple concurrent sessions can route each event to the right session/scene:
 
 | Signal | Fired when |
 |---|---|
-| `session_ready` | session created + socket opened; carries the resolved stage download URL |
-| `session_closed` | `end_session()` completed |
-| `socket_opened` | session WebSocket connected |
+| `session_closed` | `end_session(session_id)` completed (carries `session_id`) |
+| `socket_opened` | session WebSocket connected (carries `session_id`) |
 | `handshake_received` | server handshake for the session |
 | `transform_broadcast_received` | a peer's transform edit arrived (already applied to the stage) |
 | `ack_received` | server acknowledged a submitted edit |
@@ -101,13 +119,17 @@ These are the ports the net core requires that can only be implemented in terms 
 Godot (and, for the stage, OpenUSD). Everything else (transports, token, clock) is
 reused from `shared/` — see [net-core.md](net-core.md).
 
-- **`StageBridge`** (`IStageBridge`) — the single place Godot and OpenUSD types
-  coexist. It authors edits into the live USD stage (the free local save), applies
+- **`StageBridge`** (`IStageBridge`) — where Godot and OpenUSD types meet **for the
+  net binding's transform authoring/reading**, **owned by the `UsdStageNode3D`**
+  (not the engine); a session borrows it.
+  It authors edits into the live USD stage (the free local save), applies
   inbound edits with **loopback suppression** (a flag set while it authors, so the
   resulting change notice isn't re-broadcast), reads prim transforms, and reports
   genuine stage changes back to the core through a USD change-notice (`TfNotice`)
-  listener. It also handles the spine-axis presentation rotation for Cone/Cylinder
-  (see [transform-sync-flow.md](transform-sync-flow.md)).
+  listener. It lives in `source/stage_ops/` with `StageEditController` (which
+  applies the local-or-session authoring decision) — see
+  [stage-authoring.md](stage-authoring.md). It also handles the spine-axis
+  presentation rotation for Cone/Cylinder (see [transform-sync-flow.md](transform-sync-flow.md)).
 - **`TransformCodec`** — converts a Godot `Transform3D` to/from the core's
   `PrimEdit`/`Mat4`. Godot-only (no pxr); shared by both `IdtxClient` (outbound
   origin and inbound signal) and `StageBridge` (USD authoring), so the marshalling
@@ -132,7 +154,9 @@ The imported stage is represented as a tree of Godot `Node3D`s:
   `UsdMultiMeshInstanceNode3D`, `UsdSkeletonNode3D`, `UsdStaticBodyNode3D`. They
   share the `IUsdNode3D` mixin (which carries the prim path and a back-pointer to
   the stage node) and are the **outbound origin**: a gizmo move fires
-  `NOTIFICATION_TRANSFORM_CHANGED`, which reaches `IdtxClient::notify_local_transform_changed`.
+  `NOTIFICATION_TRANSFORM_CHANGED`, which the owning `UsdStageNode3D` routes through
+  `author_node_transform` → `StageEditController` → its bridge (see
+  [stage-authoring.md](stage-authoring.md)).
 
 > `UsdRestDatasourceNode3D` and `UsdMockDatasourceFloatNode3D` also live here but
 > belong to the separate compute/exec-bridge feature, not the collaboration client.

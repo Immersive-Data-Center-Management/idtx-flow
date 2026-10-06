@@ -1,18 +1,16 @@
 #include "UsdXFormNode3D.h"
 
-#include "../collab/IdtxClient.h"
-
 using namespace godot;
 
 void UsdXformNode3D::_notification(int p_what)
 {
     if (p_what == NOTIFICATION_TRANSFORM_CHANGED)
     {
-        // Forward a local transform edit to the collaboration client, which
-        // authors it into the live stage and conditionally broadcasts it.
-        if (IdtxClient* client = IdtxClient::get_singleton())
+        // Route the transform edit to the owning stage, which authors it into USD
+        // (and broadcasts it when a session drives the stage).
+        if (UsdStageNode3D* stage = get_stage_node())
         {
-            client->notify_local_transform_changed(this);
+            stage->author_node_transform(this);
         }
     }
 }

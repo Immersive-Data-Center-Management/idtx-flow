@@ -30,18 +30,18 @@ namespace net
 {
 namespace adapters
 {
-    struct IxTransportFactory : ports::ITransportFactory
+struct IxTransportFactory : ports::ITransportFactory
+{
+    std::unique_ptr<ports::IHttpTransport> make_http() override
     {
-        std::unique_ptr<ports::IHttpTransport> make_http() override
-        {
-            return std::make_unique<IxHttpTransport>();
-        }
+        return std::make_unique<IxHttpTransport>();
+    }
 
-        std::unique_ptr<ports::IWebSocketTransport> make_websocket() override
-        {
-            return std::make_unique<IxWebSocketTransport>();
-        }
-    };
+    std::unique_ptr<ports::IWebSocketTransport> make_websocket() override
+    {
+        return std::make_unique<IxWebSocketTransport>();
+    }
+};
 
 } // namespace adapters
 } // namespace net

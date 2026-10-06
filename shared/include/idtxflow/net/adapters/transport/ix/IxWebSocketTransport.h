@@ -20,7 +20,10 @@
 #include <idtxflow/net/ports/IWebSocketTransport.h>
 #include <idtxflow/utils/Logger.h>
 
-namespace ix { class WebSocket; }
+namespace ix
+{
+class WebSocket;
+}
 
 namespace idtxflow
 {
@@ -28,35 +31,35 @@ namespace net
 {
 namespace adapters
 {
-    class IxWebSocketTransport : public ports::IWebSocketTransport
-    {
-    public:
-        IxWebSocketTransport();
-        ~IxWebSocketTransport() override;
+class IxWebSocketTransport : public ports::IWebSocketTransport
+{
+  public:
+    IxWebSocketTransport();
+    ~IxWebSocketTransport() override;
 
-        IxWebSocketTransport(const IxWebSocketTransport&) = delete;
-        IxWebSocketTransport& operator=(const IxWebSocketTransport&) = delete;
+    IxWebSocketTransport(const IxWebSocketTransport&) = delete;
+    IxWebSocketTransport& operator=(const IxWebSocketTransport&) = delete;
 
-        void set_headers(std::map<std::string, std::string> headers) override;
-        void connect(std::string url) override;
-        void close() override;
-        void send_binary(const std::string& bytes) override;
-        bool is_open() const override;
+    void set_headers(std::map<std::string, std::string> headers) override;
+    void connect(std::string url) override;
+    void close() override;
+    void send_binary(const std::string& bytes) override;
+    bool is_open() const override;
 
-        void set_on_binary(OnBinary callback) override;
-        void set_on_state(OnState callback) override;
+    void set_on_binary(OnBinary callback) override;
+    void set_on_state(OnState callback) override;
 
-        void poll() override;
+    void poll() override;
 
-    private:
-        IDTX_LOG_CATEGORY("IxWebSocketTransport")
+  private:
+    IDTX_LOG_CATEGORY("IxWebSocketTransport")
 
-        std::unique_ptr<ix::WebSocket>     ws_;
-        std::map<std::string, std::string> headers_;
-        bool                               is_open_ = false;
-        OnBinary                           on_binary_;
-        OnState                            on_state_;
-    };
+    std::unique_ptr<ix::WebSocket> ws_;
+    std::map<std::string, std::string> headers_;
+    bool is_open_ = false;
+    OnBinary on_binary_;
+    OnState on_state_;
+};
 
 } // namespace adapters
 } // namespace net
