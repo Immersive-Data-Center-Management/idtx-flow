@@ -11,6 +11,31 @@ Immersive Digital Twin Experience Flow plugin for Godot. The plugin enables the 
 To use the plugin within a Godot 4.5+ project, the required binaries can be downloaded from the release page of this repository. The extracted `IDTXFlow` folder
 from the package shall be copied to the *addons* folder of the Godot project.
 
+### Godot Editor Representation
+
+The IDTX-Flow addOn adds a new entry `IDTXFlow` to the header toolbar of Godot next to `AssetLib`. This provides access to the guided openUSD stage import. The initial screen provides the following two options:
+
+#### Local Import
+
+The `Import USD from local files` opens a file browser rooted at `res://` to give access to resources of the current open project and import usd stages that are part of the project. It's possible to import the openUSD stage in two ways:
+1. As new scene:
+    which will make the `UsdStageNode3D` the scenes root node and shows all child nodes representing the converted `Prim`s of the openUSD stage.
+2. As child node into an existing scene:
+    which will add a `UsdStageNode3D` as a child node to the current selected node in the scene tree view of the actual open scene. This will treat the imported stage as "packedScene" and will not show it's inner contents in the scene tree view.
+
+#### Remote Import
+
+This allows to connect to an [IDTX-Core](https://github.com/Immersive-Data-Center-Management/idtx-core) Backend Server that serves openUSD stages for simple "one-time" import or for live-sync updates. The IDTX-Core backend provides a login endpoint that provides a JWT token that will be used for any subsequent connections to the server. For connection the base url of the deployed server is requrired as well as a user name and password.
+
+1. Import only
+Importing a remote stage either into a new scene or as a child of a selected node in the scene tree view of the current open scene.
+
+2. Single Edit
+This opens a live-sync session to the backend. All transform changes to usd child-nodes will be synchronized to their original prims in the remote usd stage. The changes are only persisted on the server if they are committed. This happens, when saving the Godot scene (a confirm dialogue ask, whether to commit) or on closing the scene when "auto-commit" was activated, when opening the session.
+
+3. Collaboration Edit
+This opens a live-sync session to the backend that allows other users to join the same session. All transforms a single client does, are broadcasted to all connected client and visibly in real-time. Each client, can trigger a "commit" of the actual session state to the server to get it persisted.
+
 ## Requirements and Setup to Build from Source
 
 The IDTX Flow plugin for Godot uses `scons` (a python build tool) to download and install all required dependencies to run the build that creates the binaries.
@@ -213,7 +238,7 @@ def Xform "World" {
 
     # Author a simple mock data source that creates new random float values every second
     def MockDatasource_RandomFloat "MockDataSource" {
-        float inputs:interval = 1.0
+        float interval = 1.0
         string outputs:data = "{}"
     }
     
@@ -221,8 +246,8 @@ def Xform "World" {
     def Compute_ValueFromJson "GetDoubleFromJson" {
         string inputs:jsonData = "{}"
         string inputs:jsonData.connect = </World/MockDataSource.outputs:data>
-        string inputs:jsonPath = "/data/value"
-        token inputs:jsonValueType = "double"
+        string jsonPath = "/data/value"
+        token jsonValueType = "double"
         double outputs:jsonValue:double = 0.0
     }
     
