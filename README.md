@@ -1,4 +1,6 @@
 [![REUSE status](https://api.reuse.software/badge/github.com/Immersive-Data-Center-Management/idtx-flow)](https://api.reuse.software/info/github.com/Immersive-Data-Center-Management/idtx-flow)
+![Godot 4.5+](https://img.shields.io/badge/Godot-4.5%2B-brightgreen)
+![OpenUSD 26.05](https://img.shields.io/badge/OpenUSD-26.05-brightgreen)
 
 # IDTX Flow
 
