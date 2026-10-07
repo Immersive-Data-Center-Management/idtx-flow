@@ -26,7 +26,6 @@ After BuildProtobuf(), the following keys are set on the env:
     env['protoc_path']            - absolute path to the built protoc executable
 """
 import os
-import platform
 import subprocess
 
 from SCons.Script import Exit
