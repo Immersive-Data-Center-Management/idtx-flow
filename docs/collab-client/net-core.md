@@ -37,7 +37,7 @@ never sees an engine type, a WebSocket library, or OpenUSD.
 | Layer | Files | Role |
 |---|---|---|
 | Core | `CollabEngine.cpp` | Orchestration, broadcast gate, session flow, arming, `poll()` |
-| Protocol | `protocol/RestClient.cpp`, `protocol/SessionSocket.cpp` | REST orchestration; session WebSocket coalescing + dispatch |
+| Protocol | `protocol/RestClient.cpp`, `protocol/SessionSocket.cpp` | REST orchestration; session WebSocket immediate send + dispatch |
 | Wire | `wire/WireCodec.cpp` | protobuf <-> model (the only protobuf code) |
 | Model + math | `model/Types.h`, `model/ConventionMath.h` | Plain data; wire<->USD matrix transpose |
 | Ports | `ports/*.h` | The interfaces the core requires |
@@ -82,8 +82,8 @@ arrive on a **network thread**. `CollabEngine` marshals every one of them onto
 the host's **main thread** through `IMainThreadDispatcher::post` before touching
 the stage or calling the observer — so an observer implementation may safely touch
 engine objects. The once-per-frame `poll()` is driven by `IFrameTicker`; it
-advances the outbound-arming countdown and flushes the session socket's coalesced
-edits.
+advances the outbound-arming settle countdown (outbound edits are sent immediately
+in `on_stage_changed`, not flushed here).
 
 ---
 
@@ -117,11 +117,14 @@ Its public surface, by area:
   `arm_sync`, and `poll()`. The stage bridge is owned by the host node and borrowed
   here (`attach_stage` installs the engine's change sink on it); authoring is driven
   node-side (see [stage-authoring.md](stage-authoring.md)). Broadcasting is gated:
-  `on_stage_changed` sends only when the session is *remote*, *armed*, and not
-  currently *applying a remote edit* (loopback suppression). Arming requires two
-  gates: a short post-attach settle (so USD conversion-time writes do not
+  `on_stage_changed` sends immediately, only when the session is *remote*, *armed*,
+  *snapshot-complete*, its socket is *open*, and it is not currently *applying a
+  remote edit* (loopback suppression); otherwise the edit is dropped. Arming requires
+  two gates: a short post-attach settle (so USD conversion-time writes do not
   phantom-broadcast) **and** the join snapshot completing (`SnapshotComplete`) — the
-  protocol forbids sending before the snapshot; a reconnect re-gates both.
+  protocol forbids sending before the snapshot. A reconnect re-gates on the snapshot
+  only (the session disarms and clears `snapshot_complete`); the settle latch stays
+  set, since a reconnect does not reconvert the stage.
 
 The adapters the engine needs are passed in one struct:
 
@@ -201,21 +204,28 @@ rotation takes effect without reconfiguring readers.
   no transport or JSON — it drives an `IHttpTransport` and translates bytes via
   the REST codec. Successful thumbnails are cached in-memory by `usd_file`.
 - **`protocol/SessionSocket`** — the session protocol over a WebSocket: inbound
-  frame dispatch (handshake / remote edit / ack / error), **per-prim outbound
-  coalescing** (a burst of edits to one prim collapses to at most one frame per
-  `poll()`), and disconnect classification. Holds no transport or protobuf types.
-  Outbound updates carry two ordering fields:
+  frame dispatch (handshake / remote edit / ack / error), **immediate outbound
+  send** with per-prim duplicate suppression (an edit identical, payload only, to
+  the last one sent for that prim is dropped), and disconnect classification. Holds
+  no transport or protobuf types. Outbound updates carry two ordering fields:
   - **`server_seq`** — a per-session version counter the server increments once per
     applied stage change. Server messages that reflect state (broadcast, ack,
     `SnapshotComplete`) carry it so clients can order them; an outbound
     `TransformUpdate` carries, as its *base*, the highest `server_seq` the client had
-    applied, and the server rejects the update if that base is stale.
+    applied (captured at send time), and the server rejects the update if that base
+    is stale.
   - **`request_id`** — chosen by the client per `TransformUpdate` and echoed in the
-    matching **Ack**, so a client pairs each ack to its update. A rejected update's
-    ack (and a single-client *correction* broadcast, which advances `server_seq`
-    without changing the stage) lets the client re-sync.
-  - **Intent-preserving resend** — on reconnect the latest coalesced edit per prim is
-    re-sent against the fresh base, so a drag made during a blip still lands.
+    matching **Ack**, purely so the client can correlate an ack to its update for
+    diagnostics. Acks drive no client action: the client adopts the ack's
+    `server_seq` (advancing its own base past its applied edit) and does not resend.
+    The server resolves ordering — after a stale/invalid base it sends no correction
+    (the newer state is already on its way), and an un-appliable edit draws a server
+    *correction* broadcast that re-syncs the client.
+  - **On disconnect** — any edit authored while the socket is down is dropped; the
+    last-sent cache is cleared. On reconnect the client re-arms after the fresh
+    `SnapshotComplete` and the join snapshot is authoritative (the client has no
+    knowledge of intervening server state, so replaying local edits ahead of the
+    snapshot would diverge from the server).
 
 ---
 
@@ -370,10 +380,10 @@ void RestClient::get_foo(FooCb on_ok, ErrorCb on_err) {
 - **Add a WebSocket / protobuf message.** Declare the message in the wire contract
   under `shared/proto/idtxcore/*.proto` (the build regenerates the protobuf code),
   handle it in `WireCodec` (the generated types stay in that one file), add a callback
-  in `SessionSocket` and dispatch the new kind on receipt (coalesce it if it is
-  high-frequency per-prim), surface it on the engine + observer, and expose it on the
-  binding. Cover it with a codec round-trip test and a fake-`IWebSocketTransport`
-  dispatch test.
+  in `SessionSocket` and dispatch the new kind on receipt (drop a duplicate if it is
+  high-frequency per-prim, as `send` does), surface it on the engine + observer, and
+  expose it on the binding. Cover it with a codec round-trip test and a
+  fake-`IWebSocketTransport` dispatch test.
 
 ```cpp
 // 1. shared/proto/idtxcore/session.proto — declare the wire message

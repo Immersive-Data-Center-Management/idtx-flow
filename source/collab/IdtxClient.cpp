@@ -101,8 +101,8 @@ void IdtxClient::_drain_dispatch()
 void IdtxClient::_on_process_frame()
 {
     // Per-frame tick target (SceneTree::process_frame). Runs CollabEngine::poll()
-    // via the ticker: advances the auto-arm countdown and drains outbound edit
-    // coalescing (SessionSocket::flush_pending).
+    // via the ticker: advances the auto-arm settle countdown. Outbound edits are
+    // sent immediately in on_stage_changed, so there is no per-frame flush.
     if (ticker_) ticker_->fire();
 }
 

@@ -144,8 +144,8 @@ details matter here:
   property path (`…​.xformOp:transform`) and its prim path in a single notice;
   `_on_objects_changed` coalesces by prim key per dispatch so each prim is reported
   once. (USD may follow with a second info-only notice in a separate dispatch; the
-  outbound socket coalesces per prim per frame, so the wire still carries one edit
-  per gesture.)
+  outbound socket drops an edit identical to the last one it sent for that prim, so
+  the wire still carries one edit per gesture.)
 
 ---
 

@@ -2,19 +2,21 @@
 
 /**
  * @file SessionSocket.h
- * @brief Session protocol over a WebSocket: inbound message dispatch, per-prim
- *        outbound coalescing, and disconnect classification.
+ * @brief Session protocol over a WebSocket: inbound message dispatch, immediate
+ *        outbound send, and disconnect classification.
  *
  * It speaks the collaboration protocol through the wire codec and a WebSocket
- * port, holding no transport, protobuf, or engine types. Outbound edits are
- * collapsed to at most one frame per prim per poll so a burst of local changes
- * (e.g. a gizmo drag) produces a single update. Results are delivered through
- * caller-supplied callbacks so any binding can route them to its own sink.
+ * port, holding no transport, protobuf, or engine types. An outbound edit is
+ * encoded and sent the moment it is authored (one transform notice per node per
+ * frame already bounds the rate); a per-prim last-sent cache drops an edit
+ * identical to the one just sent for that prim. Acks are reported for
+ * diagnostics only — the server resolves ordering, so nothing is resent.
+ * Results are delivered through caller-supplied callbacks so any binding can
+ * route them to its own sink.
  */
 
 #include <functional>
 #include <map>
-#include <mutex>
 #include <string>
 
 #include <idtxflow/net/model/CloseReason.h>
@@ -70,18 +72,11 @@ class SessionSocket
         return is_open_;
     }
 
-    /// Queue an outbound edit; the latest edit per prim wins until the next poll.
-    void send_edit(const model::PrimEdit& edit);
-
-    /// Resolve an in-flight update by its Ack. ok=true drops the record;
-    /// ok=false (stale/invalid_base/apply_failed/queue_full) re-queues the
-    /// edit so the next flush resends it on the now-advanced base — the server
-    /// authors nothing and sends no correction for stale/invalid_base, so the
-    /// client must resend to converge. Correlated by request_id.
-    void handle_ack(bool ok, const std::string& error, uint64_t request_id);
-
-    /// Send one coalesced frame per pending prim. Call once per frame.
-    void poll();
+    /// Encode and send one edit immediately on the current base_server_seq_.
+    /// No-op if the socket is closed or the edit is identical (payload only,
+    /// ignoring the timestamp) to the last one sent for its prim — this drops
+    /// the duplicate info-only USD notice.
+    void send(const model::PrimEdit& edit);
 
     void on_opened(OpenedCb cb)
     {
@@ -117,7 +112,6 @@ class SessionSocket
 
     void handle_binary(const std::string& bytes);
     void handle_state(ports::IWebSocketTransport::State state, int code, const std::string& reason);
-    void flush_pending();
 
     ports::IWebSocketTransport* ws_;
     ports::IClock* clock_;
@@ -128,12 +122,10 @@ class SessionSocket
     // Per-connection monotonic request id for outbound updates (0 = unset).
     uint64_t next_request_id_ = 1;
 
-    std::mutex pending_mutex_;
-    std::map<std::string, model::PrimEdit> pending_; // prim_path -> latest edit
-    // Edits sent and awaiting an Ack, keyed by request_id. On rejection we
-    // re-queue the edit so it is resent on the advanced base; on success we
-    // drop it. Bounded by in-flight requests (cleared as acks arrive).
-    std::map<uint64_t, model::PrimEdit> inflight_; // request_id -> sent edit
+    // Last edit sent per prim (payload only). Drops a repeated identical notice
+    // for the same prim. Main-thread only; cleared on close so a reconnect
+    // resends the current state.
+    std::map<std::string, model::PrimEdit> last_sent_; // prim_path -> last sent edit
 
     OpenedCb on_opened_;
     HandshakeCb on_handshake_;

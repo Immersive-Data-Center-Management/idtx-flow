@@ -402,12 +402,14 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
     s.socket->on_opened([this, session_id] {
         ports_.dispatcher->post([this, session_id] {
             // A (re)connect restarts the snapshot handshake: clear the latch and
-            // re-gate arming so we never broadcast on a stale base.
+            // disarm so we never broadcast on a stale base. Only snapshot_complete
+            // re-gates — settle_done stays latched from the original attach, since a
+            // reconnect does not reconvert the stage (clearing it would strand the
+            // session un-armed, as nothing restarts the settle countdown).
             if (Session* sp = find_session(session_id))
             {
                 sp->snapshot_complete = false;
                 sp->armed = false;
-                sp->settle_done = false;
             }
             if (observer_) observer_->on_socket_opened(session_id);
         });
@@ -459,12 +461,13 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
         ports_.dispatcher->post([this, session_id, ok, error, request_id, server_seq] {
             IDTX_LOG(IDTX_DEBUG, "[trace] H on_ack session='{}' ok={} error='{}' req_id={} server_seq={}", session_id,
                      ok, error, request_id, server_seq);
-            // Adopt the ack's server_seq, then let the socket resolve the request
-            // (clear on success, resend on rejection — see SessionSocket::handle_ack).
+            // The ack is diagnostic: adopt its server_seq so this author's base
+            // advances past its own applied edit (otherwise the next local edit on
+            // the same prim would fail the server's stale check), log it, and
+            // notify. The server resolves ordering — a rejection needs no resend.
             if (Session* sp = find_session(session_id))
             {
                 advance_server_seq(*sp, server_seq);
-                if (sp->socket) sp->socket->handle_ack(ok, error, request_id);
             }
             if (observer_) observer_->on_ack(session_id, ok, error);
         });
@@ -477,6 +480,15 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
     });
     s.socket->on_disconnected([this, session_id](model::CloseReason reason, int code, const std::string& text) {
         ports_.dispatcher->post([this, session_id, reason, code, text] {
+            // Disarm and drop the snapshot latch so a transport-level drop cannot
+            // leave the session armed; a reconnect then re-gates on the fresh
+            // snapshot. The socket drops its last-sent cache as it goes down, so no
+            // edit authored before the drop outlives it. The join snapshot is authoritative.
+            if (Session* sp = find_session(session_id))
+            {
+                sp->snapshot_complete = false;
+                sp->armed = false;
+            }
             if (observer_) observer_->on_disconnected(session_id, reason, code, text);
         });
     });
@@ -581,7 +593,10 @@ void CollabEngine::on_stage_changed(const std::string& session_id, const model::
     if (!s) return;
 
     // Broadcast only local edits of an armed, remote session — never while
-    // applying a remote edit (that would echo it straight back).
+    // applying a remote edit (that would echo it straight back). Also require a
+    // completed snapshot and an open socket: the protocol forbids sending before
+    // the snapshot, and an edit authored while disconnected is dropped (the join
+    // snapshot wins on reconnect).
     IDTX_LOG(IDTX_DEBUG,
              "[trace] D on_stage_changed session='{}' prim='{}' remote={} armed={} applying={} has_socket={}",
              session_id, edit.prim_path, s->remote, s->armed, s->applying_remote, s->socket != nullptr);
@@ -589,17 +604,19 @@ void CollabEngine::on_stage_changed(const std::string& session_id, const model::
     {
         return;
     }
-    if (s->socket)
+    if (!s->snapshot_complete || !s->socket || !s->socket->is_open())
     {
-        s->socket->send_edit(edit);
+        return;
     }
+    s->socket->send(edit);
 }
 
 void CollabEngine::poll()
 {
-    // Advance each session's auto-arm countdown once per frame; arm when it
-    // elapses so conversion-time writes right after stage load are not
-    // broadcast. Then pump each session's socket.
+    // Advance each session's auto-arm settle countdown once per frame; arm when it
+    // elapses so USD conversion-time writes right after stage load are not
+    // broadcast. Outbound edits are sent immediately in on_stage_changed, so there
+    // is no per-frame socket flush here.
     for (auto& [id, s]: sessions_)
     {
         if (s.arm_countdown > 0)
@@ -614,11 +631,6 @@ void CollabEngine::poll()
                 s.settle_done = true;
                 try_arm(s);
             }
-        }
-
-        if (s.socket)
-        {
-            s.socket->poll();
         }
     }
 }

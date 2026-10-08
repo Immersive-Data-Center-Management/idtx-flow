@@ -38,9 +38,9 @@ sequenceDiagram
     Bridge->>Stage: author_to_usd, set xform op (free local save)
     Stage-->>Bridge: TfNotice _on_objects_changed (de-duped per prim)
     Bridge-->>Engine: on_changed(read_prim yields PrimEdit)
-    Note over Engine: gate remote AND armed AND NOT applying_remote
-    Engine->>Socket: send_edit(edit) [coalesce per prim]
-    Note over Socket: poll flush_pending (frame ticker)
+    Note over Engine: gate remote AND armed AND snapshot_complete AND socket open AND NOT applying_remote
+    Engine->>Socket: send(edit) [immediate]
+    Note over Socket: drop if identical to last sent for this prim
     Socket->>Wire: encode_transform_update then send_binary
 ```
 
@@ -55,19 +55,27 @@ sequenceDiagram
   is installed, so nothing broadcasts (local-only save). A session installs the
   sink via `attach_stage`, and the identical author now also feeds the broadcast.
 - **The broadcast gate** (CollabEngine::on_stage_changed) sends only when
-  remote_ AND armed_ AND NOT applying_remote_.
+  remote_ AND armed_ AND snapshot_complete_ AND the socket is open AND NOT
+  applying_remote_; otherwise the edit is dropped.
 - **Arming (two gates).** A remote session arms only when **both** hold: the
   post-attach settle elapsed (`arm_countdown_` = kArmAfterTicks, 3 frames, so USD
   load-time writes settle and do not phantom-broadcast) **and** the join snapshot
   completed (`SnapshotComplete`) — the protocol forbids sending updates before the
-  snapshot. A reconnect clears both latches and re-gates, so a stale base is never
-  broadcast.
-- **Coalescing.** The bridge de-dupes per prim within a notice; SessionSocket::send_edit
-  keeps the latest edit per prim and poll()/flush_pending emits one frame per prim per tick.
-- **Ordering & acks.** Each outbound frame carries a `server_seq` base (the latest
-  state the client applied; the server rejects a stale base) and a client `request_id`
-  echoed in the matching Ack. On reconnect the latest coalesced edit per prim is
-  re-sent against the fresh base. See [net-core.md](net-core.md).
+  snapshot. A reconnect re-gates on the snapshot only (`snapshot_complete_` is
+  cleared and the session disarmed); the settle latch stays set, since a reconnect
+  does not reconvert the stage.
+- **Immediate send + duplicate suppression.** The bridge de-dupes per prim within a
+  notice; `SessionSocket::send` additionally drops an edit identical (payload only,
+  ignoring the timestamp) to the last one it sent for that prim. There is no
+  per-frame flush — the edit goes out the moment it is authored (Godot already
+  delivers one transform notice per node per frame).
+- **Ordering & acks.** Each outbound frame carries the latest applied `server_seq`
+  as its base, captured at send time (the server rejects a stale base), and a client
+  `request_id` echoed in the matching Ack. Acks are **diagnostic only** — the client
+  adopts the ack's `server_seq` (so its own applied edit advances its base) and does
+  not resend; the server resolves ordering. An edit authored while disconnected is
+  dropped, and the join snapshot is authoritative on reconnect. See
+  [net-core.md](net-core.md).
 
 ---
 
@@ -149,19 +157,17 @@ User drags gizmo on a UsdXformNode3D (or UsdMeshInstanceNode3D)
         │   on_changed_(edit)   ← the sink CollabEngine installed in attach_stage
         ▼
 [6] CollabEngine.cpp :: on_stage_changed()      (THE GATE)
-        │   broadcast only if  remote_ && armed_ && !applying_remote_
-        │   socket_->send_edit(edit)
+        │   send only if  remote_ && armed_ && snapshot_complete_ && socket open && !applying_remote_
+        │   socket_->send(edit)                 ← otherwise the edit is dropped
         ▼
-[7] shared/.../SessionSocket.cpp :: send_edit()   (agnostic)
-        │   pending_[edit.prim_path] = edit     ← COALESCE: latest-per-prim wins
-        ⋮   (per frame)
-[8] IFrameTicker → CollabEngine::poll() → SessionSocket::poll() → flush_pending()
-        │   stamps timestamp (IClock::now_millis), then for each pending prim:
-        │   ws_->send_binary( wire::encode_transform_update(session_id, edit) )
+[7] shared/.../SessionSocket.cpp :: send()   (agnostic)
+        │   drop if identical (payload only) to the last edit sent for this prim
+        │   stamp timestamp (IClock::now_millis), take a request_id, then:
+        │   ws_->send_binary( wire::encode_transform_update(session_id, edit, base_server_seq, request_id) )
         ▼
-[9] shared/.../wire/WireCodec.cpp :: encode_transform_update()   (protobuf, agnostic)
+[8] shared/.../wire/WireCodec.cpp :: encode_transform_update()   (protobuf, agnostic)
         ▼
-[10] IWebSocketTransport::send_binary → IxWebSocketTransport → server → peers
+[9] IWebSocketTransport::send_binary → IxWebSocketTransport → server → peers
 ```
 
 ### INBOUND — a peer edit → applied to my stage + surfaced to UI

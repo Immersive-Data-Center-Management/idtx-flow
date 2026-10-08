@@ -175,7 +175,8 @@ class CollabEngine
     // conversion-time writes don't phantom-broadcast.
     void arm_sync(const std::string& session_id);
 
-    /// Drain outbound coalescing. Driven by the frame ticker.
+    /// Advance each session's auto-arm settle countdown. Driven by the frame
+    /// ticker. Outbound edits are sent immediately in on_stage_changed, not here.
     void poll();
 
   private:
@@ -215,9 +216,10 @@ class CollabEngine
         uint64_t server_seq = 0;
     };
 
-    // Invoked by a session's stage bridge when its live stage changes;
-    // broadcasts the edit only for that session when it is armed + remote and
-    // not currently applying a remote edit (loopback suppression).
+    // Invoked by a session's stage bridge when its live stage changes; sends the
+    // edit immediately for that session when it is armed + remote, snapshot-complete,
+    // its socket is open, and it is not currently applying a remote edit (loopback
+    // suppression). Otherwise the edit is dropped.
     void on_stage_changed(const std::string& session_id, const model::PrimEdit& edit);
 
     // Monotonically advance a session's applied server_seq from an inbound

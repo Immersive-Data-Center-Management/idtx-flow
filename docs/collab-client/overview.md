@@ -146,7 +146,7 @@ graph TB
         subgraph CORE["Net core — idtxflow::net (engine- and transport-agnostic: standard library only)"]
             ENGINE["CollabEngine<br/>state · gating · session flow · poll()"]
             REST["RestClient + RestCodec (JSON)"]
-            SOCK["SessionSocket<br/>coalescing · inbound dispatch"]
+            SOCK["SessionSocket<br/>immediate send · inbound dispatch"]
             CODEC["wire/WireCodec<br/>protobuf &lt;-&gt; model"]
             MODEL["model/* + ConventionMath<br/>plain data + matrix conventions"]
             subgraph PORTS["ports/* — interfaces the core requires"]

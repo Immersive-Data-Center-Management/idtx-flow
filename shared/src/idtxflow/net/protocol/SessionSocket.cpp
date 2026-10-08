@@ -1,14 +1,32 @@
 #include <idtxflow/net/protocol/SessionSocket.h>
 
-#include <map>
-#include <utility>
-
 #include <idtxflow/net/wire/WireCodec.h>
 
 namespace idtxflow
 {
 namespace net
 {
+namespace
+{
+// Payload-only equality: whether two edits author the same transform to the
+// same prim. The timestamp is stamped per send, so it is deliberately ignored.
+bool same_payload(const model::PrimEdit& a, const model::PrimEdit& b)
+{
+    if (a.kind != b.kind || a.is_matrix != b.is_matrix) return false;
+    if (a.is_matrix)
+    {
+        return a.matrix.m == b.matrix.m; // std::array has operator==
+    }
+    const model::SeparateXform& x = a.separate;
+    const model::SeparateXform& y = b.separate;
+    for (int i = 0; i < 3; ++i)
+    {
+        if (x.translation[i] != y.translation[i] || x.rotation[i] != y.rotation[i] || x.scale[i] != y.scale[i])
+            return false;
+    }
+    return true;
+}
+} // namespace
 
 void SessionSocket::connect(const std::string& url, const std::string& bearer_token)
 {
@@ -29,9 +47,7 @@ void SessionSocket::close()
 {
     ws_->close();
     is_open_ = false;
-    std::lock_guard<std::mutex> lock(pending_mutex_);
-    pending_.clear();
-    inflight_.clear();
+    last_sent_.clear();
 }
 
 void SessionSocket::handle_binary(const std::string& bytes)
@@ -83,12 +99,16 @@ void SessionSocket::handle_state(ports::IWebSocketTransport::State state, int co
     case State::Disconnected:
         // A close frame arrived; interpret its code/reason as an end-of-session cause.
         is_open_ = false;
+        // Drop the last-sent cache so a reconnect resends current state against the
+        // fresh base rather than deduping against a value the snapshot may have reset.
+        last_sent_.clear();
         if (on_disconnected_) on_disconnected_(model::parse(code, reason), code, reason);
         break;
     case State::Error:
         // The socket failed or its upgrade was rejected, so it never carried a
         // clean close frame; classify it as a transport failure.
         is_open_ = false;
+        last_sent_.clear();
         if (on_disconnected_) on_disconnected_(model::transport_failure(), 0, reason);
         break;
     default:
@@ -96,78 +116,30 @@ void SessionSocket::handle_state(ports::IWebSocketTransport::State state, int co
     }
 }
 
-void SessionSocket::send_edit(const model::PrimEdit& edit)
-{
-    std::lock_guard<std::mutex> lock(pending_mutex_);
-    pending_[edit.prim_path] = edit;
-}
-
-void SessionSocket::poll()
-{
-    flush_pending();
-}
-
-void SessionSocket::flush_pending()
+void SessionSocket::send(const model::PrimEdit& edit)
 {
     if (!is_open_)
     {
-        IDTX_LOG(IDTX_DEBUG, "[trace] F flush_pending SKIP: socket not open (is_open_=false)");
+        IDTX_LOG(IDTX_DEBUG, "[trace] F send SKIP: socket not open (is_open_=false) prim='{}'", edit.prim_path);
         return;
     }
 
-    std::map<std::string, model::PrimEdit> to_send;
+    // Drop an edit identical to the last one sent for this prim (the duplicate
+    // info-only USD notice): nothing changed, so there is nothing to broadcast.
+    auto it = last_sent_.find(edit.prim_path);
+    if (it != last_sent_.end() && same_payload(it->second, edit))
     {
-        std::lock_guard<std::mutex> lock(pending_mutex_);
-        if (pending_.empty())
-        {
-            return;
-        }
-        to_send.swap(pending_);
-    }
-
-    IDTX_LOG(IDTX_DEBUG, "[trace] F flush_pending sending {} edit(s) sid='{}'", to_send.size(), session_id_);
-    const int64_t ts = clock_->now_millis();
-    for (auto& [prim_path, edit]: to_send)
-    {
-        edit.timestamp = ts;
-        const uint64_t request_id = next_request_id_++;
-        IDTX_LOG(IDTX_DEBUG, "[trace] F send_binary prim='{}' base_seq={} req_id={}", prim_path, base_server_seq_,
-                 request_id);
-        {
-            // Remember what we sent so a rejection (stale/invalid_base) can resend
-            // it on the advanced base. Keyed by request_id to correlate the Ack.
-            std::lock_guard<std::mutex> lock(pending_mutex_);
-            inflight_[request_id] = edit;
-        }
-        ws_->send_binary(wire::encode_transform_update(session_id_, edit, base_server_seq_, request_id));
-    }
-}
-
-void SessionSocket::handle_ack(bool ok, const std::string& error, uint64_t request_id)
-{
-    std::lock_guard<std::mutex> lock(pending_mutex_);
-    auto it = inflight_.find(request_id);
-    if (it == inflight_.end())
-    {
-        // No record (request_id 0 / already resolved) — nothing to do.
+        IDTX_LOG(IDTX_DEBUG, "[trace] F send SKIP: duplicate of last sent prim='{}'", edit.prim_path);
         return;
     }
-    if (ok)
-    {
-        // Applied by the server; stop tracking it.
-        inflight_.erase(it);
-        return;
-    }
-    // Rejected: re-queue our intended edit so the next flush resends it on the
-    // advanced base. Skip if a newer edit for the prim is already pending (a live
-    // drag) so we never clobber fresher intent. Converges on the latest base.
-    model::PrimEdit rejected = it->second;
-    inflight_.erase(it);
-    if (pending_.find(rejected.prim_path) == pending_.end())
-    {
-        IDTX_LOG(IDTX_DEBUG, "[trace] F resend after reject='{}' prim='{}'", error, rejected.prim_path);
-        pending_[rejected.prim_path] = rejected;
-    }
+
+    model::PrimEdit out = edit;
+    out.timestamp = clock_->now_millis();
+    const uint64_t request_id = next_request_id_++;
+    IDTX_LOG(IDTX_DEBUG, "[trace] F send prim='{}' base_seq={} req_id={}", edit.prim_path, base_server_seq_,
+             request_id);
+    ws_->send_binary(wire::encode_transform_update(session_id_, out, base_server_seq_, request_id));
+    last_sent_[edit.prim_path] = out;
 }
 
 } // namespace net
