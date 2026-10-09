@@ -6,6 +6,7 @@
 #include <pxr/usd/usdGeom/tokens.h>
 
 #include "idtxflow_godot//converter/UsdGodotTypeConverter.h"
+#include <idtxflow_godot/nodes/UsdStageNode3D.h>
 
 using namespace godot;
 
@@ -157,5 +158,14 @@ void UsdMeshInstanceNode3D::_notification(int p_what)
     if (p_what == NOTIFICATION_PARENTED && skeleton_)
     {
         set_skeleton_path(get_path_to(skeleton_));
+    }
+    else if (p_what == NOTIFICATION_TRANSFORM_CHANGED)
+    {
+        // Route the transform edit to the owning stage, which authors it into USD
+        // (and broadcasts it when a session drives the stage).
+        if (UsdStageNode3D* stage = get_stage_node())
+        {
+            stage->author_node_transform(this);
+        }
     }
 }

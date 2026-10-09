@@ -33,6 +33,7 @@ env = Environment(
     	"openusd",
     	"openusdextension",
     	"ixwebsocket",
+    	"protobuf",
     	"idtxflow_ext",
     	"idtxflow_sdk"
     ],
@@ -68,6 +69,12 @@ else:
 
 # download and build IXWebSocket from source as a static library
 env.BuildIXWebSocket()
+# download and build protobuf from source (static lib + protoc), then generate the
+# C++ sources for the idtxcore.* wire messages used by the collaboration client.
+# Generated sources land in shared/src/idtxflow/net/proto_gen (compiled into the
+# extension) with headers alongside them (added to the include path in gdextension.py).
+env.BuildProtobuf()
+env.GenerateProtoSources("shared/proto/idtxcore", "shared/src/idtxflow/net/proto_gen")
 # download and build openUSD from source without python support, as we don't need it and it will speed up the build process significantly
 env.BuildOpenUSD(with_python_support=False)
 env.BuildOpenUSD(with_python_support=True)  # with python support, to be able to generate the usd plugin code

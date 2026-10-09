@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package idtxcore;
+
+// Generic acknowledgement for client-issued messages.
+// `ref_id` correlates the ack to a previous client message.
+message Ack {
+    string ref_id = 1;
+    bool   ok     = 2;
+    string error  = 3;
+}
+
+// Generic error notification to a single client.
+message Error {
+    string code    = 1;
+    string message = 2;
+}
