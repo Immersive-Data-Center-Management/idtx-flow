@@ -4,6 +4,7 @@
 #include <godot_cpp/classes/box_mesh.hpp>
 #include <godot_cpp/classes/sphere_mesh.hpp>
 #include <godot_cpp/classes/cylinder_mesh.hpp>
+#include <godot_cpp/classes/capsule_mesh.hpp>
 #include <godot_cpp/classes/multi_mesh.hpp>
 #include <godot_cpp/classes/standard_material3d.hpp>
 #include <godot_cpp/classes/skin.hpp>
@@ -328,6 +329,56 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertSphere
 
     UsdMeshInstanceNode3D* converted_node = memnew(UsdMeshInstanceNode3D);
     converted_node->set_mesh(sphere);
+    converted_node->set_transform(transform);
+
+    if (animation.has_value())
+    {
+        const auto& animation_description = animation.value();
+        helper::AddAnimation(animation_description, converted_node, StageAnimationLength);
+    }
+
+    return converted_node;
+}
+
+template <>
+inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCapsule(
+    const godot::Transform3D& transform, const std::optional<AnimationDescription<types::TargetEngineGodot>>& animation,
+    const std::optional<typename Types::Material>& material, float capsuleRadius, float capsuleHeight,
+    const pxr::VtArray<class pxr::GfVec4f>& display_colors, const class pxr::TfToken& color_interpolation)
+{
+    godot::Ref<godot::CapsuleMesh> capsule;
+    capsule.instantiate();
+
+    // ensure that the capsule radius never get 0.0 as this would cause the following error downstream
+    // servers/rendering/renderer_scene_cull.cpp:991 - Condition "!v.is_finite()" is true.
+    capsule->set_radius(std::max(capsuleRadius, MIN_SPHERE_RADIUS));
+    capsule->set_height(capsuleHeight + capsuleRadius * 2.0f);
+
+    godot::Ref<godot::StandardMaterial3D> standard_material;
+    if (material.has_value())
+    {
+        standard_material = material.value();
+    }
+    else
+    {
+        // use a default material if none could be created
+        standard_material.instantiate();
+        // if the current Mesh prim authored a display color as a constant value, pass this into the
+        // default material as base albedo color.
+        if (!display_colors.empty() && color_interpolation == pxr::UsdGeomTokens->constant)
+        {
+            godot::Color albedo = TypeConverter::toColor(display_colors[0]);
+            standard_material->set_albedo(albedo);
+            if (albedo.a < 1.0f) standard_material->set_transparency(godot::BaseMaterial3D::TRANSPARENCY_ALPHA);
+        }
+        else
+            standard_material->set_flag(godot::BaseMaterial3D::FLAG_ALBEDO_FROM_VERTEX_COLOR, true);
+    }
+
+    capsule->set_material(standard_material);
+
+    UsdMeshInstanceNode3D* converted_node = memnew(UsdMeshInstanceNode3D);
+    converted_node->set_mesh(capsule);
     converted_node->set_transform(transform);
 
     if (animation.has_value())
