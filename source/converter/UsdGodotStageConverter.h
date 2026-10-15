@@ -340,7 +340,7 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertSphere
     return converted_node;
 }
 
-template<>
+template <>
 inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCapsule(
     const godot::Transform3D& transform, const std::optional<AnimationDescription<types::TargetEngineGodot>>& animation,
     const std::optional<typename Types::Material>& material, float capsuleRadius, float capsuleHeight,
