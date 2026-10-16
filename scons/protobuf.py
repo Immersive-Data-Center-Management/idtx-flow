@@ -26,10 +26,12 @@ After BuildProtobuf(), the following keys are set on the env:
     env['protoc_path']            - absolute path to the built protoc executable
 """
 import os
+import platform
 import subprocess
 
 from SCons.Script import Exit
 
+from cross_cmake import cmake_cross_args
 from download_utils import download_file, extract_archive
 
 # protobuf 3.21.12 (a.k.a. protoc 21.12) — no Abseil dependency.
@@ -47,18 +49,26 @@ def exists(env):
     return True
 
 
-def _protobuf_paths(env):
-    """Return (src_dir, build_dir) for the current platform/target."""
+def _host_platform_name():
+    if platform.system() == "Windows":
+        return "windows"
+    if platform.system() == "Darwin":
+        return "macos"
+    return "linux"
+
+
+def _protobuf_paths(env, platform_name=None):
+    """Return (src_dir, build_dir) for the given (default: current) platform/target."""
     src_dir = os.path.abspath("thirdparty/protobuf")
-    platform_name = env["platform_name"]
+    platform_name = platform_name or env["platform_name"]
     build_target = env["target"]
     build_dir = os.path.join(src_dir, f"build_{platform_name}_{build_target}")
     return src_dir, build_dir
 
 
-def _expected_lib_file(env, build_dir):
+def _expected_lib_file(env, build_dir, platform_name=None):
     """Path to the static libprotobuf produced by the CMake build."""
-    platform_name = env["platform_name"]
+    platform_name = platform_name or env["platform_name"]
     if platform_name == "windows":
         # protobuf appends 'd' to the debug lib name via CMAKE_DEBUG_POSTFIX; we
         # build Release only (see below) so the name is libprotobuf.lib.
@@ -67,13 +77,14 @@ def _expected_lib_file(env, build_dir):
 
 
 def _expected_protoc(env, build_dir):
-    platform_name = env["platform_name"]
+    # protoc always runs on the build machine
+    platform_name = _host_platform_name()
     if platform_name == "windows":
         return os.path.join(build_dir, "Release", "protoc.exe")
     return os.path.join(build_dir, "protoc")
 
 
-def _publish_env(env, src_dir, build_dir):
+def _publish_env(env, src_dir, build_dir, host_build_dir):
     """Record protobuf locations on the env for the extension build to consume."""
     platform_name = env["platform_name"]
     env["protobuf_include_dir"] = os.path.join(src_dir, "src")
@@ -81,12 +92,23 @@ def _publish_env(env, src_dir, build_dir):
         os.path.join(build_dir, "Release") if platform_name == "windows" else build_dir
     )
     env["protobuf_lib_name"] = "libprotobuf" if platform_name == "windows" else "protobuf"
-    env["protoc_path"] = _expected_protoc(env, build_dir)
+    env["protoc_path"] = _expected_protoc(env, host_build_dir)
 
 
 def _build_protobuf(env):
-    src_dir, build_dir = _protobuf_paths(env)
-    platform_name = env["platform_name"]
+    if env.get("is_android", False):
+        # Android: protoc comes from a host build, only the runtime library is cross-compiled
+        src_dir, host_build_dir = _build_protobuf_for(env, _host_platform_name())
+        build_dir = _build_protobuf_runtime_cross(env, src_dir)
+        _publish_env(env, src_dir, build_dir, host_build_dir)
+        return
+    src_dir, build_dir = _build_protobuf_for(env, env["platform_name"])
+    _publish_env(env, src_dir, build_dir, build_dir)
+
+
+def _build_protobuf_for(env, platform_name):
+    """Build runtime + protoc for a desktop platform; returns (src_dir, build_dir)."""
+    src_dir, build_dir = _protobuf_paths(env, platform_name)
 
     # ---- download + extract ------------------------------------------------
     if not os.path.exists(src_dir):
@@ -108,13 +130,12 @@ def _build_protobuf(env):
         os.remove(archive_path)
         print("protobuf downloaded and extracted successfully.")
 
-    lib_file = _expected_lib_file(env, build_dir)
+    lib_file = _expected_lib_file(env, build_dir, platform_name)
     protoc_file = _expected_protoc(env, build_dir)
 
     if os.path.exists(lib_file) and os.path.exists(protoc_file):
         print(f"protobuf already built: {lib_file}")
-        _publish_env(env, src_dir, build_dir)
-        return
+        return src_dir, build_dir
 
     # ---- cmake configure ---------------------------------------------------
     if not os.path.exists(build_dir):
@@ -177,7 +198,44 @@ def _build_protobuf(env):
         )
 
     print(f"protobuf built successfully: {lib_file}")
-    _publish_env(env, src_dir, build_dir)
+    return src_dir, build_dir
+
+
+def _build_protobuf_runtime_cross(env, src_dir):
+    """Cross-compile only the static protobuf runtime for Android; returns build_dir."""
+    _, build_dir = _protobuf_paths(env)
+    lib_file = _expected_lib_file(env, build_dir)
+    if os.path.exists(lib_file):
+        print(f"protobuf runtime already built: {lib_file}")
+        return build_dir
+
+    os.makedirs(build_dir, exist_ok=True)
+    cmake_args = [
+        "cmake",
+        f"-S{src_dir}",
+        f"-B{build_dir}",
+        *cmake_cross_args(env),
+        "-Dprotobuf_BUILD_TESTS=OFF",
+        "-Dprotobuf_BUILD_EXAMPLES=OFF",
+        "-Dprotobuf_BUILD_SHARED_LIBS=OFF",
+        "-Dprotobuf_BUILD_PROTOC_BINARIES=OFF",
+        "-Dprotobuf_WITH_ZLIB=OFF",
+        "-DCMAKE_CXX_STANDARD=20",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_CXX_FLAGS=-std=c++20 -fPIC",
+        "-DCMAKE_C_FLAGS=-fPIC",
+    ]
+
+    print(f"Building protobuf runtime for {env['platform_name']}/{env['target']} (static)...")
+    result = subprocess.run(cmake_args, cwd=os.getcwd())
+    if result.returncode != 0:
+        Exit(f"protobuf CMake configuration ({env['platform_name']}) failed (exit code: {result.returncode})")
+    result = subprocess.run(["cmake", "--build", build_dir, "--target", "libprotobuf", "--parallel"], cwd=os.getcwd())
+    if result.returncode != 0:
+        Exit(f"protobuf build ({env['platform_name']}) failed (exit code: {result.returncode})")
+    if not os.path.exists(lib_file):
+        Exit(f"protobuf build completed but the expected library is missing: {lib_file}")
+    return build_dir
 
 
 def _generate_proto_sources(env, proto_dir, out_dir, proto_files=None):
