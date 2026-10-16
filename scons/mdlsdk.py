@@ -34,6 +34,11 @@ def exists(env):
     return True
 
 def _downloadMdlSdk(env):
+    # MDL SDK is not available for Android
+    if env.get('is_android', False):
+        print("Skipping MDL SDK download (not available for Android).")
+        return
+
     platform_id = platform.system().lower()
     mdl_root = os.path.join("./thirdparty", "mdl_sdk")
 
