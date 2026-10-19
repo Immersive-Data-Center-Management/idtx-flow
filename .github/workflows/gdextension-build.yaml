@@ -18,6 +18,9 @@ jobs:
       - name: Checkout source
         #v6.0.2
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          # without this, LFS files (e.g. editor PNGs) land in the zip as pointer text
+          lfs: true
 
       - name: Set up Python
         #v6.2.0
