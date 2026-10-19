@@ -352,6 +352,11 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCapsul
     // ensure that the capsule radius never get 0.0 as this would cause the following error downstream
     // servers/rendering/renderer_scene_cull.cpp:991 - Condition "!v.is_finite()" is true.
     capsule->set_radius(std::max(capsuleRadius, MIN_SPHERE_RADIUS));
+
+    // set the correct total height of the capsule mesh
+    // the usd authored height attribute excludes the radii of the half spheres on both ends of the cylinder
+    // while the height attribute in godot represents the total height of the capsule including the half spheres
+    // to set the correct height in godot the radius of both half spheres is added to the authored height attribute
     capsule->set_height(capsuleHeight + capsuleRadius * 2.0f);
 
     godot::Ref<godot::StandardMaterial3D> standard_material;
