@@ -5,10 +5,19 @@
 #include <godot_cpp/godot.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 
+#include <filesystem>
+#ifndef _WIN32
+#include <dlfcn.h>
+#endif
+
 #include <idtxflow/converter/MdlMaterialConverter.h>
 #include <idtxflow/resolver/HttpResolver.h>
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
 #include <idtxflow/exec/ExecBridgeManager.h>
+#include <idtxflow/net/CollabComposition.h>
+#include <idtxflow/net/adapters/transport/ix/IxTransportFactory.h>
+
+#include <godot_cpp/classes/engine.hpp>
 
 #include <idtx/EnvironmentProvider.h>
 
@@ -18,6 +27,7 @@
 #include "nodes/UsdMultiMeshInstanceNode3D.h"
 #include "nodes/UsdRestDatasourceNode3D.h"
 #include "nodes/UsdXFormNode3D.h"
+#include "collab/IdtxClient.h"
 #include "utils/IDTXFlowGodotLogger.h"
 #include "exec/GodotEnvironmentProviders.h"
 
@@ -38,19 +48,17 @@ static idtxflow::exec::GodotProjectSettingProvider* g_project_setting_provider =
 
 #ifdef IDTXFLOW_MDL_ENABLED
 #include <idtxflow/converter/MdlMaterialConverter.h>
+#endif
 
+// Directory containing this GDExtension binary.
 inline std::string get_gdextension_dir()
 {
-#ifdef MI_PLATFORM_WINDOWS
+#ifdef _WIN32
     char buffer[MAX_PATH];
     HMODULE hm = nullptr;
     // Get handle of the current DLL (this GDExtension)
-    GetModuleHandleExA(
-        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-        GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-        (LPCSTR)&get_gdextension_dir,
-        &hm
-    );
+    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                       (LPCSTR)&get_gdextension_dir, &hm);
     GetModuleFileNameA(hm, buffer, MAX_PATH);
     std::string path(buffer);
     return path.substr(0, path.find_last_of("\\/"));
@@ -64,16 +72,71 @@ inline std::string get_gdextension_dir()
     return path.substr(0, path.find_last_of("/"));
 #endif
 }
-#endif
 
-void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
-    if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
+// Startup sanity checks for the extension's runtime environment. Each check logs an
+// actionable error for a missing prerequisite instead of letting a later failure crash
+// or fail silently. Add further checks here.
+static void check_prerequisites(const std::string& extension_dir)
+{
+    if (extension_dir.empty())
+    {
+        IDTX_LOGF(IDTX_WARN, "could not determine the extension directory; skipping prerequisite checks");
+        return;
+    }
+
+    // OpenUSD finds its resolver, file-format and schema plugins through plugInfo.json
+    // files laid out relative to the binaries (addons/IDTXFlow/bin/<os>/usd/ and
+    // bin/plugin/usd/). If an export or a manual install drops that tree, PlugRegistry
+    // fails fatally inside the first stage open with no actionable message, so name
+    // every missing file up front. Keep this list in sync with the addon's bin/ layout.
+    const char* required_plugin_files[] = {
+        "usd/plugInfo.json",
+        "../plugin/usd/plugInfo.json",
+        "../plugin/usd/idtx/resources/plugInfo.json",
+        "../plugin/usd/godot/resources/plugInfo.json",
+        "../plugin/usd/usdShaders/resources/plugInfo.json",
+    };
+    for (const char* rel: required_plugin_files)
+    {
+        const std::filesystem::path full = (std::filesystem::path(extension_dir) / rel).lexically_normal();
+        std::error_code ec;
+        if (!std::filesystem::exists(full, ec) || ec)
+        {
+            IDTX_LOGF(IDTX_ERROR,
+                      "USD plugin file missing: {} - stage conversion will fail "
+                      "(the addon's bin/ tree must sit next to the loaded binaries)",
+                      full.string());
+        }
+    }
+}
+
+void initialize_idtxflow_module(ModuleInitializationLevel p_level)
+{
+    if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE)
+    {
         return;
     }
 
     // Initialize logger
     idtxflow::utils::Log::set_logger(&g_logger);
-    
+
+#ifdef _WIN32
+    // Pin this DLL so it outlives OpenUSD's static teardown. Ar keeps our resolver
+    // instances (res://, user://, http) in a static inside usd_ms.dll and destroys
+    // them at process exit, but their vtables live here; Godot unloads the extension
+    // first, so exit crashes with 0xC0000005 once any of those schemes was resolved.
+    // Ar has no API to unregister a resolver. Trade-off: GDExtension hot-reload no
+    // longer works for this library.
+    {
+        HMODULE self = nullptr;
+        if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+                                reinterpret_cast<LPCWSTR>(&initialize_idtxflow_module), &self))
+        {
+            IDTX_LOGF(IDTX_WARN, "could not pin module; expect a crash on shutdown after res:// or user:// use");
+        }
+    }
+#endif
+
     GDREGISTER_CLASS(UsdStageNode3D)
     GDREGISTER_CLASS(UsdXformNode3D)
     GDREGISTER_CLASS(UsdMeshInstanceNode3D)
@@ -82,12 +145,24 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     GDREGISTER_CLASS(UsdMockDatasourceFloatNode3D)
     GDREGISTER_CLASS(UsdRestDatasourceNode3D)
     GDREGISTER_CLASS(UsdStaticBodyNode3D)
-    
+    GDREGISTER_CLASS(IdtxClient)
+
+    // Create and register the collaboration client as the engine singleton
+    // "IdtxClient" from module init (before any script runs), then start it, so
+    // it is reachable via Engine.get_singleton("IdtxClient") and its poll() is
+    // driven by the frame ticker.
+    IdtxClient* idtx_client = memnew(IdtxClient);
+    IdtxClient::set_singleton(idtx_client);
+    Engine::get_singleton()->register_singleton("IdtxClient", idtx_client);
+    idtx_client->initialize(std::make_unique<idtxflow::net::adapters::IxTransportFactory>());
+
+    check_prerequisites(get_gdextension_dir());
+
 #ifdef IDTXFLOW_MDL_ENABLED
     // activate the mdl material conversion
     std::string extension_dir = get_gdextension_dir();
     std::vector<std::string> additionalModulPaths;
-    if (ProjectSettings *project_settings = godot::ProjectSettings::get_singleton())
+    if (ProjectSettings* project_settings = godot::ProjectSettings::get_singleton())
     {
         // ensure that the projects resource and user directories can be used as mdl module search paths
         additionalModulPaths.emplace_back(project_settings->globalize_path("res://").utf8().get_data());
@@ -95,10 +170,14 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
     }
     idtxflow::converter::StartupMdlMaterialConverter(extension_dir, additionalModulPaths);
 #endif
-    
-    // Configure the HTTP asset resolver with the default IXWebSocket-based fetcher
-    pxr::UsdHttpAssetResolver::Configure(
-        ProjectSettings::get_singleton()->globalize_path("user://usd_cache").utf8().get_data());
+
+    // Configure the HTTP asset resolver with a JWT-injecting fetcher so protected
+    // /api/v1/download/<usd_file> assets can be fetched. The shared composition
+    // helper builds the fetcher (a transport from the factory + the shared token, read at fetch time)
+    idtxflow::net::adapters::IxTransportFactory asset_transport_factory;
+    pxr::UsdHttpAssetResolver::ConfigureWithFetcher(
+        ProjectSettings::get_singleton()->globalize_path("user://usd_cache").utf8().get_data(),
+        idtxflow::net::make_jwt_fetcher(asset_transport_factory));
 
     // Register the host-side environment providers with the USD library's registry BEFORE the
     // exec worker thread starts, so the Compute_Environment node can resolve values from the
@@ -114,17 +193,27 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level) {
 
     // Run the openExec computation bridge
     idtxflow::exec::ExecBridgeManager::Instance().Start();
-    
+
     IDTX_LOGF(IDTX_INFO, "GDExtension initialized");
 }
 
-void uninitialize_idtxflow_module(ModuleInitializationLevel p_level) {
-    if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
+void uninitialize_idtxflow_module(ModuleInitializationLevel p_level)
+{
+    if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE)
+    {
         return;
     }
-    
+
     // Stop the openExec computation bridge
     idtxflow::exec::ExecBridgeManager::Instance().Cancel();
+
+    // Tear down and free the collaboration singleton created at init.
+    if (IdtxClient* idtx_client = IdtxClient::get_singleton())
+    {
+        idtx_client->shutdown();
+        memdelete(idtx_client);
+    }
+
     // Unregister the host-side environment providers only AFTER the exec worker thread has
     // been cancelled above. This guarantees no in-flight computation can dereference a
     // provider pointer while / after it is being removed. The provider objects are host-owned;
@@ -138,19 +227,20 @@ void uninitialize_idtxflow_module(ModuleInitializationLevel p_level) {
     // shutdown the mdl material conversion
     idtxflow::converter::ShutdownMdlMaterialConverter();
 #endif
-    
+
     IDTX_LOGF(IDTX_INFO, "GDExtension uninitialized");
-    
+
     // Clear logger reference
     idtxflow::utils::Log::set_logger(nullptr);
 }
 
-extern "C" {
-    GDExtensionBool GDE_EXPORT idtxflow_library_init(
-        GDExtensionInterfaceGetProcAddress p_get_proc_address,
-        const GDExtensionClassLibraryPtr p_library,
-        GDExtensionInitialization *r_initialization) {
-        
+extern "C"
+{
+    GDExtensionBool GDE_EXPORT idtxflow_library_init(GDExtensionInterfaceGetProcAddress p_get_proc_address,
+                                                     const GDExtensionClassLibraryPtr p_library,
+                                                     GDExtensionInitialization* r_initialization)
+    {
+
         GDExtensionBinding::InitObject init_obj(p_get_proc_address, p_library, r_initialization);
 
         init_obj.register_initializer(initialize_idtxflow_module);

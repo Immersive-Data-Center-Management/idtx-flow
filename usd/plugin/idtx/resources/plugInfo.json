@@ -133,7 +133,7 @@
             }, 
             "LibraryPath": ".", 
             "Name": "IDTX", 
-            "ResourcePath": "resouces", 
+            "ResourcePath": "resources", 
             "Root": "..", 
             "Type": "library"
         }

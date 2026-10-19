@@ -17,7 +17,5 @@
 #include "../include/idtxflow_godot/idtxflow_godot_api.h"
 #include "../include/idtxflow_godot/types/GodotTypes.h"
 
-
 // Explicit instantiation – the exported definition of the entire class template.
-template class IDTXFLOW_GODOT_API
-    idtxflow::converter::PrimConverterRegistry<idtxflow::types::TargetEngineGodot>;
+template class IDTXFLOW_GODOT_API idtxflow::converter::PrimConverterRegistry<idtxflow::types::TargetEngineGodot>;

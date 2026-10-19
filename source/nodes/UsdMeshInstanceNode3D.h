@@ -15,54 +15,61 @@ class UsdMeshInstanceNode3D : public godot::MeshInstance3D, public IUsdNode3D, p
 {
     GDCLASS(UsdMeshInstanceNode3D, MeshInstance3D)
     IUSDNODE(UsdMeshInstanceNode3D, true)
-    
-public:
+
+  public:
     /******************* Godot lifecycle hooks ***************************/
     void _ready() override;
     void _process(double delta) override;
-    
+
     /******************* ExecBridgeHandler ******************************/
     void OnComputeComplete(const std::vector<ExecComputeResult>& results) override;
 
     /**
      * Set the skeleton this mesh is bound to
-     * @param skeleton 
+     * @param skeleton
      */
-    void set_skeleton(UsdSkeletonNode3D *skeleton);
+    void set_skeleton(UsdSkeletonNode3D* skeleton);
 
     /**
      * Set the animation data
-     * @param p_animation 
+     * @param p_animation
      */
     void set_animation(const godot::Ref<godot::Animation>& p_animation);
 
     /**
      * Get the animation data
-     * @return 
+     * @return
      */
     godot::Ref<godot::Animation> get_animation() const;
 
     /**
      * Set the flag whether the animation loops during playback
-     * @param loop 
+     * @param loop
      */
     void set_loop_animation(bool loop);
 
     /**
      * Get the flag whether the animation is looping
-     * @return 
+     * @return
      */
     bool get_loop_animation() const;
 
-protected:
+  protected:
     static void _bind_methods();
+    /**
+     * Handle Godot lifecycle notifications: on PARENTED, wire up the deferred
+     * skeleton link; on TRANSFORM_CHANGED, route the local edit to the IDTX
+     * transform sync so it is authored into the live USD stage and conditionally
+     * broadcast. Requires set_notify_transform(true), enabled in this node's
+     * _ready() and during stage conversion.
+     */
     void _notification(int p_what);
-    
+
     // if this node is linked to a skeleton we store the reference here. This is required, as the creation and
     // assignment to the node happens before it is added into the actual scene tree. Thus the godot linkage will
     // not work. We defer this linkage until the "PARENTED" notification is received.
     UsdSkeletonNode3D* skeleton_ = nullptr;
-    
+
     // storing the converted usd animation data of the prim
     godot::Ref<godot::Animation> animation_;
     double current_anim_time_ = 0.0;
