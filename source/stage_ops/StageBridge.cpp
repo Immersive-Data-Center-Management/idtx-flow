@@ -5,10 +5,19 @@
 #include <vector>
 
 #include <godot_cpp/classes/node.hpp>
+#include <godot_cpp/classes/node3d.hpp>
 #include <godot_cpp/core/object.hpp>
 
 #include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/tf/weakPtr.h>
+#include <pxr/base/vt/value.h>
+#include <pxr/usd/sdf/attributeSpec.h>
+#include <pxr/usd/sdf/changeBlock.h>
+#include <pxr/usd/sdf/layer.h>
+#include <pxr/usd/sdf/path.h>
+#include <pxr/usd/sdf/primSpec.h>
+#include <pxr/usd/sdf/types.h>
+#include <pxr/usd/sdf/valueTypeName.h>
 #include <pxr/usd/usd/prim.h>
 #include <pxr/usd/usd/editContext.h>
 #include <pxr/usd/usdGeom/xformable.h>
@@ -160,10 +169,20 @@ void StageBridge::_on_objects_changed(const pxr::UsdNotice::ObjectsChanged& noti
     // externally-triggered stage changes for tracked prims.
     IDTX_LOG(IDTX_DEBUG, "[trace] C _on_objects_changed fired: suppress={} has_on_changed={}", suppress_broadcast_,
              on_changed_ != nullptr);
-    if (suppress_broadcast_) return;
-    if (!on_changed_) return;
     // Ignore notices arriving while the stage is being released.
     if (!stage_ || !stage_->GetRootLayer()) return;
+
+    // Build / hide / show Godot nodes to match structural stage changes (prim
+    // creation, active=false soft-delete, active=true restore). This runs for
+    // EVERY notice, including our own suppressed authoring: inbound create and
+    // delete are applied with suppress_broadcast_ set so the outbound echo stays
+    // gated, yet they must still change the scene tree. Transform edits resync
+    // no prims, so this is a no-op for them.
+    reconcile_structural(notice);
+
+    // Outbound change reporting stays loopback-suppressed for self-authored edits.
+    if (suppress_broadcast_) return;
+    if (!on_changed_) return;
 
     // One authored Set emits several paths within a single notice (the attribute
     // path and its prim path) and USD may follow with a second info-only notice;
@@ -189,6 +208,54 @@ void StageBridge::_on_objects_changed(const pxr::UsdNotice::ObjectsChanged& noti
         consider(p);
 }
 
+void StageBridge::reconcile_structural(const pxr::UsdNotice::ObjectsChanged& notice)
+{
+    if (!stage_node_ || !stage_) return;
+
+    // Only structural (resync) paths carry prim creation and active-toggle
+    // changes; value-only edits (transforms) arrive as changed-info-only and are
+    // ignored here. De-dupe by prim key so one subtree change is handled once.
+    std::unordered_set<std::string> seen;
+    for (const pxr::SdfPath& p: notice.GetResyncedPaths())
+    {
+        const pxr::SdfPath prim_path = p.IsPropertyPath() ? p.GetPrimPath() : p;
+        if (!prim_path.IsPrimPath()) continue;
+        const std::string key = prim_path.GetString();
+        if (!seen.insert(key).second) continue;
+
+        // The placement root (defaultPrim) is display-only and never synced.
+        if (is_stage_root(key)) continue;
+
+        pxr::UsdPrim prim = stage_->GetPrimAtPath(prim_path);
+        godot::Node3D* node = stage_node_->find_prim_node(String(key.c_str()));
+
+        if (prim && prim.IsActive())
+        {
+            if (!node)
+            {
+                // Newly created prim (or a reactivated one whose node was freed):
+                // convert its subtree and attach it under its parent node.
+                stage_node_->convert_prim_subtree(String(key.c_str()));
+            }
+            else if (!node->is_visible())
+            {
+                // Reactivated (active=true): the hidden subtree is still present,
+                // so just show it again — no re-traversal/conversion needed.
+                node->set_visible(true);
+            }
+            // else: already present and visible (e.g. a transform-driven resync).
+        }
+        else if (prim && node)
+        {
+            // Soft-delete (active=false): hide the node and its subtree from
+            // rendering while keeping it alive for a cheap restore.
+            node->set_visible(false);
+        }
+        // prim invalid (a pruned descendant of a deactivated ancestor): its
+        // ancestor's hide already removed it from rendering, so nothing to do.
+    }
+}
+
 bool StageBridge::read_prim(const std::string& prim_path, net::model::PrimEdit& out) const
 {
     Transform3D xform;
@@ -206,6 +273,16 @@ void StageBridge::author_local_edit(const net::model::PrimEdit& edit)
 }
 
 void StageBridge::apply_remote_edit(const net::model::PrimEdit& edit)
+{
+    switch (edit.kind)
+    {
+    case net::model::PrimEdit::Kind::Transform:  apply_remote_transform(edit);  break;
+    case net::model::PrimEdit::Kind::CreatePrim: apply_remote_create(edit);     break;
+    case net::model::PrimEdit::Kind::SetActive:  apply_remote_set_active(edit); break;
+    }
+}
+
+void StageBridge::apply_remote_transform(const net::model::PrimEdit& edit)
 {
     auto it = tracked_.find(edit.prim_path);
 
@@ -236,6 +313,92 @@ void StageBridge::apply_remote_edit(const net::model::PrimEdit& edit)
     }
 
     suppress_broadcast_ = false;
+}
+
+void StageBridge::apply_remote_create(const net::model::PrimEdit& edit)
+{
+    // The stage may have been released between the inbound message being queued
+    // and applied; bail rather than touch a dead stage.
+    if (!stage_ || !stage_->GetRootLayer()) return;
+    if (edit.prim_type.empty()) return;
+
+    const pxr::SdfPath path(edit.prim_path);
+    if (!path.IsPrimPath()) return;
+
+    // Author into the same layer inbound transforms use (session by default), so
+    // the local copy mirrors the server's state without touching the opened file.
+    pxr::SdfLayerHandle target_layer =
+        (edit_target_ == EditTarget::RootLayer) ? stage_->GetRootLayer() : stage_->GetSessionLayer();
+
+    // Suppress the outbound echo of our own authoring; reconcile_structural still
+    // runs on the resulting notice to build the Godot node.
+    suppress_broadcast_ = true;
+    {
+        // One SdfChangeBlock so the typed def and its attributes land atomically
+        // and a single coalesced resync notice fires with the fully-authored prim —
+        // the conversion then reads the final attribute state. Authoring at the
+        // Sdf level avoids the Usd-DefinePrim-inside-a-change-block pattern USD
+        // advises against.
+        pxr::SdfChangeBlock block;
+        if (pxr::SdfPrimSpecHandle spec = pxr::SdfCreatePrimInLayer(target_layer, path))
+        {
+            spec->SetSpecifier(pxr::SdfSpecifierDef);
+            spec->SetTypeName(pxr::TfToken(edit.prim_type));
+
+            // Author the built-in shape defaults the server sent. Only the fields
+            // that apply to the type are present (has-field semantics).
+            auto author_double = [&](const pxr::TfToken& name, double value) {
+                if (pxr::SdfAttributeSpecHandle attr =
+                        pxr::SdfAttributeSpec::New(spec, name.GetString(), pxr::SdfValueTypeNames->Double))
+                    attr->SetDefaultValue(pxr::VtValue(value));
+            };
+            if (edit.has_size) author_double(pxr::UsdGeomTokens->size, edit.size);
+            if (edit.has_height) author_double(pxr::UsdGeomTokens->height, edit.height);
+            if (edit.has_radius) author_double(pxr::UsdGeomTokens->radius, edit.radius);
+            if (edit.has_axis)
+            {
+                // axis is a uniform token on the gprim schema.
+                if (pxr::SdfAttributeSpecHandle attr =
+                        pxr::SdfAttributeSpec::New(spec, pxr::UsdGeomTokens->axis.GetString(),
+                                                   pxr::SdfValueTypeNames->Token, pxr::SdfVariabilityUniform))
+                    attr->SetDefaultValue(pxr::VtValue(pxr::TfToken(edit.axis)));
+            }
+        }
+        else
+        {
+            IDTX_LOG(IDTX_WARN, "apply_remote_create: could not create prim spec for '{}'", edit.prim_path);
+        }
+    }
+    suppress_broadcast_ = false;
+    IDTX_LOG(IDTX_DEBUG, "authored create of {} '{}'", edit.prim_type, edit.prim_path);
+}
+
+void StageBridge::apply_remote_set_active(const net::model::PrimEdit& edit)
+{
+    if (!stage_ || !stage_->GetRootLayer()) return;
+
+    const pxr::SdfPath path(edit.prim_path);
+    // GetPrimAtPath returns inactive prims too, so this also finds a prim that was
+    // already soft-deleted (needed to restore it with active=true).
+    pxr::UsdPrim prim = stage_->GetPrimAtPath(path);
+    if (!prim)
+    {
+        IDTX_LOG(IDTX_DEBUG, "apply_remote_set_active: prim not found '{}'", edit.prim_path);
+        return;
+    }
+
+    pxr::SdfLayerHandle target_layer =
+        (edit_target_ == EditTarget::RootLayer) ? stage_->GetRootLayer() : stage_->GetSessionLayer();
+
+    // Suppress the outbound echo; the resulting resync notice drives the Godot
+    // hide/show through reconcile_structural.
+    suppress_broadcast_ = true;
+    {
+        pxr::UsdEditContext edit_ctx(stage_, target_layer);
+        prim.SetActive(edit.active);
+    }
+    suppress_broadcast_ = false;
+    IDTX_LOG(IDTX_DEBUG, "authored active={} on '{}'", edit.active, edit.prim_path);
 }
 
 bool StageBridge::author_to_usd(const std::string& prim_path, const Transform3D& xform)

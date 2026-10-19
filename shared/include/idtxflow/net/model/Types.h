@@ -36,22 +36,47 @@ struct SeparateXform
     double scale[3]{1, 1, 1};
 };
 
-/// A single collaborative edit to one prim. Today an edit is always a
-/// transform, carried either as a full matrix or as separate T/R/S; the kind
-/// is modelled explicitly so the shape can grow without changing call sites.
+/// A single collaborative edit to one prim. An edit is either a transform
+/// (carried as a full matrix or separate T/R/S), the creation of a built-in
+/// prim, or an active-state change (soft delete / undo). The kind is modelled
+/// explicitly so the shape can grow without changing call sites.
 struct PrimEdit
 {
     enum class Kind
     {
-        Transform
+        Transform,
+        CreatePrim, ///< author a built-in prim of `prim_type` at `prim_path`
+        SetActive   ///< author `active` metadata on `prim_path`
     };
 
     Kind kind = Kind::Transform;
     std::string prim_path;
+
+    // --- Transform ---
     bool is_matrix = true; ///< choose matrix vs. separate representation
     Mat4 matrix;
     SeparateXform separate;
     int64_t timestamp = 0; ///< millis, stamped when the edit is sent
+
+    // --- CreatePrim ---
+    /// USD schema type token, e.g. "Cube"/"Sphere"/"Cone"/"Cylinder"/
+    /// "Capsule"/"Xform". Empty for non-create edits.
+    std::string prim_type;
+    // Optional built-in shape defaults the server authored (has-field semantics
+    // mirror the wire's proto3 optional fields). Only the ones that apply to the
+    // type are set: Cube -> size; Sphere -> radius; Cone/Cylinder/Capsule ->
+    // height, radius, axis; Xform -> none.
+    bool has_size = false;
+    double size = 0.0;
+    bool has_height = false;
+    double height = 0.0;
+    bool has_radius = false;
+    double radius = 0.0;
+    bool has_axis = false;
+    std::string axis; ///< "X"/"Y"/"Z"
+
+    // --- SetActive ---
+    bool active = true; ///< target active state (false = soft delete)
 };
 
 /// One entry from the file listing; `filepath` is the key used for sessions

@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package idtxcore;
+
+// Built-in USD prim types a client may ask the server to create. The numeric
+// values are wire-stable; append new types, never renumber. UNSPECIFIED (0) is
+// the proto3 default and is rejected by the server. The gprim types
+// (Cube..Capsule) may not be nested under another gprim; XFORM is a plain
+// transform group with no such restriction.
+//
+// Mirrors idtx-core shared/proto_messages/prim.proto. Keep in sync with the
+// server; the field tags and enum values are the wire contract.
+enum PrimType {
+  PRIM_TYPE_UNSPECIFIED = 0;
+  PRIM_TYPE_CUBE = 1;
+  PRIM_TYPE_SPHERE = 2;
+  PRIM_TYPE_CONE = 3;
+  PRIM_TYPE_CYLINDER = 4;
+  PRIM_TYPE_CAPSULE = 5;
+  PRIM_TYPE_XFORM = 6;
+}
+
+// Client -> server. Ask the server to author a new built-in primitive of
+// @c type as a child of @c parent_path. (Outbound; not yet produced by this
+// client, kept for a faithful mirror of the server contract.)
+message CreatePrimRequest {
+  string session_id = 1;
+  string parent_path = 2;
+  PrimType type = 3;
+}
+
+// Server -> all clients (including the originator) and replayed in the join
+// snapshot for late joiners. Describes a primitive the server created: its
+// parent, the server-assigned name, the type and the default attribute values
+// that were authored. Only the attribute fields that apply to @c type are set
+// (has-field semantics via proto3 optional): Cube -> size; Sphere -> radius;
+// Cone/Cylinder/Capsule -> height, radius, axis; Xform -> none.
+message CreatePrimBroadcast {
+  string parent_path = 1;
+  string prim_name = 2;
+  PrimType type = 3;
+  optional double size = 4;
+  optional double height = 5;
+  optional double radius = 6;
+  optional string axis = 7;
+}
+
+// Client -> server. Ask the server to change the active state of an existing
+// prim (soft delete / undo). (Outbound; not yet produced by this client, kept
+// for a faithful mirror of the server contract.)
+message SetPrimActiveRequest {
+  string session_id = 1;
+  string prim_path = 2;
+  bool active = 3;
+}
+
+// Server -> all clients (including the originator) and replayed in the join
+// snapshot for late joiners. Announces that a prim's active state changed.
+// Clients mirror the flag on the prim in their own stage (authoring `active`,
+// not hard-removing), so delete and undo-delete are the same one-prim message
+// and neither needs a subtree snapshot: USD prunes/unprunes the subtree.
+message SetPrimActiveBroadcast {
+  string prim_path = 1;
+  bool active = 2;
+}

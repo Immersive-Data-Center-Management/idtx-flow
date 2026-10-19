@@ -164,6 +164,51 @@ class UsdStageConverter
         return {StageHandle(Stage), ConvertStagePostProcess(convertedEntities)};
     }
 
+    /**
+     * Convert a single prim and its descendants, for incremental conversion of a
+     * prim that appeared on an already-converted stage (e.g. a collaborative
+     * create broadcast). Mirrors Convert()'s stage-wide setup, but converts only
+     * the subtree rooted at @p prim and does NOT create a StageHandle (the stage
+     * is already handled by the owning node).
+     *
+     * The returned entities are the detached top-level node(s) of the converted
+     * subtree (descendants are already parented beneath them via
+     * ConvertPrimPostProcess); the caller attaches them under the correct parent.
+     *
+     * @param stage          The live stage the prim belongs to.
+     * @param prim           The prim whose subtree to convert.
+     * @param applyStageBake Apply the up-axis / meters-per-unit root bake. Pass
+     *                       true only when the converted node is a NEW stage-level
+     *                       root (its USD parent is the pseudo-root); pass false
+     *                       when it attaches under an already-converted parent,
+     *                       which already carries the bake through the hierarchy —
+     *                       re-applying it would double-rotate/scale the subtree.
+     * @return The top-level converted node(s), or empty if nothing converted.
+     */
+    [[nodiscard]]
+    std::vector<typename Types::ConvertedEntity*> ConvertSubtree(const pxr::UsdStageRefPtr& stage,
+                                                                 const pxr::UsdPrim& prim, bool applyStageBake)
+    {
+        Stage = stage;
+        StageUpAxis = pxr::UsdGeomGetStageUpAxis(stage);
+        StageMetersPerUnit = pxr::UsdGeomGetStageMetersPerUnit(stage);
+        if (StageMetersPerUnit == 0.0) StageMetersPerUnit = 0.01;
+        StageTimecodesPerSec = stage->GetTimeCodesPerSecond();
+        if (StageTimecodesPerSec == 0) StageTimecodesPerSec = 24.0;
+        StageAnimationStart = stage->GetStartTimeCode() / StageTimecodesPerSec;
+        StageAnimationEnd = stage->GetEndTimeCode() / StageTimecodesPerSec;
+        StageAnimationLength = StageAnimationEnd - StageAnimationStart;
+
+        // rootEntity == nullptr so the subtree's top prim is returned as a root
+        // entity (detached) rather than parented onto a caller-supplied node.
+        std::vector<typename Types::ConvertedEntity*> convertedEntities =
+            ConvertPrims(stage, pxr::UsdPrimRange(prim), nullptr);
+        StagePrototypeMap.clear();
+
+        if (applyStageBake) return ConvertStagePostProcess(convertedEntities);
+        return convertedEntities;
+    }
+
   protected:
     /**
      * Converts the PrimRange of a specific USD Stage.

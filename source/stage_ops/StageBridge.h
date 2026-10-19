@@ -97,6 +97,18 @@ class StageBridge : public net::ports::IStageBridge, public pxr::TfWeakBase
     void revoke_listener();
     void _on_objects_changed(const pxr::UsdNotice::ObjectsChanged& notice, const pxr::UsdStageWeakPtr& sender);
 
+    // apply_remote_edit dispatches on edit.kind to one of these.
+    void apply_remote_transform(const net::model::PrimEdit& edit);
+    void apply_remote_create(const net::model::PrimEdit& edit);
+    void apply_remote_set_active(const net::model::PrimEdit& edit);
+
+    // Create / show / hide the Godot node(s) for resynced prim paths so the
+    // scene tree matches inbound create and active-toggle authoring. Runs for
+    // every notice (including our own suppressed authoring), since inbound
+    // create/delete are applied with suppress_broadcast_ set yet must still
+    // change the scene tree. A no-op for transform edits (which resync no prims).
+    void reconcile_structural(const pxr::UsdNotice::ObjectsChanged& notice);
+
     bool author_to_usd(const std::string& prim_path, const godot::Transform3D& xform);
     bool read_prim_transform(const std::string& prim_path, godot::Transform3D& out) const;
 

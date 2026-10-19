@@ -4,6 +4,7 @@ package idtxcore;
 
 import "transform.proto";
 import "session.proto";
+import "prim.proto";
 
 message Handshake {
   string session_id = 1;
@@ -52,6 +53,13 @@ message BaseMessage {
     Ack ack = 5;
     Error error = 6;
     SnapshotComplete snapshot_complete = 7;
+    // Prim lifecycle broadcasts (server -> clients). Tags match idtx-core's
+    // BaseMessage oneof. The matching requests (create_prim = 10,
+    // set_prim_active = 12) are outbound-only and not produced by this client
+    // yet, so their arms are omitted here; the broadcast arms the client
+    // receives keep the server's tag numbers.
+    CreatePrimBroadcast create_prim_broadcast = 11;
+    SetPrimActiveBroadcast set_prim_active_broadcast = 13;
   }
   uint64 request_id = 8;
   uint64 server_seq = 9;

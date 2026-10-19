@@ -55,6 +55,69 @@ Error UsdStageNode3D::save_stage(const String& out_uri)
     return idtxflow::stage_ops::StageSaveController::save_as(get_stage(), out_uri);
 }
 
+godot::Node3D* UsdStageNode3D::find_prim_node(const String& prim_path) const
+{
+    if (prim_path.is_empty()) return nullptr;
+
+    std::vector<Node*> stack;
+    for (int i = 0; i < get_child_count(); ++i) stack.push_back(get_child(i));
+
+    while (!stack.empty())
+    {
+        Node* n = stack.back();
+        stack.pop_back();
+
+        IUsdNode3D* usd = IUsdNode3D::from_node(n);
+        if (usd && usd->get_prim_path() == prim_path) return Object::cast_to<Node3D>(n);
+
+        // A nested UsdStageNode3D owns its own stage and child-relative paths; do
+        // not descend into its subtree.
+        if (Object::cast_to<UsdStageNode3D>(n) != nullptr) continue;
+
+        for (int i = 0; i < n->get_child_count(); ++i) stack.push_back(n->get_child(i));
+    }
+    return nullptr;
+}
+
+void UsdStageNode3D::convert_prim_subtree(const String& prim_path)
+{
+    pxr::UsdStageRefPtr stage = get_stage();
+    if (!stage) return;
+
+    pxr::UsdPrim prim = stage->GetPrimAtPath(pxr::SdfPath(prim_path.utf8().get_data()));
+    if (!prim || !prim.IsActive()) return;
+
+    // Resolve the existing converted parent by walking up the USD parent chain
+    // until a converted node is found. If we reach the pseudo-root without a
+    // hit, the new prim is a stage-level root: it attaches under this node and
+    // needs the up-axis / MPU bake (applyStageBake=true). Otherwise it inherits
+    // the parent's baked transform through the hierarchy and must not be re-baked.
+    Node3D* parent_node = nullptr;
+    for (pxr::UsdPrim p = prim.GetParent(); p && !p.IsPseudoRoot(); p = p.GetParent())
+    {
+        parent_node = find_prim_node(String(p.GetPath().GetString().c_str()));
+        if (parent_node) break;
+    }
+    const bool is_stage_root_level = (parent_node == nullptr);
+
+    auto converter =
+        std::make_unique<idtxflow::converter::UsdStageConverter<idtxflow::types::TargetEngineGodot>>(this, nullptr);
+    std::vector<Node3D*> roots = converter->ConvertSubtree(stage, prim, is_stage_root_level);
+    if (roots.empty()) return;
+
+    for (Node3D* node: roots)
+    {
+        _configure_nodes_recursive(node, this); // set owner (deferred) before add_child, as _convert_stage does
+        if (parent_node)
+            parent_node->add_child(node);
+        else
+            this->add_child(node);
+    }
+
+    // Re-index so the authoring bridge tracks the freshly converted node(s).
+    if (idtxflow::net::ports::IStageBridge* b = get_or_create_bridge()) b->build_index();
+}
+
 void UsdStageNode3D::_enter_tree()
 {
     Node3D::_enter_tree();

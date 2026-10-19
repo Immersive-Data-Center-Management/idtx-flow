@@ -571,7 +571,13 @@ void IdtxClient::on_handshake(const std::string& sid, const std::string& path, c
 void IdtxClient::on_remote_edit(const std::string& session_id, const idtxflow::net::model::PrimEdit& edit,
                                 const std::string& from)
 {
-    // The engine already applied the edit to the session's stage; surface it for any UI.
+    // The engine already applied the edit to the session's stage; surface it for
+    // any UI. Only transform edits carry a meaningful transform payload — create
+    // and active-toggle edits reuse this callback but must not emit a bogus
+    // transform_broadcast_received (their rendering is driven by the stage bridge
+    // conversion/visibility path).
+    if (edit.kind != idtxflow::net::model::PrimEdit::Kind::Transform) return;
+
     emit_signal("transform_broadcast_received", String(session_id.c_str()), String(edit.prim_path.c_str()),
                 gxform::prim_edit_to_transform(edit), String(from.c_str()));
 }

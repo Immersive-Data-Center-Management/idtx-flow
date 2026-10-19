@@ -177,6 +177,30 @@ class UsdStageNode3D : public godot::Node3D, public IUsdNode3D
      */
     godot::Error save_stage(const godot::String& out_uri);
 
+    /**
+     * Incrementally convert a single prim (and its descendants) that appeared on
+     * the already-converted stage — e.g. after a collaborative create broadcast
+     * authored it into the live stage. Resolves the prim's parent Godot node,
+     * converts the subtree via UsdStageConverter::ConvertSubtree, attaches it
+     * under that parent (or under this node when the parent is the stage's
+     * pseudo-root), and rebuilds the authoring bridge index. No-op when there is
+     * no live stage or the prim is missing/inactive.
+     *
+     * Must run on the main thread (creates/attaches Godot nodes).
+     * @param prim_path Absolute USD path of the prim to convert.
+     */
+    void convert_prim_subtree(const godot::String& prim_path);
+
+    /**
+     * Find the converted Godot node for a prim path by walking this stage's
+     * converted subtree and matching IUsdNode3D::get_prim_path. Returns null when
+     * no converted node exists for that path (e.g. a not-yet-converted or
+     * structural-only prim).
+     * @param prim_path Absolute USD path to look up.
+     * @return The matching Node3D, or null.
+     */
+    godot::Node3D* find_prim_node(const godot::String& prim_path) const;
+
   protected:
     /**
      * reconstructing the node either after loading the scene this node is contained in, or during an

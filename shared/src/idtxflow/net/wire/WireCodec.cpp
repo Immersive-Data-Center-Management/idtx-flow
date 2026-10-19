@@ -3,6 +3,7 @@
 #include "base.pb.h"
 #include "transform.pb.h"
 #include "session.pb.h"
+#include "prim.pb.h"
 
 namespace idtxflow
 {
@@ -10,6 +11,26 @@ namespace net
 {
 namespace wire
 {
+namespace
+{
+// Map the wire PrimType enum onto the USD schema type token the converter and
+// stage bridge understand. Mirrors idtx-core's PrimDispatcher type mapping.
+// Returns empty for UNSPECIFIED / unknown, which the caller treats as "ignore".
+const char* usd_type_token(idtxcore::PrimType type)
+{
+    switch (type)
+    {
+    case idtxcore::PRIM_TYPE_CUBE:     return "Cube";
+    case idtxcore::PRIM_TYPE_SPHERE:   return "Sphere";
+    case idtxcore::PRIM_TYPE_CONE:     return "Cone";
+    case idtxcore::PRIM_TYPE_CYLINDER: return "Cylinder";
+    case idtxcore::PRIM_TYPE_CAPSULE:  return "Capsule";
+    case idtxcore::PRIM_TYPE_XFORM:    return "Xform";
+    case idtxcore::PRIM_TYPE_UNSPECIFIED:
+    default:                           return "";
+    }
+}
+} // namespace
 
 bool decode(const std::string& bytes, DecodedMessage& out)
 {
@@ -87,6 +108,61 @@ bool decode(const std::string& bytes, DecodedMessage& out)
         // Terminal marker of the late-joiner snapshot: no payload to extract, just
         // the boundary signal that the client now has the full current state.
         out.kind = DecodedMessage::Kind::SnapshotComplete;
+        return true;
+    }
+    case idtxcore::BaseMessage::kCreatePrimBroadcast: {
+        const auto& b = msg.create_prim_broadcast();
+        const char* type_token = usd_type_token(b.type());
+        if (type_token[0] == '\0')
+        {
+            // Unknown/unspecified prim type: nothing we can author. Leave kind
+            // None so the frame is ignored rather than mishandled.
+            return true;
+        }
+
+        out.kind = DecodedMessage::Kind::RemoteEdit;
+        out.remote_edit.from_client_id.clear(); // broadcast carries no originator id
+
+        model::PrimEdit& edit = out.remote_edit.edit;
+        edit.kind = model::PrimEdit::Kind::CreatePrim;
+        edit.prim_type = type_token;
+
+        // Full child path = parent + "/" + name. The root "/" has no trailing
+        // slash to double up, every other prim path does.
+        const std::string& parent = b.parent_path();
+        edit.prim_path = (parent == "/") ? ("/" + b.prim_name()) : (parent + "/" + b.prim_name());
+
+        if (b.has_size())
+        {
+            edit.has_size = true;
+            edit.size = b.size();
+        }
+        if (b.has_height())
+        {
+            edit.has_height = true;
+            edit.height = b.height();
+        }
+        if (b.has_radius())
+        {
+            edit.has_radius = true;
+            edit.radius = b.radius();
+        }
+        if (b.has_axis())
+        {
+            edit.has_axis = true;
+            edit.axis = b.axis();
+        }
+        return true;
+    }
+    case idtxcore::BaseMessage::kSetPrimActiveBroadcast: {
+        const auto& b = msg.set_prim_active_broadcast();
+        out.kind = DecodedMessage::Kind::RemoteEdit;
+        out.remote_edit.from_client_id.clear();
+
+        model::PrimEdit& edit = out.remote_edit.edit;
+        edit.kind = model::PrimEdit::Kind::SetActive;
+        edit.prim_path = b.prim_path();
+        edit.active = b.active();
         return true;
     }
     default:
