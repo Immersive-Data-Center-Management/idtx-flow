@@ -19,6 +19,8 @@
 #include "../types/TargetTypes.h"
 #include "../types/MaterialTypes.h"
 
+#include "idtxflow/cache/ResourceCache.h"
+
 namespace idtxflow
 {
 namespace converter
@@ -105,9 +107,18 @@ class UsdTypeConverter
                                                                    const std::string& lower_extension,
                                                                    const TexturePurpose purpose);
 
+    /**
+     * The specialized implementation of this function should create the TargetEngine specific representation
+     * of a material object based on the provided material dscription data.
+     * @param materialDescription The complete description of the material, as composed from the usd stage
+     * @param stage               The stage the material was composed at
+     * @param resourceCache       The resource cache the material could be cached with if available to
+     *                            prevent the same material to be created multiple times.
+     * @return
+     */
     inline static std::optional<typename Types::Material> toMaterial(
         const types::MaterialDescription<typename Types::Texture>& materialDescription,
-        const pxr::UsdStageRefPtr& stage);
+        const pxr::UsdStageRefPtr& stage, cache::UsdResourceCache<TargetEngine>* resourceCache);
 };
 
 template <typename TargetEngine>
