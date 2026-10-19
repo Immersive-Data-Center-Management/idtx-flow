@@ -41,8 +41,12 @@ def _generate_code(env):
 
     gen_env = os.environ.copy()
     gen_env["USD_ROOT"]   = openusd_root
-    # note that openUSD 26.08 uses 'site-packages' while older versions use 'python'  as path here
-    gen_env["PYTHONPATH"] = f"{openusd_root}/lib/site-packages"
+    
+    if env["OPENUSD_VERSION"] == "26.08":
+        # note that openUSD 26.08 uses 'site-packages' while older versions use 'python'  as path here
+        gen_env["PYTHONPATH"] = f"{openusd_root}/lib/site-packages"
+    else:
+        gen_env["PYTHONPATH"] = f"{openusd_root}/lib/python" 
     gen_env["PATH"] = f"{openusd_root}/bin{os.pathsep}{openusd_root}/lib{os.pathsep}{os.environ.get('PATH', '')}"
 
     bin_dir = f"{openusd_root}/bin"
@@ -131,7 +135,7 @@ def _build_extension(env):
         f"{paths.usd_ext_include}/idtx",
         extension_env.Glob(f"{paths.usd_ext_generated}/*.h"),
     )
-    install_libs = extension_env.Install(paths.usd_ext_libs, shared_library)
+    install_libs = extension_env.Install(f"{paths.shared_libs}/{platform.name}", shared_library)
 
     extension_env.Default(shared_library, install_header + install_libs)
     extension_env.AddPostAction(shared_library, _copy_plugin_files)

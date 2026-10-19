@@ -2,7 +2,7 @@
 /**
  * @file ExecComputeResult.h
  * @brief
- * 
+ *
  **/
 
 #include <pxr/usd/sdf/path.h>

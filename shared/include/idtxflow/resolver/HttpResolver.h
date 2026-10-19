@@ -68,6 +68,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <filesystem>
 
 #include <pxr/base/tf/pathUtils.h>
 #include <functional>
@@ -93,8 +94,8 @@ PXR_NAMESPACE_OPEN_SCOPE
 class UsdHttpAssetResolver : public ArResolver
 {
     IDTX_LOG_CATEGORY("HttpResolver")
-    
-public:
+
+  public:
     UsdHttpAssetResolver() = default;
     ~UsdHttpAssetResolver() = default;
 
@@ -110,8 +111,7 @@ public:
      * @param tls_options TLS options for the IXWebSocket HTTP client. Defaults to using the
      *                    system certificate store ("SYSTEM").
      */
-    static inline void Configure(const std::filesystem::path& cache_dir,
-                                 ix::SocketTLSOptions tls_options = {})
+    static inline void Configure(const std::filesystem::path& cache_dir, ix::SocketTLSOptions tls_options = {})
     {
         std::lock_guard lock(ConfigMutex());
         idtxflow::resolver::DefaultHttpFetcher fetcher{std::move(tls_options)};
@@ -127,31 +127,65 @@ public:
      * @param cache_dir Local directory for caching downloaded files.
      * @param fetcher   The custom HTTP download implementation.
      */
-    template<idtxflow::resolver::HttpFetcherLike Fetcher>
+    template <idtxflow::resolver::HttpFetcherLike Fetcher>
     static inline void ConfigureWithFetcher(const std::filesystem::path& cache_dir, Fetcher fetcher)
     {
         std::lock_guard lock(ConfigMutex());
         // Wrap the typed cache in a type-erased adapter so we can store it as a shared_ptr<void>
-        auto typed_cache = std::make_shared<idtxflow::resolver::HttpAssetCache<Fetcher>>(
-            cache_dir, std::move(fetcher));
+        auto typed_cache = std::make_shared<idtxflow::resolver::HttpAssetCache<Fetcher>>(cache_dir, std::move(fetcher));
         ErasedCache() = typed_cache;
         // Store a resolve function that captures the typed cache
-        ResolveFunction() = [typed_cache](const std::string& url) -> std::optional<std::filesystem::path>
-        {
+        ResolveFunction() = [typed_cache](const std::string& url) -> std::optional<std::filesystem::path> {
             return typed_cache->Resolve(url);
         };
-        PrefetchFunction() = [typed_cache](const std::string& url)
-        {
-            typed_cache->Prefetch(url);
-        };
-        IsCachedFunction() = [typed_cache](const std::string& url) -> bool
-        {
-            return typed_cache->IsCached(url);
-        };
+        PrefetchFunction() = [typed_cache](const std::string& url) { typed_cache->Prefetch(url); };
+        IsCachedFunction() = [typed_cache](const std::string& url) -> bool { return typed_cache->IsCached(url); };
+        EvictFunction() = [typed_cache](const std::string& url) { typed_cache->Evict(url); };
+        ClearCacheFunction() = [typed_cache]() { typed_cache->ClearCache(); };
         IDTX_LOG(IDTX_INFO, "Configured with cache dir: {} (custom fetcher)", cache_dir.string());
     }
 
-protected:
+    /**
+     * Invalidate a single URL in the configured cache (deletes its local file), so
+     * the next resolve of that URL re-downloads it. No-op if nothing is cached.
+     * Works for both the default and custom-fetcher (type-erased) caches.
+     *
+     * Use to force a fresh fetch of a URL whose remote content may have changed —
+     * HttpAssetCache::Resolve() otherwise serves the existing cached file as-is, without revalidation.
+     */
+    static inline void EvictFromCache(const std::string& url)
+    {
+        std::lock_guard lock(ConfigMutex());
+        if (EvictFunction())
+        {
+            EvictFunction()(url);
+            return;
+        }
+        if (Cache())
+        {
+            Cache()->Evict(url);
+        }
+    }
+
+    /**
+     * Clear the entire cache (all downloaded files). Scoped broadly; prefer
+     * EvictFromCache() for a single URL. Works for both cache configurations.
+     */
+    static inline void ClearCache()
+    {
+        std::lock_guard lock(ConfigMutex());
+        if (ClearCacheFunction())
+        {
+            ClearCacheFunction()();
+            return;
+        }
+        if (Cache())
+        {
+            Cache()->ClearCache();
+        }
+    }
+
+  protected:
     // -------------------------------------------------------------------
     // ArResolver interface implementation
     // -------------------------------------------------------------------
@@ -161,9 +195,7 @@ protected:
         return TfGetExtension(path);
     }
 
-    std::string _CreateIdentifier(
-        const std::string& assetPath,
-        const ArResolvedPath& anchorAssetPath) const override
+    std::string _CreateIdentifier(const std::string& assetPath, const ArResolvedPath& anchorAssetPath) const override
     {
         // HTTP(S) URLs are already absolute identifiers
         if (IsHttpUrl(assetPath))
@@ -181,9 +213,8 @@ protected:
         return assetPath;
     }
 
-    std::string _CreateIdentifierForNewAsset(
-        const std::string& assetPath,
-        const ArResolvedPath& anchorAssetPath) const override
+    std::string _CreateIdentifierForNewAsset(const std::string& assetPath,
+                                             const ArResolvedPath& anchorAssetPath) const override
     {
         // Same logic as _CreateIdentifier — HTTP assets are read-only for now
         return _CreateIdentifier(assetPath, anchorAssetPath);
@@ -227,19 +258,29 @@ protected:
 
         // Open the cached local file as a standard filesystem asset
         std::string asset_path = local_path->generic_string();
-        return ArFilesystemAsset::Open(ArResolvedPath(asset_path));
+        std::error_code ec;
+        const auto bytes = std::filesystem::file_size(asset_path, ec);
+        IDTX_LOG(IDTX_DEBUG, "Opening cached asset '{}' from '{}' ({} bytes)", url, asset_path, ec ? 0 : bytes);
+        auto asset = ArFilesystemAsset::Open(ArResolvedPath(asset_path));
+        if (!asset)
+        {
+            IDTX_LOG(IDTX_ERROR,
+                     "Downloaded '{}' to '{}' ({} bytes) but USD could not open it "
+                     "(not a valid USD asset? wrong/error response body?).",
+                     url, asset_path, ec ? 0 : bytes);
+        }
+        return asset;
     }
 
-    std::shared_ptr<ArWritableAsset> _OpenAssetForWrite(
-        const ArResolvedPath& resolvedPath,
-        WriteMode writeMode) const override
+    std::shared_ptr<ArWritableAsset> _OpenAssetForWrite(const ArResolvedPath& resolvedPath,
+                                                        WriteMode writeMode) const override
     {
         // HTTP assets are read-only — writing is not supported
         IDTX_LOG(IDTX_ERROR, "Write not supported for HTTP assets: {}", resolvedPath.GetPathString());
         return nullptr;
     }
 
-private:
+  private:
     // -------------------------------------------------------------------
     // URL utilities
     // -------------------------------------------------------------------
@@ -318,14 +359,16 @@ private:
         {
             return ResolveFunction()(url);
         }
-        
+
         // Fall back to default cache
         if (Cache())
         {
             return Cache()->Resolve(url);
         }
-        
-        IDTX_LOG(IDTX_ERROR, "Resolver not configured. Call UsdHttpAssetResolver::Configure() or ConfigureWithFetcher() before use.");
+
+        IDTX_LOG(
+            IDTX_ERROR,
+            "Resolver not configured. Call UsdHttpAssetResolver::Configure() or ConfigureWithFetcher() before use.");
         return std::nullopt;
     }
 
@@ -358,6 +401,8 @@ private:
     using ResolveFn = std::function<std::optional<std::filesystem::path>(const std::string&)>;
     using PrefetchFn = std::function<void(const std::string&)>;
     using IsCachedFn = std::function<bool(const std::string&)>;
+    using EvictFn = std::function<void(const std::string&)>;
+    using ClearCacheFn = std::function<void()>;
 
     static inline ResolveFn& ResolveFunction()
     {
@@ -374,6 +419,18 @@ private:
     static inline IsCachedFn& IsCachedFunction()
     {
         static IsCachedFn fn;
+        return fn;
+    }
+
+    static inline EvictFn& EvictFunction()
+    {
+        static EvictFn fn;
+        return fn;
+    }
+
+    static inline ClearCacheFn& ClearCacheFunction()
+    {
+        static ClearCacheFn fn;
         return fn;
     }
 };

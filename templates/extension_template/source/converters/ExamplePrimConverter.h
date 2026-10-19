@@ -13,10 +13,17 @@
 
 #include <godot_cpp/classes/node3d.hpp>
 
+#include "../nodes/ExampleUsdNode3D.h"
+
 class ExamplePrimConverter
     : public idtxflow::converter::IPrimConverter<idtxflow::types::TargetEngineGodot>
 {
+    using Base = idtxflow::converter::IPrimConverter<idtxflow::types::TargetEngineGodot>;
+    using Types = Base::Types;
+
 public:
+    using ConvertedEntityHandle = Base::ConvertedEntityHandle;
+
     std::vector<pxr::TfToken> GetSupportedPrimTypes() const override
     {
         // Return the USD prim type token(s) this converter handles.
@@ -36,29 +43,34 @@ public:
         return "ExamplePrimConverter";
     }
 
-    godot::Node3D* Convert(const pxr::UsdPrim& prim) override
+    ConvertedEntityHandle Convert(const pxr::UsdPrim& prim) override
     {
         // TODO: Read USD attributes from `prim` and create the appropriate
         //       Godot node. For example:
         //
-        //   auto* node = memnew(godot::MeshInstance3D);
+        //   auto* node = memnew(ExampleUsdNode3D);
         //   node->set_transform(transform);
         //   // ... set up mesh, materials, etc. from prim attributes ...
-        //   return node;
+        //   return Types::GetConvertedEntityHandle(node);
 
-        // Placeholder: return a plain Node3D with the prim's name
-        auto* node = memnew(godot::Node3D);
+        // Placeholder: return a minimal IUsdNode3D-compatible node
+        auto* node = memnew(ExampleUsdNode3D);
         node->set_name(godot::String(prim.GetName().GetText()));
-        return node;
+        // Never return a raw godot-cpp wrapper to IDTXFlow. The ObjectID is
+        // resolved to an IDTXFlow-local wrapper after this call returns.
+        return Types::GetConvertedEntityHandle(node);
     }
 
-    godot::Node3D* PostProcess(
+    ConvertedEntityHandle PostProcess(
         const pxr::UsdPrim& prim,
-        godot::Node3D* converted,
-        godot::Node3D* parent) override
+        ConvertedEntityHandle converted,
+        ConvertedEntityHandle parent) override
     {
         // Optional: perform setup that depends on the scene hierarchy.
         // Called after parent-child relationships have been established.
+        // Resolve handles here to obtain wrappers owned by this GDExtension:
+        // godot::Node3D* converted_node = Types::ResolveConvertedEntity(converted);
+        // godot::Node3D* parent_node = Types::ResolveConvertedEntity(parent);
         return converted;
     }
 };

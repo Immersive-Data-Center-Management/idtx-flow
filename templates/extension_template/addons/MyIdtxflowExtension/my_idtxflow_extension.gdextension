@@ -10,6 +10,6 @@ linux.x86_64 = { "res://addons/IDTXFlow/bin/linux/libidtxflow.linux.template_deb
 macos.arm64 = { "res://addons/IDTXFlow/bin/macos/libidtxflow.macos.template_debug.arm64.dylib": "" }
 
 [libraries]
-windows.x86_64 = "res://addons/MyIdtxflowExtension/bin/windows/libmy_idtxflow_extension.windows.template_debug.x86_64.dll"
-linux.x86_64 = "res://addons/MyIdtxflowExtension/bin/linux/libmy_idtxflow_extension.linux.template_debug.x86_64.so"
-macos.arm64 = "res://addons/MyIdtxflowExtension/bin/macos/libmy_idtxflow_extension.macos.template_debug.arm64.dylib"
+windows.x86_64 = "res://addons/MyIdtxflowExtension/bin/windows/libmyidtxflowextension.windows.template_debug.x86_64.dll"
+linux.x86_64 = "res://addons/MyIdtxflowExtension/bin/linux/libmyidtxflowextension.linux.template_debug.x86_64.so"
+macos.arm64 = "res://addons/MyIdtxflowExtension/bin/macos/libmyidtxflowextension.macos.template_debug.arm64.dylib"

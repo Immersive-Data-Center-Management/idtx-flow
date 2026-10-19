@@ -9,6 +9,7 @@ Registers the SCons env method ``BuildGdExtensionV2``.
 """
 import configparser
 import datetime
+import glob
 import os
 import re
 import shutil
@@ -39,6 +40,14 @@ def _build_extension(env):
 
     extension_env = env.Clone()
 
+    # Protobuf: runtime include dir + the generated idtxcore.* sources directory.
+    # BuildProtobuf() publishes the env keys; GenerateProtoSources() writes the
+    # *.pb.{cc,h} into proto_gen_dir.
+    protobuf_include_dir = env.get("protobuf_include_dir", "")
+    protobuf_lib_dir     = env.get("protobuf_lib_dir", "")
+    protobuf_lib_name    = env.get("protobuf_lib_name", "")
+    proto_gen_dir = os.path.join("shared", "src", "idtxflow", "net", "proto_gen")
+
     # ---- Include paths ------------------------------------------------------
     include_paths = [
         "source",
@@ -50,7 +59,10 @@ def _build_extension(env):
         paths.shared_include,
         paths.ixwebsocket,
         paths.usd_ext_include,
+        proto_gen_dir,  # generated *.pb.h live alongside the *.pb.cc
     ]
+    if protobuf_include_dir:
+        include_paths.append(protobuf_include_dir)
     if not platform.is_android:
         include_paths.append(f"{paths.mdl_sdk}/include")
     if platform.is_android:
@@ -72,8 +84,14 @@ def _build_extension(env):
         f"{paths.openusd_install}/lib",
         f"{paths.godot_cpp}/bin",
         ixws_release_dir,
-        paths.usd_ext_libs,
+        # idtx_usd import lib is installed here by usd_extension.py. NOTE: do not
+        # use paths.usd_ext_libs here — that dir can hold a stale lib built against
+        # a different OPENUSD_VERSION, producing pxrInternal_v0_* namespace
+        # mismatches at link time.
+        f"{paths.shared_libs}/{platform.name}",
     ]
+    if protobuf_lib_dir:
+        lib_paths.append(protobuf_lib_dir)
     if not platform.is_android:
         lib_paths.append(f"{paths.mdl_sdk}/lib")
     if platform.is_android:
@@ -90,6 +108,10 @@ def _build_extension(env):
     ]
     if not platform.is_android:
         libs.extend(openssl_locator.link_libnames(platform))
+
+    # protobuf runtime (static) for the idtxcore.* generated messages
+    if protobuf_lib_name:
+        libs.append(protobuf_lib_name)
 
     # ---- Apply pre-computed profile sections (no decisions here) -----------
     apply_profile_section(extension_env, profile.cxx_flags)
@@ -123,6 +145,25 @@ def _build_extension(env):
                    if os.path.commonpath([s.get_dir().get_path(), exclude_dir]) != exclude_dir]
     except ValueError:
         sources = [s for s in sources if exclude_dir not in s.get_dir().get_path()]
+
+    # Engine-agnostic sources under shared/src are not covered by the source/**
+    # glob above, so add them explicitly. (The refactored tool globs only
+    # source/**; these shared/ trees must be listed here or their symbols —
+    # CollabEngine, StagePersistence, the idtxcore.* wire messages — go
+    # unresolved at link time.)
+
+    # Generated protobuf sources (idtxcore.* wire messages).
+    sources += extension_env.Glob(os.path.join(proto_gen_dir, "*.pb.cc"))
+
+    # Collaboration net stack (net/, wire/, adapters/**) and stage operations.
+    # SCons Glob does not recurse through '**', so use Python's recursive glob.
+    # The *.pb.cc above match only *.cpp here (so they are not double-added) and
+    # the set()-dedup on `sources` guards any overlap.
+    for shared_glob in (
+        os.path.join("shared", "src", "idtxflow", "net", "**", "*.cpp"),
+        os.path.join("shared", "src", "idtxflow", "stage_ops", "**", "*.cpp"),
+    ):
+        sources += [extension_env.File(p) for p in glob.glob(shared_glob, recursive=True)]
 
     if platform.target in ("editor", "template_debug"):
         print("Generating doc data..")

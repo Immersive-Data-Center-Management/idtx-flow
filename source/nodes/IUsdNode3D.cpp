@@ -16,8 +16,7 @@ using namespace pxr;
 
 PackedStringArray IDTXFLOW_GODOT_API IUsdNode3D::get_variantset_variants(const String& name) const
 {
-    if (variant_sets_.has(name))
-        return variant_sets_[name];
+    if (variant_sets_.has(name)) return variant_sets_[name];
 
     return godot::PackedStringArray();
 }
@@ -44,13 +43,13 @@ void IDTXFLOW_GODOT_API IUsdNode3D::set_variantsets(const Dictionary& variant_se
 
 String IDTXFLOW_GODOT_API IUsdNode3D::get_variantset_selected_variant(const String& variant_set) const
 {
-    if (variant_sets_variant_.has(variant_set))
-        return variant_sets_variant_[variant_set];
+    if (variant_sets_variant_.has(variant_set)) return variant_sets_variant_[variant_set];
 
     return String();
 }
 
-void IDTXFLOW_GODOT_API IUsdNode3D::set_variantset_selected_variant(const String& variant_set, const String& value, bool is_converting)
+void IDTXFLOW_GODOT_API IUsdNode3D::set_variantset_selected_variant(const String& variant_set, const String& value,
+                                                                    bool is_converting)
 {
     // when we are setting the selected variant from convertion mode we just set the value...
     if (is_converting)
@@ -69,12 +68,13 @@ void IDTXFLOW_GODOT_API IUsdNode3D::set_variantset_selected_variant(const String
         if (!prim) return;
         // before switching the variant ensure we have the session layer of the stage to be the edit target
         stage->SetEditTarget(stage->GetSessionLayer());
-        
+
         UsdVariantSet prim_variant_set = prim.GetVariantSet(variant_set.utf8().get_data());
         prim_variant_set.SetVariantSelection(value.utf8().get_data());
-        
+
         // re-convert the prim into the current node... re-fetching the prim from the stage ensures the composition
         // happens with the variant just selected
-        // TODO: implement single prim conversion after variant selection to compose the new selected variant properties!
+        // TODO: implement single prim conversion after variant selection to compose the new selected variant
+        // properties!
     }
 }

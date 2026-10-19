@@ -15,7 +15,7 @@ duplication.
 Registers the SCons env method ``BuildOpenUSDV2``.
 """
 import os
-import platform
+import platform as sys_platform
 import shutil
 import subprocess
 import sys
@@ -25,6 +25,7 @@ from SCons.Script import Exit
 from scons.core import cmake_runner, msvc_env
 from scons.core.run import run_or_exit
 from scons.platforms import android as android_platform
+from scons.core.platform_info import PlatformInfo
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +50,7 @@ def exists(env):
 
 def _build_openusd(env, with_python_support: bool = False):
     profile  = env["profile"]
-    platform = profile.platform
+    platform = profile.platform if not with_python_support else PlatformInfo.host()
     paths    = profile.paths
 
     # Clone OpenUSD source if missing
@@ -64,26 +65,30 @@ def _build_openusd(env, with_python_support: bool = False):
         )
 
     # Pick the install path for this build variant
-    if platform.is_android:
-        install_path = paths.openusd_install
-    elif with_python_support:
+    # with_python_support
+    if with_python_support:
         install_path = paths.openusd_python
+    elif platform.is_android:
+        install_path = paths.openusd_install
     else:
         install_path = paths.openusd_install
 
     # Already-built probe — short-circuits subsequent invocations
-    if platform.is_windows:
+    # when python support is requestes always check against the host-system name
+    # as we build the python variant always for the host system
+    if platform.is_windows or (with_python_support and sys_platform.system() == "Windows"):
         marker = f"{install_path}/lib/usd_ms.dll"
-    elif platform.is_macos:
+    elif platform.is_macos or (with_python_support and sys_platform.system() == "Darwin"):
         marker = f"{install_path}/lib/libusd_ms.dylib"
     else:
         marker = f"{install_path}/lib/libusd_ms.so"
 
     if os.path.exists(marker):
+        print(f"openUSD exist and will be reu-used from {install_path}")
         return
 
-    if platform.is_android:
-        _build_for_android(env, paths.openusd_src, install_path, platform.target)
+    if platform.is_android and not with_python_support:
+        _build_for_android(env, paths.openusd_src, install_path)
     else:
         _build_for_desktop(env, paths.openusd_src, install_path,
                            platform, with_python_support)
@@ -143,7 +148,7 @@ def _build_for_desktop(env, source_path, install_path, platform, with_python_sup
 # Android backend (CMake direct, with source patches)
 # ---------------------------------------------------------------------------
 
-def _build_for_android(env, source_path, install_path, build_target):
+def _build_for_android(env, source_path, install_path):
     """Cross-compile OpenUSD for Android. Patches are applied/reverted around
     the build so the on-disk source tree is left untouched."""
     print("Building openUSD for Android (cross-compilation via NDK)...")
@@ -151,12 +156,12 @@ def _build_for_android(env, source_path, install_path, build_target):
     # Patch source — must always be reverted, even on build failure
     backups = _patch_openusd_for_android(source_path)
     try:
-        _do_build_android(env, source_path, install_path, build_target)
+        _do_build_android(env, source_path, install_path)
     finally:
         _revert_android_patches(backups)
 
 
-def _do_build_android(env, source_path, install_path, build_target):
+def _do_build_android(env, source_path, install_path):
     # Build oneTBB for Android first (OpenUSD requires it)
     tbb_root = _build_tbb_android(env)
 
@@ -166,12 +171,10 @@ def _do_build_android(env, source_path, install_path, build_target):
     cmake_build_dir = f"{install_path}-build"
     os.makedirs(install_path, exist_ok=True)
 
-    build_variant = "Release" if build_target == "template_release" else "RelWithDebInfo"
-
     cmake_args = [
         *android_platform.cmake_toolchain_args(ndk_root, api_level),
         f"-DCMAKE_INSTALL_PREFIX={os.path.abspath(install_path)}",
-        f"-DCMAKE_BUILD_TYPE={build_variant}",
+        f"-DCMAKE_BUILD_TYPE=Release",
         "-DCMAKE_CXX_STANDARD=17",
         "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
         "-DBUILD_SHARED_LIBS=ON",
@@ -194,8 +197,8 @@ def _do_build_android(env, source_path, install_path, build_target):
     ]
 
     cmake_runner.configure(source_path, cmake_build_dir, cmake_args, "OpenUSD-Android")
-    cmake_runner.build(cmake_build_dir, "OpenUSD-Android", config=build_variant)
-    cmake_runner.install(cmake_build_dir, "OpenUSD-Android", config=build_variant)
+    cmake_runner.build(cmake_build_dir, "OpenUSD-Android", config="Release")
+    cmake_runner.install(cmake_build_dir, "OpenUSD-Android", config="Release")
 
     print(f"OpenUSD for Android built successfully: {install_path}")
 
@@ -206,27 +209,30 @@ def _do_build_android(env, source_path, install_path, build_target):
 
 def _build_tbb_android(env):
     """Download + cross-compile oneTBB for Android. Returns the install prefix."""
-    tbb_install_prefix = os.path.abspath("thirdparty/onetbb-android")
+    profile  = env["profile"]
+    paths    = profile.paths
+    
+    tbb_install_prefix = os.path.abspath(f"{paths.thirdparty}/onetbb-android")
     tbb_marker = os.path.join(tbb_install_prefix, "include", "oneapi", "tbb.h")
 
     if os.path.isfile(tbb_marker):
         print(f"oneTBB for Android already built: {tbb_install_prefix}")
         return tbb_install_prefix
 
-    tbb_src_dir = os.path.abspath(f"thirdparty/onetbb-{ONETBB_VERSION}-src")
+    tbb_src_dir = os.path.abspath(f"{paths.thirdparty}/onetbb-{ONETBB_VERSION}-src")
     if not os.path.exists(tbb_src_dir):
         import urllib.request
         import zipfile
 
         print(f"Downloading oneTBB v{ONETBB_VERSION}...")
-        zip_path = os.path.abspath(f"thirdparty/onetbb-{ONETBB_VERSION}.zip")
+        zip_path = os.path.abspath(f"{paths.thirdparty}/onetbb-{ONETBB_VERSION}.zip")
         urllib.request.urlretrieve(ONETBB_URL, zip_path)
 
         print("Extracting oneTBB...")
         with zipfile.ZipFile(zip_path, "r") as zf:
-            zf.extractall("thirdparty")
+            zf.extractall(paths.thirdparty)
 
-        extracted_dir = os.path.abspath(f"thirdparty/oneTBB-{ONETBB_VERSION}")
+        extracted_dir = os.path.abspath(f"{paths.thirdparty}/oneTBB-{ONETBB_VERSION}")
         if os.path.isdir(extracted_dir) and not os.path.isdir(tbb_src_dir):
             os.rename(extracted_dir, tbb_src_dir)
 
@@ -236,7 +242,7 @@ def _build_tbb_android(env):
     ndk_root  = env.get("android_ndk_root", os.environ.get("ANDROID_NDK_ROOT", ""))
     api_level = env.get("android_api_level", 24)
 
-    tbb_build_dir = os.path.abspath(f"thirdparty/onetbb-{ONETBB_VERSION}-android-build")
+    tbb_build_dir = os.path.abspath(f"{paths.thirdparty}/onetbb-{ONETBB_VERSION}-android-build")
     os.makedirs(tbb_install_prefix, exist_ok=True)
 
     cmake_args = [

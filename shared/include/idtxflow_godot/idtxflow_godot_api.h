@@ -11,13 +11,13 @@
  */
 
 #if defined(_WIN32) || defined(_WIN64)
-    #ifdef IDTXFLOW_GODOT_EXPORTS
-        #define IDTXFLOW_GODOT_API __declspec(dllexport)
-    #else
-        #define IDTXFLOW_GODOT_API __declspec(dllimport)
-    #endif
-#elif defined(__GNUC__) || defined(__clang__)
-    #define IDTXFLOW_GODOT_API __attribute__((visibility("default")))
+#ifdef IDTXFLOW_GODOT_EXPORTS
+#define IDTXFLOW_GODOT_API __declspec(dllexport)
 #else
-    #define IDTXFLOW_GODOT_API
+#define IDTXFLOW_GODOT_API __declspec(dllimport)
+#endif
+#elif defined(__GNUC__) || defined(__clang__)
+#define IDTXFLOW_GODOT_API __attribute__((visibility("default")))
+#else
+#define IDTXFLOW_GODOT_API
 #endif

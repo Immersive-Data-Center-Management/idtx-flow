@@ -21,7 +21,7 @@ def _build_extension(env):
     print("Building Godot Extension...")
 
     godot_cpp_path = "thirdparty/godot-cpp"
-    idtxflow_sdk_path = "thirdparty/idtxflow-sdk"
+    idtxflow_sdk_path = env["IDTXFLOW_SDK"]
     
     platform_name = env["platform_name"]
     build_target = env["target"]

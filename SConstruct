@@ -69,7 +69,6 @@ profile  = build_profile(ARGUMENTS, openusd_version=openusd_version)
 platform = profile.platform
 paths    = profile.paths
 
-
 # ---------------------------------------------------------------------------
 # SCons Environment
 # ---------------------------------------------------------------------------
@@ -85,6 +84,7 @@ SCONS_TOOLS = [
     "ext_bootstrap",
     "gdextension",
     "sdk_composer",
+    "protobuf"
 ]
 
 if platform.is_android:
@@ -151,6 +151,12 @@ apply_profile_section(env, profile.msvc_extras)
 
 # 1. Third-party libraries
 env.BuildIXWebSocketV2()
+# download and build protobuf from source (static lib + protoc), then generate the
+# C++ sources for the idtxcore.* wire messages used by the collaboration client.
+# Generated sources land in shared/src/idtxflow/net/proto_gen (compiled into the
+# extension) with headers alongside them (added to the include path in gdextension.py).
+env.BuildProtobuf()
+env.GenerateProtoSources("shared/proto/idtxcore", "shared/src/idtxflow/net/proto_gen")
 env.BuildOpenUSDV2(with_python_support=False)
 env.BuildOpenUSDV2(with_python_support=True)   # needed for usdGenSchema
 

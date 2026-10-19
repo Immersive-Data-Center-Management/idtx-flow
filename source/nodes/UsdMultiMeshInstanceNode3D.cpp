@@ -35,12 +35,11 @@ void UsdMultiMeshInstanceNode3D::_bind_methods()
 {
     // bind methods from the inherited interface here
     IUSDNODE_IMPLEMENT_BINDINGS(UsdMultiMeshInstanceNode3D)
-    
-    ClassDB::bind_method(D_METHOD("set_base_transform", "p_animation"), &UsdMultiMeshInstanceNode3D::set_global_base_transform);
+
+    ClassDB::bind_method(D_METHOD("set_base_transform", "p_animation"),
+                         &UsdMultiMeshInstanceNode3D::set_global_base_transform);
     ClassDB::bind_method(D_METHOD("get_base_transform"), &UsdMultiMeshInstanceNode3D::get_global_base_transform);
-    ADD_PROPERTY(
-        PropertyInfo(Variant::TRANSFORM3D, "global_base_transform",
-            PROPERTY_HINT_NONE, "" ,
-            PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_READ_ONLY ),
-        "set_base_transform", "get_base_transform");
+    ADD_PROPERTY(PropertyInfo(Variant::TRANSFORM3D, "global_base_transform", PROPERTY_HINT_NONE, "",
+                              PROPERTY_USAGE_STORAGE | PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_READ_ONLY),
+                 "set_base_transform", "get_base_transform");
 }

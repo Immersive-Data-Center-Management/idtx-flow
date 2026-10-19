@@ -22,7 +22,7 @@ from SCons.Script import ARGUMENTS, Exit
 # --------------------------------------------------------------------------- #
 
 # Path to the built IDTXFlowGodot repository
-idtxflow_sdk = "thirdparty/idtxflow-sdk"
+idtxflow_sdk = ARGUMENTS.pop("idtxflow_sdk", "thirdparty/idtxflow-sdk")
 
 # --------------------------------------------------------------------------- #
 # Environment setup                                                            #

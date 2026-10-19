@@ -63,7 +63,7 @@ def _do_compose(target, source, env):
         shutil.copy(f"{boot_dir}/{boot_lib}",        paths.sdk_libs)
         shutil.copy(f"{openusd_dir}/lib/usd_ms.lib", paths.sdk_libs)
         shutil.copy(f"{openusd_dir}/lib/tbb12.lib",  paths.sdk_libs)
-        shutil.copy(f"{shared_lib_dir}/windows/libidtx_usd.lib", paths.sdk_libs)
+        shutil.copy(f"{shared_lib_dir}/windows/idtx_usd.lib", paths.sdk_libs)
     elif platform.is_macos:
         shutil.copy(f"{gdext_dir}/{gdext_lib}",           paths.sdk_libs)
         shutil.copy(f"{boot_dir}/{boot_lib}",             paths.sdk_libs)

@@ -123,3 +123,17 @@ class BuildPaths:
     @property
     def ext_bootstrap_build(self) -> str:
         return "build/idtxflow_ext_bootstrap"
+
+    @property
+    def protobuf_src(self) -> str:
+        return f"{self.thirdparty}/protobuf"
+    
+    @property
+    def protobuf_build(self) -> str:
+        return f"{self.thirdparty}/protobuf/build_{self.platform.name}_{self.platform.target}"
+
+    @property
+    def protobuf_build_host(self) -> str:
+        # Host build used only to obtain a runnable protoc when cross-compiling
+        # (e.g. for Android): the target protoc would be unrunnable on the host.
+        return f"{self.thirdparty}/protobuf/build_host"

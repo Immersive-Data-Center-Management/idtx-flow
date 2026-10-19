@@ -75,3 +75,25 @@ class PlatformInfo:
             target=args.get("target", "template_debug"),
             is_msvc=(target_platform == "windows"),
         )
+
+    # Current Host-Platform
+    @classmethod
+    def host(cls) -> "PlatformInfo":
+        host_platform = platform.system().lower()
+        if host_platform == "darwin":
+            host_platform = "macos"
+        elif host_platform != "windows":
+            host_platform = "linux"
+
+        host_arch = platform.machine().lower()
+        if host_arch in ("aarch64", "arm64"):
+            host_arch = "arm64"
+        elif host_arch in ("x86_64", "amd64", "x64"):
+            host_arch = "x86_64"
+
+        return cls(
+            name=host_platform,
+            arch=host_arch,
+            target="template_debug",
+            is_msvc=(host_platform == "windows"),
+        )
