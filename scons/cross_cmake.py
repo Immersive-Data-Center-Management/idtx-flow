@@ -31,6 +31,7 @@ def find_ninja(env):
 
     Exit("Ninja is required for Android builds but was not found.\n"
          "  Put ninja on PATH (or install CMake through the Android SDK manager).")
+    raise SystemExit(1)
 
 
 def cmake_cross_args(env):
