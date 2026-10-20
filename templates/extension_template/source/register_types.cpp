@@ -28,8 +28,6 @@
 // Your custom nodes
 #include "nodes/ExampleUsdNode3D.h"
 
-using Registry = idtxflow::converter::PrimConverterRegistry<idtxflow::types::TargetEngineGodot>;
-
 using namespace godot;
 
 
@@ -39,12 +37,16 @@ void initialize_my_extension_module(ModuleInitializationLevel p_level) {
     #if IDTXFLOW_GODOT_VERSION < IDTXFLOW_GODOT_MAKE_VERSION(0, 4, 0)
     #error "This extension requires IDTXFlow Godot API >= 0.4.0"
     #endif
-    
+
     GDREGISTER_CLASS(ExampleUsdNode3D)
-        
-    // Register prim converters into IDTXFlow's shared registry
-    Registry::Instance().Register(std::make_shared<ExamplePrimConverter>());
-    
+
+    // Register prim converters into IDTXFlow's shared registry.
+    // Always reach the registry through GodotPrimConverterRegistry() rather than
+    // PrimConverterRegistry<TargetEngineGodot>::Instance(): the accessor is the
+    // only form guaranteed to resolve to IDTXFlow's single singleton across the
+    // DLL/.so boundary on every platform (see PrimConverterRegistryGodot.h).
+    idtxflow::converter::GodotPrimConverterRegistry().Register(std::make_shared<ExamplePrimConverter>());
+
     print_verbose("MyIdtxflowExtension initialized");
 }
 
@@ -52,9 +54,9 @@ void uninitialize_my_extension_module(ModuleInitializationLevel p_level) {
     if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
         return;
     }
-    
-    Registry::Instance().Unregister("ExamplePrimConverter");
-    
+
+    idtxflow::converter::GodotPrimConverterRegistry().Unregister("ExamplePrimConverter");
+
     print_verbose("MyIdtxflowExtension uninitialized");
 }
 
