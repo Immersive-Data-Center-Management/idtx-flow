@@ -78,34 +78,39 @@ inline std::string get_gdextension_dir()
 // or fail silently. Add further checks here.
 static void check_prerequisites(const std::string& extension_dir)
 {
-    if (extension_dir.empty())
-    {
-        IDTX_LOGF(IDTX_WARN, "could not determine the extension directory; skipping prerequisite checks");
-        return;
+
+    // Resolve the two USD plugin base dirs. On Android the bin/ tree is relocated
+    // out of the APK to internal storage and exposed via env vars (GodotApp.java);
+    // on desktop they sit next to the loaded binaries.
+    const char* android_dir = std::getenv("IDTX_USD_ANDROID_DIR");
+    const char* plugin_dir  = std::getenv("IDTX_USD_PLUGIN_DIR");
+
+    std::filesystem::path usd_base, plugin_base;
+    if (android_dir && plugin_dir) {
+        usd_base = android_dir;                 // == <lib_dir>/usd
+        plugin_base = plugin_dir;               // == <lib_dir>/../plugin/usd
+    } else {
+        if (extension_dir.empty()) {
+            IDTX_LOGF(IDTX_WARN, "could not determine the extension directory; skipping prerequisite checks");
+            return;
+        }
+        usd_base    = std::filesystem::path(extension_dir) / "usd";
+        plugin_base = std::filesystem::path(extension_dir) / ".." / "plugin" / "usd";
     }
 
-    // OpenUSD finds its resolver, file-format and schema plugins through plugInfo.json
-    // files laid out relative to the binaries (addons/IDTXFlow/bin/<os>/usd/ and
-    // bin/plugin/usd/). If an export or a manual install drops that tree, PlugRegistry
-    // fails fatally inside the first stage open with no actionable message, so name
-    // every missing file up front. Keep this list in sync with the addon's bin/ layout.
-    const char* required_plugin_files[] = {
-        "usd/plugInfo.json",
-        "../plugin/usd/plugInfo.json",
-        "../plugin/usd/idtx/resources/plugInfo.json",
-        "../plugin/usd/godot/resources/plugInfo.json",
-        "../plugin/usd/usdShaders/resources/plugInfo.json",
+    const std::filesystem::path required[] = {
+        usd_base    / "plugInfo.json",
+        plugin_base / "plugInfo.json",
+        plugin_base / "idtx" / "resources" / "plugInfo.json",
+        plugin_base / "godot" / "resources" / "plugInfo.json",
+        plugin_base / "usdShaders" / "resources" / "plugInfo.json",
     };
-    for (const char* rel: required_plugin_files)
-    {
-        const std::filesystem::path full = (std::filesystem::path(extension_dir) / rel).lexically_normal();
+    for (const auto& rel : required) {
+        const std::filesystem::path full = rel.lexically_normal();
         std::error_code ec;
-        if (!std::filesystem::exists(full, ec) || ec)
-        {
+        if (!std::filesystem::exists(full, ec) || ec) {
             IDTX_LOGF(IDTX_ERROR,
-                      "USD plugin file missing: {} - stage conversion will fail "
-                      "(the addon's bin/ tree must sit next to the loaded binaries)",
-                      full.string());
+                      "USD plugin file missing: {} - stage conversion may fail", full.string());
         }
     }
 }
