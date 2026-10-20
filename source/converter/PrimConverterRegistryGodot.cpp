@@ -19,3 +19,18 @@
 
 // Explicit instantiation – the exported definition of the entire class template.
 template class IDTXFLOW_GODOT_API idtxflow::converter::PrimConverterRegistry<idtxflow::types::TargetEngineGodot>;
+
+// Non-inline, C-linkage accessor — the single cross-module entry point to the
+// Godot registry singleton. Unlike the inline Instance() template method, an
+// extern "C" function has no vague/COMDAT linkage and is immune to
+// -fvisibility-inlines-hidden, so it always lands in libidtxflow's .dynsym with
+// default visibility. Every consumer (including extensions in other .so files)
+// that calls this shares IDTXFlow's own singleton. See the rationale in
+// PrimConverterRegistryGodot.h. This definition must exist exactly once, here,
+// in the translation unit that owns the explicit instantiation above.
+extern "C" IDTXFLOW_GODOT_API
+    idtxflow::converter::PrimConverterRegistry<idtxflow::types::TargetEngineGodot>&
+    IDTXFlow_GodotPrimConverterRegistry()
+{
+    return idtxflow::converter::PrimConverterRegistry<idtxflow::types::TargetEngineGodot>::Instance();
+}
