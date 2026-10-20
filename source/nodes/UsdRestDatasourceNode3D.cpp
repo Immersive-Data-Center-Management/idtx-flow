@@ -1,6 +1,7 @@
 #include "UsdRestDatasourceNode3D.h"
 
 #include <idtx/tokens.h>
+#include <idtxflow/net/adapters/transport/ix/IxTlsDefaults.h>
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
 
 using namespace godot;
@@ -68,6 +69,13 @@ void UsdRestDatasourceNode3D::set_refresh_interval(float value)
 void UsdRestDatasourceNode3D::_enter_tree()
 {
     Node3D::_enter_tree();
+
+    // Platform-aware CA selection, mirroring IxHttpTransport: "SYSTEM" on desktop
+    // (OS trust store) and "NONE" on Android, where IXWebSocket's MbedTLS backend
+    // cannot resolve "SYSTEM" (loadSystemCertificates() is Windows-only) and would
+    // otherwise fail the TLS handshake before any request — surfacing as HTTP 0.
+    tls_options_.caFile = idtxflow::net::adapters::default_ca_file();
+
     auto state = callback_state_;
     state->accepting_results.store(true);
     if (stage_node_ && stage_node_->get_stage())

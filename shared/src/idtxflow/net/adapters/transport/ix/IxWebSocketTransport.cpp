@@ -6,6 +6,8 @@
 #include <ixwebsocket/IXWebSocketSendData.h>
 #include <ixwebsocket/IXSocketTLSOptions.h>
 
+#include <idtxflow/net/adapters/transport/ix/IxTlsDefaults.h>
+
 namespace idtxflow
 {
 namespace net
@@ -87,9 +89,9 @@ void IxWebSocketTransport::connect(std::string url)
 
     // TLS is selected by the URL scheme (wss:// uses TLS, ws:// is plain); these
     // options are consulted only for a wss:// connection and ignored otherwise.
-    // caFile "SYSTEM" verifies the server certificate against the OS trust store.
+    // caFile is platform-aware (see IxTlsDefaults.h).
     ix::SocketTLSOptions tls;
-    tls.caFile = "SYSTEM";
+    tls.caFile = default_ca_file();
     ws_->setTLSOptions(tls);
 
     // Ping periodically so an idle connection stays open through intermediaries

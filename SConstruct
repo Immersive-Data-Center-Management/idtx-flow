@@ -84,7 +84,8 @@ SCONS_TOOLS = [
     "ext_bootstrap",
     "gdextension",
     "sdk_composer",
-    "protobuf"
+    "protobuf",
+    "mbedtls"
 ]
 
 if platform.is_android:
@@ -150,6 +151,9 @@ apply_profile_section(env, profile.msvc_extras)
 # ---------------------------------------------------------------------------
 
 # 1. Third-party libraries
+# MbedTLS first: on Android it provides the TLS backend IXWebSocket links against
+# (no-op on desktop, which uses OpenSSL).
+env.BuildMbedTLSV2()
 env.BuildIXWebSocketV2()
 # download and build protobuf from source (static lib + protoc), then generate the
 # C++ sources for the idtxcore.* wire messages used by the collaboration client.

@@ -3,6 +3,9 @@
 #include <utility>
 
 #include <ixwebsocket/IXHttpClient.h>
+#include <ixwebsocket/IXSocketTLSOptions.h>
+
+#include <idtxflow/net/adapters/transport/ix/IxTlsDefaults.h>
 
 namespace idtxflow
 {
@@ -53,6 +56,13 @@ ports::IHttpTransport::Response do_request(const std::string& base_url, const po
 {
     ix::HttpClient client;
     ix::HttpRequestArgsPtr args = make_args(client, request, connect_ms, transfer_ms);
+
+    // TLS options are consulted only for https:// URLs. caFile is platform-aware
+    // (see IxTlsDefaults.h): OS trust store on desktop, verification disabled on
+    // Android (demo-only).
+    ix::SocketTLSOptions tls;
+    tls.caFile = default_ca_file();
+    client.setTLSOptions(tls);
 
     std::string url;
     if (!request.url.empty())

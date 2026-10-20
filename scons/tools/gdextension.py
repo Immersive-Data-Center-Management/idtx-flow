@@ -67,6 +67,7 @@ def _build_extension(env):
         include_paths.append(f"{paths.mdl_sdk}/include")
     if platform.is_android:
         include_paths.append(f"{paths.onetbb_android}/include")
+        include_paths.append(f"{paths.mbedtls_install}/include")
     extension_env.Append(CPPPATH=include_paths)
 
     # ---- OpenSSL include/lib (lazy probe, only when actually needed) -------
@@ -96,6 +97,7 @@ def _build_extension(env):
         lib_paths.append(f"{paths.mdl_sdk}/lib")
     if platform.is_android:
         lib_paths.append(f"{paths.onetbb_android}/lib")
+        lib_paths.append(f"{paths.mbedtls_install}/lib")
     extension_env.Append(LIBPATH=lib_paths)
 
     # ---- Libraries ----------------------------------------------------------
@@ -108,6 +110,10 @@ def _build_extension(env):
     ]
     if not platform.is_android:
         libs.extend(openssl_locator.link_libnames(platform))
+    else:
+        # IXWebSocket's MbedTLS backend. Order matters for static linking:
+        # ssl -> x509 -> crypto, and all after "ixwebsocket" (which references them).
+        libs.extend(["mbedtls", "mbedx509", "mbedcrypto"])
 
     # protobuf runtime (static) for the idtxcore.* generated messages
     if protobuf_lib_name:

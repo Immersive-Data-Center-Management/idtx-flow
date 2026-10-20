@@ -122,7 +122,7 @@ def _build_for_desktop(env, source_path, install_path, platform, with_python_sup
         f"{install_path}",
         "--verbose",
         "--build-variant",
-        "release" if platform.target == "template_release" else "relwithdebuginfo",
+        "release" # always build openUSD as release to get it small. Unlikely to debug into it anyway
         "--build-monolithic",
         "--no-python" if not with_python_support else "--python",
         "--no-examples",

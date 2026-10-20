@@ -55,24 +55,39 @@ def _build_ixwebsocket(env):
         print(f"IXWebSocket already built: {lib_file}")
         return
 
-    # ---- Resolve OpenSSL (TLS disabled on Android) --------------------------
-    use_tls = not platform.is_android
-    openssl = openssl_locator.find_openssl(platform) if use_tls else None
+    # ---- Resolve TLS backend ------------------------------------------------
+    # Desktop uses OpenSSL (via the locator); Android uses the statically
+    # cross-compiled MbedTLS built by mbedtls.py (openssl_locator has no Android
+    # support). TLS is always enabled now so https:// works everywhere.
+    use_tls     = True
+    use_mbedtls = platform.is_android
+    openssl     = openssl_locator.find_openssl(platform) if not use_mbedtls else None
 
     # ---- Build CMake configure args ----------------------------------------
     cmake_args = [
         "-DBUILD_SHARED_LIBS=OFF",
-        f"-DUSE_TLS={'ON' if use_tls else 'OFF'}",
-        f"-DUSE_OPEN_SSL={'ON' if use_tls else 'OFF'}",
+        "-DUSE_TLS=ON",
+        f"-DUSE_OPEN_SSL={'OFF' if use_mbedtls else 'ON'}",
+        f"-DUSE_MBED_TLS={'ON' if use_mbedtls else 'OFF'}",
         "-DUSE_ZLIB=OFF",
         "-DCMAKE_CXX_STANDARD=20",
     ]
 
     if platform.is_android:
         ndk_root  = env.get("android_ndk_root", os.environ.get("ANDROID_NDK_ROOT", ""))
-        api_level = env.get("android_api_level", 24)
+        api_level = int(env.get("android_api_level", 30))
         cmake_args.extend(android_platform.cmake_toolchain_args(ndk_root, api_level))
+        # Point FindMbedTLS.cmake at the libs mbedtls.py installed. Pre-seeding
+        # its result cache vars satisfies the find_path/find_library calls so it
+        # doesn't go hunting in the NDK sysroot.
+        mbedtls_inc = os.path.abspath(f"{paths.mbedtls_install}/include")
+        mbedtls_lib = os.path.abspath(f"{paths.mbedtls_install}/lib")
         cmake_args.extend([
+            f"-DMBEDTLS_INCLUDE_DIRS={mbedtls_inc}",
+            f"-DMBEDTLS_VERSION_GREATER_THAN_3={mbedtls_inc}",
+            f"-DMBEDTLS_LIBRARY={mbedtls_lib}/libmbedtls.a",
+            f"-DMBEDX509_LIBRARY={mbedtls_lib}/libmbedx509.a",
+            f"-DMBEDCRYPTO_LIBRARY={mbedtls_lib}/libmbedcrypto.a",
             "-DCMAKE_CXX_FLAGS=-std=c++20 -fPIC",
             "-DCMAKE_C_FLAGS=-fPIC",
         ])
@@ -115,7 +130,7 @@ def _build_ixwebsocket(env):
         elif openssl:
             cmake_args.append(f"-DOPENSSL_ROOT_DIR={openssl.cmake_root_dir}")
 
-    tls_label = "OpenSSL" if use_tls else "OFF"
+    tls_label = "MbedTLS" if use_mbedtls else ("OpenSSL" if use_tls else "OFF")
     print(f"Building IXWebSocket for {platform.name}/{platform.target} (TLS: {tls_label})...")
 
     cmake_runner.configure(paths.ixwebsocket, build_dir, cmake_args, "IXWebSocket")

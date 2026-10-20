@@ -29,3 +29,9 @@ Version: v26.05
 License: Tomorrow Open Source Technology License 1.0 (Apache-2.0 variant)
 Homepage: https://github.com/PixarAnimationStudios/OpenUSD
 Description: Pixar Universal Scene Description - Efficient, scalable system for authoring, reading, and streaming scene descriptions for 3D applications.
+
+Dependency: mbedtls
+Version: v4.2.0
+License: Apache License Version 2.0
+Homepage: https://github.com/Mbed-TLS/mbedtls
+Description: An open source, portable, easy to use, readable and flexible TLS library, and reference implementation of the PSA Cryptography API. Releases are on a varying cadence, typically around 3 - 6 months between releases.

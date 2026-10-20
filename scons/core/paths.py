@@ -63,6 +63,20 @@ class BuildPaths:
     def onetbb_android(self) -> str:
         return f"{self.thirdparty}/onetbb-android"
 
+    @property
+    def mbedtls(self) -> str:
+        """Extracted MbedTLS source (Android TLS backend for IXWebSocket)."""
+        return f"{self.thirdparty}/mbedtls"
+
+    @property
+    def mbedtls_build(self) -> str:
+        return f"{self.mbedtls}/build_{self.platform.name}_{self.platform.target}"
+
+    @property
+    def mbedtls_install(self) -> str:
+        """CMake install prefix holding MbedTLS ``include/`` and ``lib/``."""
+        return f"{self.mbedtls_build}/install"
+
     # ---- IDTX build / install / SDK output ---------------------------------
     @property
     def gdext_build(self) -> str:
