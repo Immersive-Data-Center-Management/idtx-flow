@@ -4,6 +4,7 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/godot.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
+#include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/config_file.hpp>
@@ -33,6 +34,7 @@
 #include "nodes/UsdMultiMeshInstanceNode3D.h"
 #include "nodes/UsdRestDatasourceNode3D.h"
 #include "nodes/UsdXFormNode3D.h"
+#include "resource/UsdSceneFormatLoader.h"
 #include "collab/IdtxClient.h"
 #include "utils/IDTXFlowGodotLogger.h"
 #include "exec/GodotEnvironmentProviders.h"
@@ -51,6 +53,9 @@ static idtxflow::utils::IDTXFlowGodotLogger g_logger;
 //    prefixed "project:" (Godot ProjectSettings snapshot)
 static idtxflow::exec::GodotEnvVarProvider g_env_var_provider;
 static idtxflow::exec::GodotProjectSettingProvider* g_project_setting_provider = nullptr;
+
+// Registers *.usd[a|c|z] as PackedScene with Godot's ResourceLoader (FileSystem dock, drag & drop, export)
+static Ref<UsdSceneFormatLoader> g_usd_scene_loader;
 
 #ifdef IDTXFLOW_MDL_ENABLED
 #include <idtxflow/converter/MdlMaterialConverter.h>
@@ -237,6 +242,10 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level)
     GDREGISTER_CLASS(UsdRestDatasourceNode3D)
     GDREGISTER_CLASS(UsdStaticBodyNode3D)
     GDREGISTER_CLASS(IdtxClient)
+    GDREGISTER_CLASS(UsdSceneFormatLoader)
+
+    g_usd_scene_loader.instantiate();
+    ResourceLoader::get_singleton()->add_resource_format_loader(g_usd_scene_loader);
 
     // Create and register the collaboration client as the engine singleton
     // "IdtxClient" from module init (before any script runs), then start it, so
@@ -296,6 +305,9 @@ void uninitialize_idtxflow_module(ModuleInitializationLevel p_level)
     {
         return;
     }
+
+    ResourceLoader::get_singleton()->remove_resource_format_loader(g_usd_scene_loader);
+    g_usd_scene_loader.unref();
 
     // Stop the openExec computation bridge
     idtxflow::exec::ExecBridgeManager::Instance().Cancel();
