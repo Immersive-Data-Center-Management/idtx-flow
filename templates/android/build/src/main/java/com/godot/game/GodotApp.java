@@ -136,6 +136,20 @@ public class GodotApp extends GodotActivity {
 			String pluginPath = usdAndroidDir.getAbsolutePath() + ":" + usdPluginDir.getAbsolutePath();
 			android.system.Os.setenv("PXR_PLUGINPATH_NAME", pluginPath, true);
 			Log.v(TAG, "Set PXR_PLUGINPATH_NAME to: " + pluginPath);
+
+			// The IDTXFlow extension register its USD schema plugins
+			// explicitly via PlugRegistry::RegisterPlugins(), and sanity-check them in
+			// check_prerequisites(), building paths from their loaded binary's directory
+			// (<lib_dir>/usd and <lib_dir>/../plugin/usd). On Android that resolves to a
+			// path INSIDE the APK (base.apk!/lib/...) that cannot hold the bin/ tree, so
+			// those calls fail and the checks log false alarms. Expose the real, extracted
+			// dirs so the native code can use them instead of the binary-relative paths:
+			//   IDTX_USD_ANDROID_DIR  == <lib_dir>/usd            (platform plugin registry)
+			//   IDTX_USD_PLUGIN_DIR   == <lib_dir>/../plugin/usd  (cross-platform tree + idtxidcm)
+			android.system.Os.setenv("IDTX_USD_ANDROID_DIR", usdAndroidDir.getAbsolutePath(), true);
+			android.system.Os.setenv("IDTX_USD_PLUGIN_DIR", usdPluginDir.getAbsolutePath(), true);
+			Log.v(TAG, "Set IDTX_USD_ANDROID_DIR to: " + usdAndroidDir.getAbsolutePath());
+			Log.v(TAG, "Set IDTX_USD_PLUGIN_DIR to: " + usdPluginDir.getAbsolutePath());
 		} catch (Exception e) {
 			Log.e(TAG, "Failed to extract USD plugin data: " + e.getMessage(), e);
 		}
@@ -143,23 +157,28 @@ public class GodotApp extends GodotActivity {
 
 	/**
 	 * Recursively copies an asset directory to a target filesystem directory.
+	 * Missing asset trees are skipped quietly: some addons (e.g. IDTXFlowIDCM)
+	 * ship only a cross-platform plugin tree and reuse another addon's native
+	 * USD registry, so an absent bin/android/usd is expected, not an error.
 	 */
 	private void copyPluginDirectory(String assetPath, File targetDir) throws IOException {
 		String[] children = getAssets().list(assetPath);
-		if (children == null || children.length == 0) {
-			// Leaf node — could be a file or an empty directory; try as file
-			copyAssetFile(assetPath, targetDir);
+		if (children != null && children.length > 0) {
+			// It is a directory — recurse into children
+			targetDir.mkdirs();
+			for (String child : children) {
+				copyPluginDirectory(assetPath + "/" + child, new File(targetDir, child));
+			}
 			return;
 		}
-		// It is a directory — recurse into children
-		targetDir.mkdirs();
-		for (String child : children) {
-			copyPluginDirectory(assetPath + "/" + child, new File(targetDir, child));
-		}
+		// Leaf node — a file, an empty directory, or a non-existent path.
+		copyAssetFile(assetPath, targetDir);
 	}
 
 	/**
-	 * Copies a single asset file to a target filesystem path.
+	 * Copies a single asset file to a target filesystem path. A non-existent
+	 * asset is skipped quietly so an optional/missing tree never aborts the
+	 * extraction of the remaining (required) ones.
 	 */
 	private void copyAssetFile(String assetPath, File targetFile) throws IOException {
 		targetFile.getParentFile().mkdirs();
@@ -170,6 +189,9 @@ public class GodotApp extends GodotActivity {
 			while ((bytesRead = in.read(buffer)) != -1) {
 				out.write(buffer, 0, bytesRead);
 			}
+		} catch (java.io.FileNotFoundException e) {
+			// Optional or empty asset path — nothing to extract here.
+			Log.v(TAG, "Skipping missing asset: " + assetPath);
 		}
 	}
 }
