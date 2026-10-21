@@ -62,9 +62,8 @@ extern template class IDTXFLOW_GODOT_API idtxflow::converter::PrimConverterRegis
 // MUST reach the registry through this accessor — or the
 // idtxflow::converter::GodotPrimConverterRegistry() wrapper below — rather than
 // calling PrimConverterRegistry<TargetEngineGodot>::Instance() directly.
-extern "C" IDTXFLOW_GODOT_API
-    idtxflow::converter::PrimConverterRegistry<idtxflow::types::TargetEngineGodot>&
-    IDTXFlow_GodotPrimConverterRegistry();
+extern "C" IDTXFLOW_GODOT_API idtxflow::converter::PrimConverterRegistry<idtxflow::types::TargetEngineGodot>&
+IDTXFlow_GodotPrimConverterRegistry();
 
 namespace idtxflow
 {
