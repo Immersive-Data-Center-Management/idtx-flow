@@ -30,3 +30,29 @@ android.arm64 = {
     "./bin/android/libtbb.so":"",
     "./bin/android/libusd_ms.so":""
 }
+
+windows.x86_64 = {
+    "./bin/windows/usd_ms.dll":"",
+    "./bin/windows/libidtx_usd.dll":"",
+    "./bin/windows/tbb12.dll":"",
+    "./bin/windows/libmdl_core.dll":"",
+    "./bin/windows/libmdl_sdk.dll":"",
+    "./bin/windows/dds.dll":"",
+    "./bin/windows/nv_openimageio.dll":"",
+    "./bin/windows/mdl_distiller.dll":"",
+    "./bin/windows/usd":"",
+    "./bin/plugin":""
+}
+
+macos = {
+    "./bin/macos/libusd_ms.dylib":"",
+    "./bin/macos/libidtx_usd.dylib":"",
+    "./bin/macos/libtbb.12.dylib":"",
+    "./bin/macos/libmdl_core.so":"",
+    "./bin/macos/libmdl_sdk.so":"",
+    "./bin/macos/dds.so":"",
+    "./bin/macos/nv_openimageio.so":"",
+    "./bin/macos/mdl_distiller.so":"",
+    "./bin/macos/usd":"",
+    "./bin/plugin":""
+}

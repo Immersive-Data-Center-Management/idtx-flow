@@ -2,10 +2,6 @@
 
 #include <godot_cpp/classes/packed_scene.hpp>
 
-#include <pxr/usd/sdf/assetPath.h>
-#include <pxr/usd/sdf/layer.h>
-#include <pxr/usd/usdUtils/dependencies.h>
-
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
 
 using namespace godot;
@@ -35,28 +31,7 @@ String UsdSceneFormatLoader::_get_resource_type(const String& path) const
 
 PackedStringArray UsdSceneFormatLoader::_get_dependencies(const String& path, bool /*add_types*/) const
 {
-    // Sublayers, references, payloads and textures, so "export selected scenes" ships them too.
-    // Our resolver keeps res:// identifiers, so the reported paths are already project paths.
-    std::vector<pxr::SdfLayerRefPtr> layers;
-    std::vector<std::string> assets;
-    std::vector<std::string> unresolved;
-    pxr::UsdUtilsComputeAllDependencies(pxr::SdfAssetPath(path.utf8().get_data()), &layers, &assets, &unresolved);
-
-    PackedStringArray deps;
-    auto add = [&](const std::string& p) {
-        const String dep(p.c_str());
-        // http/user:// dependencies are fetched at runtime and must not be exported
-        if (dep.begins_with("res://") && dep != path && !deps.has(dep)) deps.push_back(dep);
-    };
-    for (const pxr::SdfLayerRefPtr& layer: layers)
-    {
-        add(layer->GetIdentifier());
-    }
-    for (const std::string& asset: assets)
-    {
-        add(asset);
-    }
-    return deps;
+    return UsdStageNode3D::get_stage_dependencies(path);
 }
 
 Variant UsdSceneFormatLoader::_load(const String& path, const String& /*original_path*/, bool /*use_sub_threads*/,

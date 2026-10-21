@@ -84,6 +84,16 @@ inline std::string get_gdextension_dir()
 #endif
 }
 
+// The plugin/usd tree next to the binaries, as laid out by a desktop export ([dependencies] in
+// idtxflow.gdextension copies bin/plugin next to the executable), or "" for the addon layout
+// (bin/<os>/ + bin/plugin/), which usd_ms finds on its own via its built-in ../plugin/usd path.
+static std::string exported_plugin_dir(const std::string& extension_dir)
+{
+    const std::filesystem::path dir = std::filesystem::path(extension_dir) / "plugin" / "usd";
+    std::error_code ec;
+    return std::filesystem::exists(dir / "plugInfo.json", ec) ? dir.string() : "";
+}
+
 // Startup sanity checks for the extension's runtime environment. Each check logs an
 // actionable error for a missing prerequisite instead of letting a later failure crash
 // or fail silently. Add further checks here.
@@ -100,14 +110,15 @@ static void check_prerequisites(const std::string& extension_dir)
     // bin/plugin/usd/). If an export or a manual install drops that tree, PlugRegistry
     // fails fatally inside the first stage open with no actionable message, so name
     // every missing file up front. Keep this list in sync with the addon's bin/ layout.
-    const char* required_plugin_files[] = {
+    const std::string plugin_dir = exported_plugin_dir(extension_dir).empty() ? "../plugin/usd/" : "plugin/usd/";
+    const std::string required_plugin_files[] = {
         "usd/plugInfo.json",
-        "../plugin/usd/plugInfo.json",
-        "../plugin/usd/idtx/resources/plugInfo.json",
-        "../plugin/usd/godot/resources/plugInfo.json",
-        "../plugin/usd/usdShaders/resources/plugInfo.json",
+        plugin_dir + "plugInfo.json",
+        plugin_dir + "idtx/resources/plugInfo.json",
+        plugin_dir + "godot/resources/plugInfo.json",
+        plugin_dir + "usdShaders/resources/plugInfo.json",
     };
-    for (const char* rel: required_plugin_files)
+    for (const std::string& rel: required_plugin_files)
     {
         const std::filesystem::path full = (std::filesystem::path(extension_dir) / rel).lexically_normal();
         std::error_code ec;
@@ -214,6 +225,12 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level)
 #ifdef __ANDROID__
     // must run before the first USD call (resolvers, schemas)
     register_packed_usd_plugins();
+#else
+    // exported desktop build: plugin/usd sits next to the binaries, not at usd_ms's ../plugin/usd
+    if (const std::string dir = exported_plugin_dir(get_gdextension_dir()); !dir.empty())
+    {
+        pxr::PlugRegistry::GetInstance().RegisterPlugins(dir);
+    }
 #endif
 
 #ifdef _WIN32

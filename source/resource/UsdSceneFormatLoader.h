@@ -3,10 +3,10 @@
 #include <godot_cpp/classes/resource_format_loader.hpp>
 
 /**
- * Makes *.usd[a|c|z] files known to Godot as PackedScene resources: they show up in the FileSystem dock,
- * can be dragged into a scene like *.glb files, and are exported together with the scenes that instance them.
- * The loaded scene is a single UsdStageNode3D pointing at the file; the file itself stays untouched, so
- * OpenUSD opens the original bytes at runtime.
+ * Makes *.usd[a|c|z] files droppable into a scene like *.glb files. The loaded scene is only a
+ * transport: a single UsdStageNode3D pointing at the file, which UsdStageNode3D turns into a plain
+ * local node when it enters the edited scene (see UsdStageNode3D::_enter_tree). So a dropped stage is
+ * stored exactly like a hand-added one, and exports follow stage_uri (usd_export_plugin.gd).
  */
 class UsdSceneFormatLoader : public godot::ResourceFormatLoader
 {

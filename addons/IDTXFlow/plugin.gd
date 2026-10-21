@@ -6,12 +6,16 @@ const UsdStageInspectorPlugin := preload("res://addons/IDTXFlow/editor/usd_stage
 const SessionSceneIndicators := preload("res://addons/IDTXFlow/editor/session_scene/indicators.gd")
 const SessionSceneCoordinator := preload("res://addons/IDTXFlow/editor/session_scene/coordinator.gd")
 const SessionSaveCommitter := preload("res://addons/IDTXFlow/editor/session_scene/save_committer.gd")
+const UsdExportPlugin := preload("res://addons/IDTXFlow/editor/usd_export_plugin.gd")
 
 var _main_screen: Control = null
 var _inspector_plugin: EditorInspectorPlugin = null
 var _indicators: RefCounted = null
 var _session_scene_coordinator: RefCounted = null 
 var _save_committer: RefCounted = null
+var _export_plugin: EditorExportPlugin = null
+var _usd_scene_notice: ConfirmationDialog = null
+var _usd_scenes_noticed := {}
 
 
 func _enter_tree() -> void:
@@ -57,6 +61,10 @@ func _enter_tree() -> void:
 	_inspector_plugin = UsdStageInspectorPlugin.new()
 	add_inspector_plugin(_inspector_plugin)
 
+	# Ship the USD files referenced by stage_uri (and their dependencies) with exports.
+	_export_plugin = UsdExportPlugin.new()
+	add_export_plugin(_export_plugin)
+
 	# Commit-on-save orchestrator 
 	_save_committer = SessionSaveCommitter.new()
 	_save_committer.setup(get_editor_interface(), _session_scene_coordinator)
@@ -64,8 +72,39 @@ func _enter_tree() -> void:
 	_refresh_session_indicators()
 
 
-func _on_scene_changed_indicators(_scene_root: Node) -> void:
+func _on_scene_changed_indicators(scene_root: Node) -> void:
 	_refresh_session_indicators()
+	_notify_if_usd_scene(scene_root)
+
+
+## A .usd* opened as a scene tab (double-click in the FileSystem dock) is only the generated
+## UsdSceneFormatLoader stub and can't be saved; say so before the user edits it, like Godot
+## does for imported .glb scenes.
+func _notify_if_usd_scene(scene_root: Node) -> void:
+	if scene_root == null or not scene_root.scene_file_path.get_extension().to_lower().begins_with("usd"):
+		return
+	# once per opened tab, not on every switch back to it
+	if _usd_scenes_noticed.has(scene_root.scene_file_path):
+		return
+	_usd_scenes_noticed[scene_root.scene_file_path] = true
+	if _usd_scene_notice == null:
+		_usd_scene_notice = ConfirmationDialog.new()
+		_usd_scene_notice.title = "Please Confirm..."
+		_usd_scene_notice.ok_button_text = "Close Tab"
+		_usd_scene_notice.cancel_button_text = "Open Anyway"
+		_usd_scene_notice.confirmed.connect(_close_usd_scene)
+		EditorInterface.get_base_control().add_child(_usd_scene_notice)
+	_usd_scene_notice.dialog_text = ("'%s' is a USD stage, so this scene is a read-only preview and can't be saved.\n"
+		+ "To use it, drag the file into a scene or add a UsdStageNode3D and set its stage_uri.") % scene_root.scene_file_path.get_file()
+	_usd_scene_notice.set_meta("scene_path", scene_root.scene_file_path)
+	_usd_scene_notice.popup_centered()
+
+
+func _close_usd_scene() -> void:
+	# only close the tab if it is still the .usd* preview the dialog was raised for
+	var root := EditorInterface.get_edited_scene_root()
+	if root != null and root.scene_file_path == _usd_scene_notice.get_meta("scene_path", ""):
+		EditorInterface.close_scene()
 
 
 func _refresh_session_indicators() -> void:
@@ -74,6 +113,7 @@ func _refresh_session_indicators() -> void:
 
 
 func _on_scene_closed(filepath: String) -> void:
+	_usd_scenes_noticed.erase(filepath)
 	if _session_scene_coordinator != null:
 		_session_scene_coordinator.on_session_scene_closed(filepath)
 
@@ -90,6 +130,10 @@ func _exit_tree() -> void:
 	if scene_changed.is_connected(_on_scene_changed_indicators):
 		scene_changed.disconnect(_on_scene_changed_indicators)
 
+	if _usd_scene_notice != null:
+		_usd_scene_notice.queue_free()
+		_usd_scene_notice = null
+
 	if _indicators != null:
 		_indicators.clear()
 		_indicators = null
@@ -97,6 +141,10 @@ func _exit_tree() -> void:
 	if _inspector_plugin != null:
 		remove_inspector_plugin(_inspector_plugin)
 		_inspector_plugin = null
+
+	if _export_plugin != null:
+		remove_export_plugin(_export_plugin)
+		_export_plugin = null
 
 	if _main_screen != null:
 		_main_screen.queue_free()
