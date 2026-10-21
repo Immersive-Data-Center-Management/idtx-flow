@@ -305,7 +305,7 @@ void UsdStageNode3D::_convert_stage()
         result = std::move(pending_result_);
     }
     is_loading_ = false;
-    
+
     // instantiate the stage converter and convert the contents of the stage into Godot Node3D entities
     auto stage_converter =
         std::make_unique<idtxflow::converter::UsdStageConverter<idtxflow::types::TargetEngineGodot>>(this, nullptr);
@@ -535,7 +535,7 @@ void UsdStageNode3D::_pack_and_save_cached_scene()
         {
             DirAccess::make_dir_recursive_absolute(cache_dir);
         }
-    
+
         err = ResourceSaver::get_singleton()->save(packed_scene, cached_scene_name_);
         if (err != OK)
         {

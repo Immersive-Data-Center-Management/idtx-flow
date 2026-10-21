@@ -7,10 +7,10 @@ namespace net
 namespace adapters
 {
 StaticTokenProvider& StaticTokenProvider::instance()
-    {
-        static StaticTokenProvider provider;
-        return provider;
-    }
-  }
+{
+    static StaticTokenProvider provider;
+    return provider;
 }
-}
+} // namespace adapters
+} // namespace net
+} // namespace idtxflow

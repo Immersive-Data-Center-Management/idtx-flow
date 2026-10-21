@@ -83,34 +83,39 @@ static void check_prerequisites(const std::string& extension_dir)
     // out of the APK to internal storage and exposed via env vars (GodotApp.java);
     // on desktop they sit next to the loaded binaries.
     const char* android_dir = std::getenv("IDTX_USD_ANDROID_DIR");
-    const char* plugin_dir  = std::getenv("IDTX_USD_PLUGIN_DIR");
+    const char* plugin_dir = std::getenv("IDTX_USD_PLUGIN_DIR");
 
     std::filesystem::path usd_base, plugin_base;
-    if (android_dir && plugin_dir) {
-        usd_base = android_dir;                 // == <lib_dir>/usd
-        plugin_base = plugin_dir;               // == <lib_dir>/../plugin/usd
-    } else {
-        if (extension_dir.empty()) {
+    if (android_dir && plugin_dir)
+    {
+        usd_base = android_dir;   // == <lib_dir>/usd
+        plugin_base = plugin_dir; // == <lib_dir>/../plugin/usd
+    }
+    else
+    {
+        if (extension_dir.empty())
+        {
             IDTX_LOGF(IDTX_WARN, "could not determine the extension directory; skipping prerequisite checks");
             return;
         }
-        usd_base    = std::filesystem::path(extension_dir) / "usd";
+        usd_base = std::filesystem::path(extension_dir) / "usd";
         plugin_base = std::filesystem::path(extension_dir) / ".." / "plugin" / "usd";
     }
 
     const std::filesystem::path required[] = {
-        usd_base    / "plugInfo.json",
+        usd_base / "plugInfo.json",
         plugin_base / "plugInfo.json",
         plugin_base / "idtx" / "resources" / "plugInfo.json",
         plugin_base / "godot" / "resources" / "plugInfo.json",
         plugin_base / "usdShaders" / "resources" / "plugInfo.json",
     };
-    for (const auto& rel : required) {
+    for (const auto& rel: required)
+    {
         const std::filesystem::path full = rel.lexically_normal();
         std::error_code ec;
-        if (!std::filesystem::exists(full, ec) || ec) {
-            IDTX_LOGF(IDTX_ERROR,
-                      "USD plugin file missing: {} - stage conversion may fail", full.string());
+        if (!std::filesystem::exists(full, ec) || ec)
+        {
+            IDTX_LOGF(IDTX_ERROR, "USD plugin file missing: {} - stage conversion may fail", full.string());
         }
     }
 }

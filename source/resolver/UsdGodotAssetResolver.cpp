@@ -22,24 +22,37 @@ using namespace pxr;
 AR_DEFINE_RESOLVER(UsdGodotAssetResolver, ArResolver);
 
 #ifdef __ANDROID__
-class GodotBufferedAsset : public ArAsset {
+class GodotBufferedAsset : public ArAsset
+{
     std::shared_ptr<const char> _buffer;
     size_t _size;
-public:
+
+  public:
     GodotBufferedAsset(std::shared_ptr<const char> buffer, size_t size)
-        : _buffer(std::move(buffer)), _size(size) {}
-    
-    size_t GetSize() const override { return _size; }
-    
-    std::shared_ptr<const char> GetBuffer() const override { return _buffer; }
-    
-    size_t Read(void* buffer, size_t count, size_t offset) const override {
+        : _buffer(std::move(buffer)),
+          _size(size)
+    {
+    }
+
+    size_t GetSize() const override
+    {
+        return _size;
+    }
+
+    std::shared_ptr<const char> GetBuffer() const override
+    {
+        return _buffer;
+    }
+
+    size_t Read(void* buffer, size_t count, size_t offset) const override
+    {
         size_t bytesToRead = std::min(count, _size - std::min(offset, _size));
         memcpy(buffer, _buffer.get() + offset, bytesToRead);
         return bytesToRead;
     }
-    
-    std::pair<FILE*, size_t> GetFileUnsafe() const override {
+
+    std::pair<FILE*, size_t> GetFileUnsafe() const override
+    {
         return {nullptr, 0}; // Not backed by a FILE*
     }
 };
@@ -135,15 +148,15 @@ std::shared_ptr<ArAsset> UsdGodotAssetResolver::_OpenAsset(const ArResolvedPath&
     if (TfStringStartsWith(assetPath, GodotResolverTokens->userScheme.GetString() + "://"))
     {
 #endif
-        if (ProjectSettings *project_settings = ProjectSettings::get_singleton())
+        if (ProjectSettings* project_settings = ProjectSettings::get_singleton())
         {
             // Convert the user:// path to an absolute path
             String absolute_path = project_settings->globalize_path(resolvedPath.GetPathString().c_str());
             return ArFilesystemAsset::Open(ArResolvedPath(absolute_path.utf8().get_data()));
         }
-        
+
         return nullptr;
-#ifdef __ANDROID__        
+#ifdef __ANDROID__
     }
     // special handling for android if the file is located in the package (res:// case)
     // Godot's FileAccess abstraction is able to read the file contents even when inside a APK/PCK
@@ -153,7 +166,7 @@ std::shared_ptr<ArAsset> UsdGodotAssetResolver::_OpenAsset(const ArResolvedPath&
         print_error("[UsdGodotAssetResolver] Unable to open file: " + String(assetPath.c_str()));
         return nullptr;
     }
-    
+
     size_t size = file->get_length();
     std::shared_ptr<char> buffer(new char[size], std::default_delete<char[]>());
     PackedByteArray data = file->get_buffer(size);
@@ -172,7 +185,7 @@ std::shared_ptr<ArWritableAsset> UsdGodotAssetResolver::_OpenAssetForWrite(const
         // res:// asset path is usually packed with the application and should not be writeable at all
         return nullptr;
     }
-    
+
     // we retrieve the resolved path of the asset to open the same
     // this is essentially a "res://path/to/file.usd". So calculate a real local path openUSD is capable of finding
     // and open the file for write there

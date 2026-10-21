@@ -28,9 +28,8 @@ template class IDTXFLOW_GODOT_API idtxflow::converter::PrimConverterRegistry<idt
 // that calls this shares IDTXFlow's own singleton. See the rationale in
 // PrimConverterRegistryGodot.h. This definition must exist exactly once, here,
 // in the translation unit that owns the explicit instantiation above.
-extern "C" IDTXFLOW_GODOT_API
-    idtxflow::converter::PrimConverterRegistry<idtxflow::types::TargetEngineGodot>&
-    IDTXFlow_GodotPrimConverterRegistry()
+extern "C" IDTXFLOW_GODOT_API idtxflow::converter::PrimConverterRegistry<idtxflow::types::TargetEngineGodot>&
+IDTXFlow_GodotPrimConverterRegistry()
 {
     return idtxflow::converter::PrimConverterRegistry<idtxflow::types::TargetEngineGodot>::Instance();
 }
