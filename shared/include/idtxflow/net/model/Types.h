@@ -26,7 +26,9 @@ enum class RequestKind
     Transform = 1,
     CreatePrim = 2,
     DeletePrim = 3,
-    RestorePrim = 4
+    RestorePrim = 4,
+    // The SnapshotRequest the engine sends itself after rebuilding a stage.
+    Snapshot = 5
 };
 
 /// A 4x4 transform stored row-major, so element (row r, col c) is m[r*4 + c].

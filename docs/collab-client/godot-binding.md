@@ -148,9 +148,10 @@ Signal handlers still accept all five arguments; name an unused ID `_request_id`
 For per-action results, match the signal's ID to the returned ID within the same
 session membership.
 Its `request_kind` uses the `IdtxClient` constants `REQUEST_KIND_UNKNOWN`,
-`REQUEST_KIND_TRANSFORM`, `REQUEST_KIND_CREATE_PRIM`, `REQUEST_KIND_DELETE_PRIM`
-and `REQUEST_KIND_RESTORE_PRIM` (values 0–4). References and payloads use the create
-kind. A kind can be unknown when native tracking metadata is unavailable; a valid
+`REQUEST_KIND_TRANSFORM`, `REQUEST_KIND_CREATE_PRIM`, `REQUEST_KIND_DELETE_PRIM`,
+`REQUEST_KIND_RESTORE_PRIM` and `REQUEST_KIND_SNAPSHOT` (values 0–5). References and
+payloads use the create kind; the snapshot kind is the request the client sends
+itself after rebuilding a stage (layer reload or reconnect). A kind can be unknown when native tracking metadata is unavailable; a valid
 ID can still match a caller's own pending request. An Ack does not confirm
 scene conversion completion.
 See [structural-edits.md](structural-edits.md)
