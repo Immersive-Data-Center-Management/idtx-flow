@@ -81,9 +81,15 @@ class CollabObserver
                               const std::string& usd_uri) = 0;
     virtual void on_remote_edit(const std::string& session_id, const model::PrimEdit& edit,
                                 const std::string& from_client_id) = 0;
-    // Reported once the terminal join-snapshot marker arrives: the host now has the full current server state for
-    // `session_id`.
+    // Reported once the terminal snapshot marker arrives (after joining, or for the snapshot requested after a layer
+    // reload): the host now has the full current server state for `session_id`.
     virtual void on_snapshot_complete(const std::string& session_id) = 0;
+    // A file the session's stage uses (`usd_path`, downloadable at `file_url`) changed on the server. The host evicts
+    // its cached copy, rebuilds every stage node that uses it, and then calls CollabEngine::reload_complete() so the
+    // engine asks for the session's edits again. Until then the engine ignores the session's stage frames, because
+    // the requested snapshot supersedes them. May arrive again, for another file, while the host is still rebuilding.
+    virtual void on_layer_reloaded(const std::string& session_id, const std::string& usd_path,
+                                   const std::string& file_url) = 0;
     virtual void on_ack(const std::string& session_id, bool ok, const std::string& error) = 0;
     virtual void on_socket_error(const std::string& session_id, const std::string& code,
                                  const std::string& message) = 0;
