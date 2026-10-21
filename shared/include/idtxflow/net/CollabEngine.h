@@ -175,6 +175,17 @@ class CollabEngine
     // conversion-time writes don't phantom-broadcast.
     void arm_sync(const std::string& session_id);
 
+    // --- layer reload ---
+    //
+    // A LayerReloaded for a session puts it into "reloading": the engine
+    // disarms it, reports on_layer_reloaded so the host rebuilds the stage
+    // nodes that use the file, and ignores the session's stage frames until
+    // then (the snapshot requested afterwards supersedes them). The host calls
+    // reload_complete() once every rebuild it started has finished; the engine
+    // then sends a SnapshotRequest and re-arms when that snapshot's
+    // SnapshotComplete arrives. No-op if the id is unknown or not reloading.
+    void reload_complete(const std::string& session_id);
+
     /// Advance each session's auto-arm settle countdown. Driven by the frame
     /// ticker. Outbound edits are sent immediately in on_stage_changed, not here.
     void poll();
@@ -214,6 +225,14 @@ class CollabEngine
         // carry it as their base (the server's stale check); advanced from every
         // ordered server message (broadcast/ack/snapshot). 0 = no state yet.
         uint64_t server_seq = 0;
+        // Between a LayerReloaded and reload_complete(): the host is rebuilding
+        // stage nodes, and the session's stage frames are ignored (not applied,
+        // not buffered, not counted towards server_seq).
+        bool reloading = false;
+        // Request id of the SnapshotRequest sent after a reload, until its
+        // SnapshotComplete arrives; 0 = none pending. A SnapshotComplete with
+        // another id (an earlier join snapshot) does not end the wait.
+        uint64_t snapshot_request_id = 0;
     };
 
     // Invoked by a session's stage bridge when its live stage changes; sends the

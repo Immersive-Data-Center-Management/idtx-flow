@@ -93,6 +93,17 @@ class UsdStageNode3D : public godot::Node3D, public IUsdNode3D
     void reload(bool clear_http_cache = true);
 
     /**
+     * Release the stage and the converted children without loading again: the
+     * teardown half of reload(), emitting `stage_unloading` first. A later
+     * reload() (or URI change) opens it again.
+     *
+     * Used to release every stage that holds a file before any of them reloads
+     * it: the USD layer registry hands a new load the in-memory copy of a file
+     * for as long as any stage still holds it, instead of re-reading it.
+     */
+    void unload_stage();
+
+    /**
      * Evict a single URL from the shared HTTP asset cache. Static so the import
      * flow can force-fresh a session root *before* assigning it to `stage_uri`,
      * giving a single fresh load instead of a load-then-reload.

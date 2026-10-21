@@ -16,6 +16,7 @@
 
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -175,6 +176,8 @@ class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
     void on_remote_edit(const std::string& session_id, const idtxflow::net::model::PrimEdit& edit,
                         const std::string& from_client_id) override;
     void on_snapshot_complete(const std::string& session_id) override;
+    void on_layer_reloaded(const std::string& session_id, const std::string& usd_path,
+                           const std::string& file_url) override;
     void on_ack(const std::string& session_id, bool ok, const std::string& error) override;
     void on_socket_error(const std::string& session_id, const std::string& code, const std::string& message) override;
     void on_disconnected(const std::string& session_id, idtxflow::net::model::CloseReason reason, int code,
@@ -203,6 +206,12 @@ class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
     // is the general "start the bridge" step; detach_bridge is its inverse.
     void attach_bridge(const std::string& session_id);
     void detach_bridge(const std::string& session_id);
+
+    // Layer reload: rebuild one stage node of a session and count it until its
+    // stage_loading_finished; once a session has none left, the engine asks the
+    // server for the session's edits again (CollabEngine::reload_complete).
+    void start_node_reload(const std::string& session_id, godot::Node* node);
+    void _on_node_reload_finished(bool success, const godot::String& session_id, int64_t node_id);
 
     // Per-request completion queues (FIFO). A request enqueues its Callable (only
     // if valid) when issued; the matching observer result pops the front and
@@ -245,6 +254,16 @@ class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
         bool attached = false; // bridge currently attached to the engine
     };
     std::map<std::string, SessionBinding> bindings_;
+
+    // Per-session layer reload in progress: the stage nodes (by ObjectID) being
+    // rebuilt, and those to rebuild once more when they finish because another
+    // file was reloaded meanwhile. Erased when a session has none left.
+    struct ReloadState
+    {
+        std::set<uint64_t> loading;
+        std::set<uint64_t> again;
+    };
+    std::map<std::string, ReloadState> reloads_;
 
     idtxflow::net::CollabEngine engine_;
 };

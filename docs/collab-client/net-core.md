@@ -125,6 +125,18 @@ Its public surface, by area:
   protocol forbids sending before the snapshot. A reconnect re-gates on the snapshot
   only (the session disarms and clears `snapshot_complete`); the settle latch stays
   set, since a reconnect does not reconvert the stage.
+- **Layer reload** — `reload_complete(session_id)`. When a file the session's stage
+  uses changes on the server (a commit, or an upload replacing it), the server sends
+  `LayerReloaded`. The engine puts the session into *reloading*: it disarms, clears
+  `snapshot_complete`, and from then on ignores the session's stage frames (they are
+  neither applied, buffered, nor counted towards the base), then reports
+  `on_layer_reloaded(session_id, usd_path, file_url)`. The host evicts the file from
+  the HTTP cache, releases every stage node that uses it (nested ones first), reloads
+  them, and calls `reload_complete` once all have finished. The engine then sends a
+  `SnapshotRequest` and re-arms only on the `SnapshotComplete` that echoes that
+  request's id: the re-fetched file plus that snapshot supersede every frame it
+  ignored. A further `LayerReloaded` during the rebuild is reported the same way; the
+  host rebuilds the nodes concerned once more before completing.
 
 The adapters the engine needs are passed in one struct:
 
@@ -226,6 +238,12 @@ rotation takes effect without reconfiguring readers.
     `SnapshotComplete` and the join snapshot is authoritative (the client has no
     knowledge of intervening server state, so replaying local edits ahead of the
     snapshot would diverge from the server).
+  - **`SnapshotRequest`** — sent by the client after a layer reload (see
+    CollabEngine above), with a `request_id` from the same per-connection counter as
+    updates. The server answers with the same snapshot a joining client gets, and its
+    `SnapshotComplete` echoes the `request_id` (a join's carries 0), so the client can
+    tell the answer to its request from any other snapshot. Sending it also clears the
+    last-sent cache, since the rebuilt stage starts again from the snapshot.
 
 ---
 

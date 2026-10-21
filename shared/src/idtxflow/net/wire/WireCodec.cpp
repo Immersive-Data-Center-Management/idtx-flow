@@ -105,9 +105,17 @@ bool decode(const std::string& bytes, DecodedMessage& out)
         return true;
     }
     case idtxcore::BaseMessage::kSnapshotComplete: {
-        // Terminal marker of the late-joiner snapshot: no payload to extract, just
-        // the boundary signal that the client now has the full current state.
+        // Terminal marker of a snapshot: no payload to extract, just the boundary
+        // signal that the client now has the full current state. Its request_id
+        // (in the envelope) names the SnapshotRequest it answers, 0 after a join.
         out.kind = DecodedMessage::Kind::SnapshotComplete;
+        return true;
+    }
+    case idtxcore::BaseMessage::kLayerReloaded: {
+        const auto& r = msg.layer_reloaded();
+        out.kind = DecodedMessage::Kind::LayerReloaded;
+        out.layer_reloaded.usd_path = r.usd_path();
+        out.layer_reloaded.usd_uri = r.usd_uri();
         return true;
     }
     case idtxcore::BaseMessage::kCreatePrimBroadcast: {
@@ -220,6 +228,18 @@ std::string encode_transform_update(const std::string& session_id, const model::
         s->mutable_scale()->set_y(edit.separate.scale[1]);
         s->mutable_scale()->set_z(edit.separate.scale[2]);
     }
+
+    std::string bytes;
+    msg.SerializeToString(&bytes);
+    return bytes;
+}
+
+std::string encode_snapshot_request(const std::string& session_id, uint64_t request_id)
+{
+    idtxcore::BaseMessage msg;
+    msg.set_session_id(session_id);
+    msg.set_request_id(request_id);
+    msg.mutable_snapshot_request();
 
     std::string bytes;
     msg.SerializeToString(&bytes);

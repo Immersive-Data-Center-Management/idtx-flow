@@ -232,6 +232,13 @@ void UsdStageNode3D::reload(bool clear_http_cache)
     // Tear down like a URI change, then force the convert path (not
     // _reconstruct_node) so the cached .scn is bypassed; the stale .scn is left
     // in place — _convert_stage ignores it and overwrites it on success.
+    unload_stage();
+
+    open_stage_and_then("_convert_stage");
+}
+
+void UsdStageNode3D::unload_stage()
+{
     cached_scene_name_ = "";
     if (stage_handle_) emit_signal("stage_unloading");
     bridge_.reset(); // before stage_handle_.reset(): ~bridge revokes its TfNotice on a live stage
@@ -244,8 +251,6 @@ void UsdStageNode3D::reload(bool clear_http_cache)
         pending_load_task_.reset();
     }
     is_loading_ = false;
-
-    open_stage_and_then("_convert_stage");
 }
 
 void UsdStageNode3D::open_stage_and_then(const godot::StringName& next_method_name)

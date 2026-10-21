@@ -13,10 +13,36 @@ message Handshake {
   string usd_uri = 4;
 }
 
-// Terminal marker of the late-joiner snapshot: the server sends one
-// TransformBroadcast per prim with authored session-layer overrides, then a
-// single SnapshotComplete so the client knows it has the full current state.
+// Terminal marker of a snapshot: the server sends one TransformBroadcast per
+// prim with authored session-layer overrides (and the creation and active
+// frames that go with them), then a single SnapshotComplete so the client
+// knows it has the full current state. A snapshot is sent when a client joins,
+// and when it asks for one with SnapshotRequest; BaseMessage.request_id of
+// the SnapshotComplete then echoes the request's, and is 0 after a join.
 message SnapshotComplete {
+}
+
+// Client -> server: send me a snapshot of the session's current state now,
+// for example after rebuilding the stage on LayerReloaded. Set
+// BaseMessage.request_id to match the SnapshotComplete that ends it. The
+// snapshot is taken in the session's command order, like any command; a
+// request the session cannot accept is answered with a not-ok Ack instead.
+message SnapshotRequest {
+}
+
+// A file the session's stage uses (its root file, or one of its sublayers,
+// references or payloads) changed on the server, through a commit of any
+// session or an upload that replaced it, and the server has reloaded it.
+// Clients re-fetch that one file (evicting any cached copy of usd_uri) and
+// rebuild what they show from it. A rebuilt stage no longer holds the
+// session's edits, so they then send SnapshotRequest. Stage frames received
+// until that snapshot can be ignored: the file and the snapshot supersede
+// them. server_seq is the session's version after the reload.
+message LayerReloaded {
+  // Uploads-relative path of the reloaded file, as in Handshake.usd_path.
+  string usd_path = 1;
+  // Server-relative download URI of that file, built like Handshake.usd_uri.
+  string usd_uri = 2;
 }
 
 // Ordering:
@@ -42,8 +68,9 @@ message SnapshotComplete {
 //     valid base (the state before the first change) and is checked like any
 //     other value.
 //   - request_id is chosen by the client for each TransformUpdate (for example
-//     a per-connection counter) and echoed back unchanged in the matching Ack.
-//     0 means "not set".
+//     a per-connection counter) and echoed back unchanged in the matching Ack;
+//     for a SnapshotRequest it is echoed in the SnapshotComplete that ends the
+//     requested snapshot. 0 means "not set".
 message BaseMessage {
   optional string session_id = 1;
   oneof message {
@@ -60,6 +87,8 @@ message BaseMessage {
     // receives keep the server's tag numbers.
     CreatePrimBroadcast create_prim_broadcast = 11;
     SetPrimActiveBroadcast set_prim_active_broadcast = 13;
+    LayerReloaded layer_reloaded = 14;
+    SnapshotRequest snapshot_request = 15;
   }
   uint64 request_id = 8;
   uint64 server_seq = 9;

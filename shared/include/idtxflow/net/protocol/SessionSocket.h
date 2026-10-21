@@ -40,7 +40,10 @@ class SessionSocket
     using AckCb = std::function<void(bool ok, const std::string& error, uint64_t request_id, uint64_t server_seq)>;
     using ErrorCb = std::function<void(const std::string& code, const std::string& message)>;
     using DisconnectCb = std::function<void(model::CloseReason reason, int code, const std::string& text)>;
-    using SnapshotCompleteCb = std::function<void(uint64_t server_seq)>;
+    // request_id: the SnapshotRequest this snapshot answers, 0 after a join.
+    using SnapshotCompleteCb = std::function<void(uint64_t server_seq, uint64_t request_id)>;
+    using LayerReloadedCb =
+        std::function<void(const std::string& usd_path, const std::string& usd_uri, uint64_t server_seq)>;
 
     SessionSocket(ports::IWebSocketTransport* ws, ports::IClock* clock)
         : ws_(ws),
@@ -78,6 +81,12 @@ class SessionSocket
     /// the duplicate info-only USD notice.
     void send(const model::PrimEdit& edit);
 
+    /// Ask the server for a snapshot of the session's current state (after a
+    /// rebuilt stage lost the session's edits). Returns the request id its
+    /// SnapshotComplete will echo, or 0 if the socket is closed and nothing was
+    /// sent (a reconnect delivers a join snapshot instead).
+    uint64_t send_snapshot_request();
+
     void on_opened(OpenedCb cb)
     {
         on_opened_ = std::move(cb);
@@ -106,6 +115,10 @@ class SessionSocket
     {
         on_snapshot_complete_ = std::move(cb);
     }
+    void on_layer_reloaded(LayerReloadedCb cb)
+    {
+        on_layer_reloaded_ = std::move(cb);
+    }
 
   private:
     IDTX_LOG_CATEGORY("SessionSocket")
@@ -119,7 +132,8 @@ class SessionSocket
     bool is_open_ = false;
     // Base server_seq carried on outbound updates (engine keeps it current).
     uint64_t base_server_seq_ = 0;
-    // Per-connection monotonic request id for outbound updates (0 = unset).
+    // Per-connection monotonic request id for outbound updates and snapshot
+    // requests (0 = unset).
     uint64_t next_request_id_ = 1;
 
     // Last edit sent per prim (payload only). Drops a repeated identical notice
@@ -134,6 +148,7 @@ class SessionSocket
     ErrorCb on_error_;
     DisconnectCb on_disconnected_;
     SnapshotCompleteCb on_snapshot_complete_;
+    LayerReloadedCb on_layer_reloaded_;
 };
 
 } // namespace net

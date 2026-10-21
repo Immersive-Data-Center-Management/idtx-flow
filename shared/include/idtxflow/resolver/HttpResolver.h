@@ -197,10 +197,12 @@ class UsdHttpAssetResolver : public ArResolver
 
     std::string _CreateIdentifier(const std::string& assetPath, const ArResolvedPath& anchorAssetPath) const override
     {
-        // HTTP(S) URLs are already absolute identifiers
+        // HTTP(S) URLs are already absolute; normalised like resolved relative
+        // paths, so one file has one identifier (and one cache entry) however a
+        // reference spelled it ("./a.usda", "dir/../a.usda").
         if (IsHttpUrl(assetPath))
         {
-            return assetPath;
+            return NormalizeUrlPath(assetPath);
         }
 
         // If the asset path is relative and the anchor is an HTTP URL, resolve relative to it

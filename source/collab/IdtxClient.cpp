@@ -5,6 +5,15 @@
 #include <godot_cpp/core/object.hpp>
 #include <godot_cpp/variant/callable_method_pointer.hpp>
 
+#include <algorithm>
+#include <cctype>
+#include <filesystem>
+#include <string>
+#include <vector>
+
+#include <pxr/usd/sdf/layer.h>
+#include <pxr/usd/usd/stage.h>
+
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
 
 #include "stage_ops/TransformCodec.h"
@@ -14,6 +23,72 @@
 using namespace godot;
 
 namespace gxform = idtxflow::collab::xform;
+
+namespace
+{
+// A URL in one comparable spelling: percent-decoded and with "." / ".." path
+// segments and repeated separators removed, like the resolver normalises the
+// identifiers of the layers it loads. Lets a server-sent download URL match a
+// layer whose reference was spelled differently.
+std::string canonical_url(const std::string& url)
+{
+    std::string decoded;
+    decoded.reserve(url.size());
+    for (std::size_t i = 0; i < url.size(); ++i)
+    {
+        if (url[i] == '%' && i + 2 < url.size() && std::isxdigit(static_cast<unsigned char>(url[i + 1]))
+            && std::isxdigit(static_cast<unsigned char>(url[i + 2])))
+        {
+            decoded.push_back(static_cast<char>(std::stoi(url.substr(i + 1, 2), nullptr, 16)));
+            i += 2;
+        }
+        else
+        {
+            decoded.push_back(url[i]);
+        }
+    }
+
+    const std::size_t scheme_end = decoded.find("://");
+    if (scheme_end == std::string::npos) return decoded;
+    const std::size_t path_start = decoded.find('/', scheme_end + 3);
+    if (path_start == std::string::npos) return decoded;
+    return decoded.substr(0, path_start)
+         + std::filesystem::path(decoded.substr(path_start)).lexically_normal().generic_string();
+}
+
+// Whether @p stage composes the layer at @p canonical (root, sublayer,
+// reference or payload).
+bool stage_uses(const pxr::UsdStageRefPtr& stage, const std::string& canonical)
+{
+    if (!stage) return false;
+    for (const pxr::SdfLayerHandle& layer: stage->GetUsedLayers())
+    {
+        if (layer && canonical_url(layer->GetIdentifier()) == canonical) return true;
+    }
+    return false;
+}
+
+// Every UsdStageNode3D in the subtree of @p node, @p node included, parents
+// before their children (nested payload stages are children of their holder).
+void collect_stage_nodes(Node* node, std::vector<UsdStageNode3D*>& out)
+{
+    if (node == nullptr) return;
+    if (UsdStageNode3D* stage_node = Object::cast_to<UsdStageNode3D>(node)) out.push_back(stage_node);
+    for (int i = 0; i < node->get_child_count(); ++i)
+    {
+        collect_stage_nodes(node->get_child(i), out);
+    }
+}
+
+bool is_below_any(const Node* node, const std::vector<UsdStageNode3D*>& ancestors)
+{
+    for (const Node* p = node->get_parent(); p != nullptr; p = p->get_parent())
+    {
+        if (std::find(ancestors.begin(), ancestors.end(), p) != ancestors.end()) return true;
+    }
+    return false;
+}
+} // namespace
 
 IdtxClient* IdtxClient::singleton_ = nullptr;
 
@@ -300,6 +375,9 @@ void IdtxClient::unbind_session(const String& session_id)
     }
 
     bindings_.erase(sid);
+    // Nothing reports a reload of the unbound nodes any more; end it so the
+    // engine does not wait for it (no-op if the session itself has ended).
+    if (reloads_.erase(sid) > 0) engine_.reload_complete(sid);
 }
 
 void IdtxClient::attach_bridge(const std::string& session_id)
@@ -584,9 +662,127 @@ void IdtxClient::on_remote_edit(const std::string& session_id, const idtxflow::n
 
 void IdtxClient::on_snapshot_complete(const std::string& session_id)
 {
-    // The join snapshot's prim edits were already applied via on_remote_edit; this
+    // The snapshot's prim edits were already applied via on_remote_edit; this
     // marks the boundary at which the stage holds the full current server state.
     emit_signal("snapshot_complete", String(session_id.c_str()));
+}
+
+void IdtxClient::on_layer_reloaded(const std::string& session_id, const std::string& usd_path,
+                                   const std::string& file_url)
+{
+    emit_signal("layer_reloaded", String(session_id.c_str()), String(usd_path.c_str()));
+
+    // Every later fetch of the file downloads it again.
+    UsdStageNode3D::evict_http_cache_entry(String(file_url.c_str()));
+
+    ReloadState& state = reloads_[session_id];
+    const std::string wanted = canonical_url(file_url);
+
+    // The session's stage nodes that compose the file: its root node, which
+    // references or sublayers it, or is it, and nested payload stages, which
+    // load it as their own root. A node below another affected one is rebuilt
+    // with it.
+    std::vector<UsdStageNode3D*> affected;
+    auto binding = bindings_.find(session_id);
+    if (binding != bindings_.end())
+    {
+        std::vector<UsdStageNode3D*> nodes;
+        collect_stage_nodes(Object::cast_to<Node>(ObjectDB::get_instance(binding->second.node_id)), nodes);
+        for (UsdStageNode3D* node: nodes)
+        {
+            const uint64_t id = node->get_instance_id();
+            if (state.loading.count(id) > 0)
+            {
+                // Mid-rebuild for an earlier file: it may already have fetched this
+                // one before the eviction above, so it is rebuilt once more.
+                state.again.insert(id);
+                continue;
+            }
+            if (is_below_any(node, affected)) continue;
+            if (stage_uses(node->get_stage(), wanted)) affected.push_back(node);
+        }
+    }
+
+    // Release every affected stage, and the stages nested below it, before any
+    // new load starts. As long as one stage still holds the old in-memory layer,
+    // the layer registry hands a new load that copy instead of the re-fetched
+    // file. Nested stages go first: removing them from the tree alone frees
+    // them only at the end of the frame.
+    for (UsdStageNode3D* node: affected)
+    {
+        std::vector<UsdStageNode3D*> subtree;
+        collect_stage_nodes(node, subtree);
+        for (auto it = subtree.rbegin(); it != subtree.rend(); ++it)
+        {
+            (*it)->unload_stage();
+        }
+    }
+    for (UsdStageNode3D* node: affected)
+    {
+        start_node_reload(session_id, node);
+    }
+
+    if (state.loading.empty())
+    {
+        // Nothing of this session uses the file (any more): nothing to wait for.
+        reloads_.erase(session_id);
+        engine_.reload_complete(session_id);
+    }
+}
+
+void IdtxClient::start_node_reload(const std::string& session_id, Node* node)
+{
+    UsdStageNode3D* stage_node = Object::cast_to<UsdStageNode3D>(node);
+    if (stage_node == nullptr) return;
+
+    const uint64_t id = stage_node->get_instance_id();
+    const Callable done_cb = callable_mp(this, &IdtxClient::_on_node_reload_finished)
+                                 .bind(String(session_id.c_str()), static_cast<int64_t>(id));
+    if (!stage_node->is_connected("stage_loading_finished", done_cb))
+    {
+        stage_node->connect("stage_loading_finished", done_cb, Object::CONNECT_ONE_SHOT);
+    }
+
+    // The file was evicted already; the node's own URL keeps its cache unless it is
+    // that file.
+    stage_node->reload(/*clear_http_cache=*/false);
+    if (stage_node->is_loading())
+    {
+        reloads_[session_id].loading.insert(id);
+        return;
+    }
+
+    // The node refused to load (not in the tree, no URI): nothing will finish.
+    if (stage_node->is_connected("stage_loading_finished", done_cb))
+    {
+        stage_node->disconnect("stage_loading_finished", done_cb);
+    }
+}
+
+void IdtxClient::_on_node_reload_finished(bool success, const String& session_id, int64_t node_id)
+{
+    const std::string sid = session_id.utf8().get_data();
+    auto it = reloads_.find(sid);
+    if (it == reloads_.end()) return;
+
+    const uint64_t id = static_cast<uint64_t>(node_id);
+    it->second.loading.erase(id);
+    if (!success)
+    {
+        IDTX_LOG(IDTX_WARN, "layer reload: rebuilding a stage node of session '{}' failed", sid);
+    }
+
+    if (it->second.again.erase(id) > 0)
+    {
+        start_node_reload(sid, Object::cast_to<Node>(ObjectDB::get_instance(id)));
+    }
+
+    auto state = reloads_.find(sid);
+    if (state != reloads_.end() && state->second.loading.empty())
+    {
+        reloads_.erase(state);
+        engine_.reload_complete(sid);
+    }
 }
 
 void IdtxClient::on_ack(const std::string& session_id, bool ok, const std::string& error)
@@ -662,6 +858,8 @@ void IdtxClient::_bind_methods()
                           PropertyInfo(Variant::STRING, "prim_path"), PropertyInfo(Variant::TRANSFORM3D, "xform"),
                           PropertyInfo(Variant::STRING, "from_client_id")));
     ADD_SIGNAL(MethodInfo("snapshot_complete", PropertyInfo(Variant::STRING, "session_id")));
+    ADD_SIGNAL(MethodInfo("layer_reloaded", PropertyInfo(Variant::STRING, "session_id"),
+                          PropertyInfo(Variant::STRING, "usd_path")));
     ADD_SIGNAL(MethodInfo("ack_received", PropertyInfo(Variant::STRING, "session_id"),
                           PropertyInfo(Variant::BOOL, "ok"), PropertyInfo(Variant::STRING, "error")));
     ADD_SIGNAL(MethodInfo("socket_error", PropertyInfo(Variant::STRING, "session_id"),
