@@ -100,6 +100,13 @@ class UsdStageNode3D : public godot::Node3D, public IUsdNode3D
     static void evict_http_cache_entry(const godot::String& url);
 
     /**
+     * All res:// files the stage at `uri` needs: sublayers, references, payloads and assets such as
+     * textures, recursively, excluding `uri` itself. http/user:// dependencies are fetched at runtime
+     * and left out. Used by the export plugin to ship stage_uri targets.
+     */
+    static godot::PackedStringArray get_stage_dependencies(const godot::String& uri);
+
+    /**
      * Opens the stage at stage_uri_ asynchronously on a background thread,
      * then calls the method passed to it via name with call_deferred to continue execution on the main thread
      */

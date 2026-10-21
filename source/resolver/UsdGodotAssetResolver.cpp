@@ -2,12 +2,15 @@
 
 #include <string>
 
+#include <godot_cpp/classes/file_access.hpp>
+#include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 
 #include <pxr/base/tf/pathUtils.h>
 #include <pxr/base/tf/stringUtils.h>
 #include <pxr/usd/ar/filesystemAsset.h>
 #include <pxr/usd/ar/filesystemWritableAsset.h>
+#include <pxr/usd/ar/inMemoryAsset.h>
 
 #include "idtxflow/resolver/HttpResolver.h"
 
@@ -102,6 +105,28 @@ std::shared_ptr<ArAsset> UsdGodotAssetResolver::_OpenAsset(const ArResolvedPath&
     // we retrieve the resolved path of the asset to open the same
     // this is essentially a "res://path/to/file.usd". So calculate a real local path openUSD is capable of finding
     // and open the file from there
+
+    // Exported builds pack res:// into the PCK/APK, which OpenUSD cannot open from the filesystem:
+    // read it through Godot's FileAccess instead. The editor (and games run from it) read from disk.
+    const std::string assetPath = resolvedPath.GetPathString();
+    if (!OS::get_singleton()->has_feature("editor") &&
+        TfStringStartsWith(assetPath, GodotResolverTokens->resScheme.GetString() + "://"))
+    {
+        Ref<FileAccess> file = FileAccess::open(String(assetPath.c_str()), FileAccess::READ);
+        if (!file.is_valid())
+        {
+            return nullptr;
+        }
+        const size_t size = file->get_length();
+        if (size == 0)
+        {
+            return nullptr;
+        }
+        PackedByteArray data = file->get_buffer(size);
+        std::shared_ptr<char> buffer(new char[size], std::default_delete<char[]>());
+        memcpy(buffer.get(), data.ptr(), size);
+        return ArInMemoryAsset::FromBuffer(std::move(buffer), size);
+    }
 
     if (ProjectSettings* project_settings = ProjectSettings::get_singleton())
     {

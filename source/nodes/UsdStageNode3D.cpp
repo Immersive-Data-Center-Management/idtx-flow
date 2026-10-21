@@ -18,6 +18,8 @@
 #include "stage_ops/StageEditController.h"
 #include "stage_ops/StageSaveController.h"
 #include <idtxflow/resolver/HttpResolver.h>
+#include <pxr/usd/sdf/assetPath.h>
+#include <pxr/usd/usdUtils/dependencies.h>
 
 using namespace godot;
 using namespace pxr;
@@ -58,6 +60,14 @@ Error UsdStageNode3D::save_stage(const String& out_uri)
 void UsdStageNode3D::_enter_tree()
 {
     Node3D::_enter_tree();
+    // Dropped from the FileSystem dock, this node is an instance of the .usd* file (UsdSceneFormatLoader).
+    // Make it local, so it is saved and exported exactly like a hand-added node: only stage_uri counts.
+    // Not when the .usd* itself is opened as a scene tab: then this node is the edited root and the path is the tab's.
+    if (get_scene_file_path().get_extension().to_lower().begins_with("usd") &&
+        get_tree()->get_edited_scene_root() != this)
+    {
+        set_scene_file_path("");
+    }
     // As _enter_tree might be called after _exit_tree has been invoked due to switching tabs in the 3d view or the like
     // the children has been completely revoked and the stage handle has been released.
     // Thus we need to reconstruct the childs/nodes and re-open the underlying stage.
@@ -150,6 +160,30 @@ void UsdStageNode3D::evict_http_cache_entry(const godot::String& url)
 {
     if (url.is_empty()) return;
     pxr::UsdHttpAssetResolver::EvictFromCache(url.utf8().get_data());
+}
+
+PackedStringArray UsdStageNode3D::get_stage_dependencies(const godot::String& uri)
+{
+    // Our resolver keeps res:// identifiers, so the reported paths are already project paths.
+    std::vector<pxr::SdfLayerRefPtr> layers;
+    std::vector<std::string> assets;
+    std::vector<std::string> unresolved;
+    pxr::UsdUtilsComputeAllDependencies(pxr::SdfAssetPath(uri.utf8().get_data()), &layers, &assets, &unresolved);
+
+    PackedStringArray deps;
+    auto add = [&](const std::string& p) {
+        const String dep(p.c_str());
+        if (dep.begins_with("res://") && dep != uri && !deps.has(dep)) deps.push_back(dep);
+    };
+    for (const pxr::SdfLayerRefPtr& layer: layers)
+    {
+        add(layer->GetIdentifier());
+    }
+    for (const std::string& asset: assets)
+    {
+        add(asset);
+    }
+    return deps;
 }
 
 void UsdStageNode3D::reload(bool clear_http_cache)
@@ -348,6 +382,19 @@ void UsdStageNode3D::_convert_stage()
 
 void UsdStageNode3D::_load_converted_stage()
 {
+    // cache unloadable on this platform/build or empty: convert the already opened stage instead
+    Ref<PackedScene> packed_scene = ResourceLoader::get_singleton()->load(cached_scene_name_);
+    Node3D* cached_root = packed_scene.is_valid() ? cast_to<Node3D>(packed_scene->instantiate()) : nullptr;
+    if (!cached_root || cached_root->get_child_count() == 0)
+    {
+        if (cached_root)
+        {
+            cached_root->queue_free();
+        }
+        _convert_stage();
+        return;
+    }
+
     // Retrieve the result (written by the worker thread)
     idtxflow::async::StageLoadResult result;
     {
@@ -359,8 +406,6 @@ void UsdStageNode3D::_load_converted_stage()
     // store the stage handle
     stage_handle_ = std::make_unique<idtxflow::converter::StageHandle>(std::move(result.stage));
 
-    Ref<PackedScene> packed_scene = ResourceLoader::get_singleton()->load(cached_scene_name_);
-    Node3D* cached_root = cast_to<Node3D>(packed_scene->instantiate());
     // the instantiated node would be the cached "UsdStageNode3D". Thus, just adding this to the tree
     // would create a recursion. The intention anyway was to use this node as a root only for caching. And "copy"
     // it's children after instantiation to this node would re-create the original structure anyway.
@@ -550,6 +595,8 @@ void UsdStageNode3D::_bind_methods()
     ClassDB::bind_method(D_METHOD("reload", "clear_http_cache"), &UsdStageNode3D::reload, DEFVAL(true));
     ClassDB::bind_static_method("UsdStageNode3D", D_METHOD("evict_http_cache_entry", "url"),
                                 &UsdStageNode3D::evict_http_cache_entry);
+    ClassDB::bind_static_method("UsdStageNode3D", D_METHOD("get_stage_dependencies", "uri"),
+                                &UsdStageNode3D::get_stage_dependencies);
     ADD_PROPERTY(PropertyInfo(Variant::STRING, "stage_uri", PROPERTY_HINT_FILE, "*.usd,*.usda,*.usdc,*.usdz"),
                  "set_stage_uri", "get_stage_uri");
 

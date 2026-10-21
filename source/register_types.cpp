@@ -4,6 +4,13 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/godot.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
+#include <godot_cpp/classes/resource_loader.hpp>
+#include <godot_cpp/classes/dir_access.hpp>
+#include <godot_cpp/classes/file_access.hpp>
+#include <godot_cpp/classes/config_file.hpp>
+#include <godot_cpp/classes/hashing_context.hpp>
+
+#include <pxr/base/plug/registry.h>
 
 #include <filesystem>
 #ifndef _WIN32
@@ -27,6 +34,7 @@
 #include "nodes/UsdMultiMeshInstanceNode3D.h"
 #include "nodes/UsdRestDatasourceNode3D.h"
 #include "nodes/UsdXFormNode3D.h"
+#include "resource/UsdSceneFormatLoader.h"
 #include "collab/IdtxClient.h"
 #include "utils/IDTXFlowGodotLogger.h"
 #include "exec/GodotEnvironmentProviders.h"
@@ -45,6 +53,9 @@ static idtxflow::utils::IDTXFlowGodotLogger g_logger;
 //    prefixed "project:" (Godot ProjectSettings snapshot)
 static idtxflow::exec::GodotEnvVarProvider g_env_var_provider;
 static idtxflow::exec::GodotProjectSettingProvider* g_project_setting_provider = nullptr;
+
+// Registers *.usd[a|c|z] as PackedScene with Godot's ResourceLoader (FileSystem dock, drag & drop, export)
+static Ref<UsdSceneFormatLoader> g_usd_scene_loader;
 
 #ifdef IDTXFLOW_MDL_ENABLED
 #include <idtxflow/converter/MdlMaterialConverter.h>
@@ -73,6 +84,16 @@ inline std::string get_gdextension_dir()
 #endif
 }
 
+// The plugin/usd tree next to the binaries, as laid out by a desktop export ([dependencies] in
+// idtxflow.gdextension copies bin/plugin next to the executable), or "" for the addon layout
+// (bin/<os>/ + bin/plugin/), which usd_ms finds on its own via its built-in ../plugin/usd path.
+static std::string exported_plugin_dir(const std::string& extension_dir)
+{
+    const std::filesystem::path dir = std::filesystem::path(extension_dir) / "plugin" / "usd";
+    std::error_code ec;
+    return std::filesystem::exists(dir / "plugInfo.json", ec) ? dir.string() : "";
+}
+
 // Startup sanity checks for the extension's runtime environment. Each check logs an
 // actionable error for a missing prerequisite instead of letting a later failure crash
 // or fail silently. Add further checks here.
@@ -89,14 +110,15 @@ static void check_prerequisites(const std::string& extension_dir)
     // bin/plugin/usd/). If an export or a manual install drops that tree, PlugRegistry
     // fails fatally inside the first stage open with no actionable message, so name
     // every missing file up front. Keep this list in sync with the addon's bin/ layout.
-    const char* required_plugin_files[] = {
+    const std::string plugin_dir = exported_plugin_dir(extension_dir).empty() ? "../plugin/usd/" : "plugin/usd/";
+    const std::string required_plugin_files[] = {
         "usd/plugInfo.json",
-        "../plugin/usd/plugInfo.json",
-        "../plugin/usd/idtx/resources/plugInfo.json",
-        "../plugin/usd/godot/resources/plugInfo.json",
-        "../plugin/usd/usdShaders/resources/plugInfo.json",
+        plugin_dir + "plugInfo.json",
+        plugin_dir + "idtx/resources/plugInfo.json",
+        plugin_dir + "godot/resources/plugInfo.json",
+        plugin_dir + "usdShaders/resources/plugInfo.json",
     };
-    for (const char* rel: required_plugin_files)
+    for (const std::string& rel: required_plugin_files)
     {
         const std::filesystem::path full = (std::filesystem::path(extension_dir) / rel).lexically_normal();
         std::error_code ec;
@@ -110,6 +132,86 @@ static void check_prerequisites(const std::string& extension_dir)
     }
 }
 
+#ifdef __ANDROID__
+// On Android the addon's bin/ tree lives inside the APK/PCK, where OpenUSD cannot find the
+// plugInfo.json files (check_prerequisites does not apply there). Copy the trees to user:// and
+// register them explicitly with PlugRegistry, before anything calls ArGetResolver().
+
+// Collect all files below res_dir (sorted, so the stamp hash is stable).
+static void _list_res_files(const String& res_dir, PackedStringArray& out)
+{
+    PackedStringArray dirs = DirAccess::get_directories_at(res_dir);
+    dirs.sort();
+    for (const String& d: dirs)
+    {
+        _list_res_files(res_dir.path_join(d), out);
+    }
+    PackedStringArray files = DirAccess::get_files_at(res_dir);
+    files.sort();
+    for (const String& f: files)
+    {
+        out.push_back(res_dir.path_join(f));
+    }
+}
+
+// Copy res_dir to user_dir unless the stamp (plugin version + hash of the source files) is unchanged,
+// then register it. The stamp is written last, so an interrupted or failed copy is retried next start.
+static void _register_usd_plugins_from_res(const String& res_dir, const String& user_dir, const String& version)
+{
+    PackedStringArray files;
+    _list_res_files(res_dir, files);
+    if (files.is_empty())
+    {
+        IDTX_LOGF(IDTX_ERROR, "USD plugin directory missing or empty: {} - stage conversion will fail",
+                  res_dir.utf8().get_data());
+        return;
+    }
+
+    Ref<HashingContext> hash;
+    hash.instantiate();
+    hash->start(HashingContext::HASH_SHA256);
+    for (const String& f: files)
+    {
+        hash->update(f.to_utf8_buffer());
+        hash->update(FileAccess::get_file_as_bytes(f));
+    }
+    const String stamp = version + String(":") + hash->finish().hex_encode();
+    const String stamp_file = user_dir.path_join(".extracted");
+
+    if (FileAccess::get_file_as_string(stamp_file) != stamp)
+    {
+        bool ok = true;
+        for (const String& src: files)
+        {
+            const String dst = user_dir.path_join(src.trim_prefix(res_dir).trim_prefix("/"));
+            DirAccess::make_dir_recursive_absolute(dst.get_base_dir());
+            Ref<FileAccess> out = FileAccess::open(dst, FileAccess::WRITE);
+            ok = ok && out.is_valid() && out->store_buffer(FileAccess::get_file_as_bytes(src));
+        }
+        Ref<FileAccess> marker = ok ? FileAccess::open(stamp_file, FileAccess::WRITE) : Ref<FileAccess>();
+        if (!ok || !marker.is_valid() || !marker->store_string(stamp))
+        {
+            IDTX_LOGF(IDTX_ERROR, "failed to extract USD plugins to {}", user_dir.utf8().get_data());
+        }
+    }
+
+    pxr::PlugRegistry::GetInstance().RegisterPlugins(
+        ProjectSettings::get_singleton()->globalize_path(user_dir).utf8().get_data());
+}
+
+static void register_packed_usd_plugins()
+{
+    const String addon_dir = "res://addons/IDTXFlow";
+    Ref<ConfigFile> plugin_cfg;
+    plugin_cfg.instantiate();
+    plugin_cfg->load(addon_dir.path_join("plugin.cfg"));
+    const String version = plugin_cfg->get_value("plugin", "version", "unknown");
+
+    _register_usd_plugins_from_res(addon_dir.path_join("bin/android/usd"), "user://idtxflow/usd", version);
+    _register_usd_plugins_from_res(addon_dir.path_join("bin/plugin/usd"), "user://idtxflow/plugin_usd", version);
+}
+#endif
+
 void initialize_idtxflow_module(ModuleInitializationLevel p_level)
 {
     if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE)
@@ -119,6 +221,17 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level)
 
     // Initialize logger
     idtxflow::utils::Log::set_logger(&g_logger);
+
+#ifdef __ANDROID__
+    // must run before the first USD call (resolvers, schemas)
+    register_packed_usd_plugins();
+#else
+    // exported desktop build: plugin/usd sits next to the binaries, not at usd_ms's ../plugin/usd
+    if (const std::string dir = exported_plugin_dir(get_gdextension_dir()); !dir.empty())
+    {
+        pxr::PlugRegistry::GetInstance().RegisterPlugins(dir);
+    }
+#endif
 
 #ifdef _WIN32
     // Pin this DLL so it outlives OpenUSD's static teardown. Ar keeps our resolver
@@ -146,6 +259,10 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level)
     GDREGISTER_CLASS(UsdRestDatasourceNode3D)
     GDREGISTER_CLASS(UsdStaticBodyNode3D)
     GDREGISTER_CLASS(IdtxClient)
+    GDREGISTER_CLASS(UsdSceneFormatLoader)
+
+    g_usd_scene_loader.instantiate();
+    ResourceLoader::get_singleton()->add_resource_format_loader(g_usd_scene_loader);
 
     // Create and register the collaboration client as the engine singleton
     // "IdtxClient" from module init (before any script runs), then start it, so
@@ -156,7 +273,9 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level)
     Engine::get_singleton()->register_singleton("IdtxClient", idtx_client);
     idtx_client->initialize(std::make_unique<idtxflow::net::adapters::IxTransportFactory>());
 
+#ifndef __ANDROID__
     check_prerequisites(get_gdextension_dir());
+#endif
 
 #ifdef IDTXFLOW_MDL_ENABLED
     // activate the mdl material conversion
@@ -203,6 +322,9 @@ void uninitialize_idtxflow_module(ModuleInitializationLevel p_level)
     {
         return;
     }
+
+    ResourceLoader::get_singleton()->remove_resource_format_loader(g_usd_scene_loader);
+    g_usd_scene_loader.unref();
 
     // Stop the openExec computation bridge
     idtxflow::exec::ExecBridgeManager::Instance().Cancel();
