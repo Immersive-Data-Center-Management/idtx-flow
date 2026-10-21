@@ -48,6 +48,13 @@ struct ErrorMsg
     std::string code;
     std::string message;
 };
+/// A file the session's stage uses changed on the server and was reloaded
+/// there; the client re-fetches it and then asks for a snapshot.
+struct LayerReloadedMsg
+{
+    std::string usd_path; ///< uploads-relative, canonical (as Handshake.usd_path)
+    std::string usd_uri;  ///< server-relative download URI (as Handshake.usd_uri)
+};
 
 /// A decoded inbound frame: exactly one payload is populated per `kind`.
 struct DecodedMessage
@@ -59,7 +66,8 @@ struct DecodedMessage
         RemoteEdit,
         Ack,
         Error,
-        SnapshotComplete
+        SnapshotComplete,
+        LayerReloaded
     };
 
     Kind kind = Kind::None;
@@ -67,9 +75,11 @@ struct DecodedMessage
     RemoteEditMsg remote_edit;
     AckMsg ack;
     ErrorMsg error;
+    LayerReloadedMsg layer_reloaded;
 
     // Envelope ordering fields (see base.proto): server_seq of the described
-    // state (0 = none), and request_id echoed on an Ack (0 = unset).
+    // state (0 = none), and request_id echoed on an Ack or on the
+    // SnapshotComplete of a requested snapshot (0 = unset).
     uint64_t server_seq = 0;
     uint64_t request_id = 0;
 };
@@ -98,6 +108,10 @@ std::string encode_create_prim_request(const std::string& session_id, const mode
 /// `active` (false = soft delete, true = restore).
 std::string encode_set_prim_active_request(const std::string& session_id, const model::PrimEdit& edit,
                                            uint64_t base_server_seq, uint64_t request_id);
+
+/// Serialize a SnapshotRequest BaseMessage. The server answers with a snapshot
+/// whose SnapshotComplete echoes @p request_id.
+std::string encode_snapshot_request(const std::string& session_id, uint64_t request_id);
 
 /// Assert at startup that the linked protobuf runtime matches the headers the
 /// generated messages were compiled against, failing fast on a version skew

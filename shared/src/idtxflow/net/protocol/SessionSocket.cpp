@@ -80,7 +80,13 @@ void SessionSocket::handle_binary(const std::string& bytes)
         if (on_error_) on_error_(decoded.error.code, decoded.error.message);
         break;
     case wire::DecodedMessage::Kind::SnapshotComplete:
-        if (on_snapshot_complete_) on_snapshot_complete_(decoded.server_seq);
+        if (on_snapshot_complete_) on_snapshot_complete_(decoded.server_seq, decoded.request_id);
+        break;
+    case wire::DecodedMessage::Kind::LayerReloaded:
+        if (on_layer_reloaded_)
+        {
+            on_layer_reloaded_(decoded.layer_reloaded.usd_path, decoded.layer_reloaded.usd_uri, decoded.server_seq);
+        }
         break;
     default:
         break;
@@ -166,6 +172,19 @@ void SessionSocket::send_set_prim_active(const model::PrimEdit& edit)
     IDTX_LOG(IDTX_DEBUG, "send_set_prim_active prim='{}' active={} base_seq={} req_id={}", edit.prim_path, edit.active,
              base_server_seq_, request_id);
     ws_->send_binary(wire::encode_set_prim_active_request(session_id_, edit, base_server_seq_, request_id));
+}
+
+uint64_t SessionSocket::send_snapshot_request()
+{
+    if (!is_open_) return 0;
+
+    const uint64_t request_id = next_request_id_++;
+    IDTX_LOG(IDTX_DEBUG, "send snapshot request session='{}' req_id={}", session_id_, request_id);
+    ws_->send_binary(wire::encode_snapshot_request(session_id_, request_id));
+    // The snapshot resets every prim it covers; an edit equal to one sent before
+    // the rebuild must go out again rather than be dropped as a duplicate.
+    last_sent_.clear();
+    return request_id;
 }
 
 } // namespace net
