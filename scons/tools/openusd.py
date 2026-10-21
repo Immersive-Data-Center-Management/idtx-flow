@@ -122,7 +122,7 @@ def _build_for_desktop(env, source_path, install_path, platform, with_python_sup
         f"{install_path}",
         "--verbose",
         "--build-variant",
-        "release" # always build openUSD as release to get it small. Unlikely to debug into it anyway
+        "release", # always build openUSD as release to get it small. Unlikely to debug into it anyway
         "--build-monolithic",
         "--no-python" if not with_python_support else "--python",
         "--no-examples",
@@ -178,7 +178,31 @@ def _do_build_android(env, source_path, install_path):
         "-DCMAKE_CXX_STANDARD=17",
         "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
         "-DBUILD_SHARED_LIBS=ON",
+        # Size reduction for the Android monolith (.so). Unstripped, the ELF
+        # keeps its full static symbol table (.symtab/.strtab) and does no
+        # dead-code elimination -> ~500MB vs the ~41MB Windows DLL (which puts
+        # symbols in a separate .pdb).
+        #   - *_RELEASE variants so the NDK toolchain's base flags are kept;
+        #     the NDK adds -g to the base flags, so -g0 here cancels it.
+        #   - -ffunction/-fdata-sections + --gc-sections: drop unreferenced
+        #     code/data.
+        #   - --strip-all: drop .symtab/.strtab at link time (biggest win,
+        #     single file, no separate debug artifact).
+        #   - --icf=all: fold identical functions (template-heavy USD; lld only).
+        #   - --undefined-version: NDK 29+ lld errors on version-script symbols;
+        #     matches the oneTBB Android build below.
+        # NOTE: do NOT add -fvisibility=hidden or -Wl,--exclude-libs,ALL here.
+        # OpenUSD's monolith relies on default ELF visibility: template statics
+        # and vtables (TfSingleton<>::_instance, Sdf_Pool<>::_regionStarts,
+        # Tf_Remnant) aren't ARCH_EXPORT-annotated and get hidden, breaking the
+        # link of anything that consumes the .so.
+        "-DCMAKE_C_FLAGS_RELEASE=-O3 -DNDEBUG -g0 -ffunction-sections -fdata-sections",
+        "-DCMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG -g0 -ffunction-sections -fdata-sections",
+        "-DCMAKE_SHARED_LINKER_FLAGS_RELEASE=-Wl,--gc-sections -Wl,--icf=all -Wl,--strip-all -Wl,--undefined-version",
         "-DPXR_BUILD_MONOLITHIC=ON",
+        # No USD tool executables on Android (mirrors --no-tools on desktop);
+        # they aren't shipped and only add build time / link targets.
+        "-DPXR_BUILD_USD_TOOLS=OFF",
         "-DPXR_BUILD_IMAGING=OFF",
         "-DPXR_BUILD_USD_IMAGING=OFF",
         "-DPXR_BUILD_USDVIEW=OFF",
