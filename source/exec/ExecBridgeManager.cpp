@@ -6,7 +6,7 @@
  * out-of-line — rather than as an inline Meyers singleton in the header —
  * guarantees a single ExecBridgeManager across every shared library that links
  * libidtxflow. An inline accessor would be forced to hidden visibility by
- * -fvisibility-inlines-hidden on ELF/Android and duplicate per-.so, so an
+ * -fvisibility=hidden on ELF/Android and duplicate per-.so, so an
  * extension's exec bridges/handlers would register into a different manager than
  * the one IDTXFlow's worker thread drives. See the rationale on
  * ExecBridgeManager::Instance() in the header.

@@ -9,12 +9,15 @@
  * extension never appear in the registry that StageConverter queries inside IDTXFlow.
  *
  * Solution:
- *   - IDTXFlow explicitly instantiates the template in PrimConverterRegistryGodot.cpp
- *     and exports the symbols via IDTXFLOW_GODOT_API.
+ *   - PrimConverterRegistry<TargetEngine>::Instance() is declared only (no body) in
+ *     the shared PrimConverterRegistry.h header; its single definition lives in
+ *     PrimConverterRegistryGodot.cpp, next to the explicit instantiation, and is
+ *     exported from the IDTXFlow DLL via IDTXFLOW_GODOT_API.
  *   - This header declares `extern template` to suppress implicit instantiation in
  *     any translation unit that includes it.
- *   - Third-party extensions include this header instead of using the shared registry
- *     header directly, guaranteeing they link to the IDTXFlow-owned singleton.
+ *   - Because the Instance() body is never visible to consumers, an extension in its
+ *     own DLL/.so can neither inline nor re-instantiate it; it emits an undefined
+ *     reference that binds to IDTXFlow's one exported singleton at link/load time.
  *
  * Usage in an extension:
  *   #include <idtxflow_godot/PrimConverterRegistryGodot.h>
@@ -32,54 +35,14 @@
 #include "types/GodotTypes.h"
 
 // ---- Extern template declaration ----
-// This suppresses implicit instantiation of the template in consumer TUs.
-// The single instantiation lives in PrimConverterRegistryGodot.cpp inside the
-// IDTXFlow DLL, ensuring exactly one singleton across all modules.
+// Suppresses implicit instantiation of the template in consumer TUs. The single
+// instantiation lives in PrimConverterRegistryGodot.cpp inside the IDTXFlow DLL.
+//
+// On Windows, __declspec(dllimport) on this extern-template binds every module to
+// IDTXFlow's instantiation. On ELF targets (Android/Linux), godot-cpp compiles
+// with -fvisibility=hidden, so the exported symbols reach IDTXFlow's .dynsym only
+// because the explicit instantiation carries the IDTXFLOW_GODOT_API default-
+// visibility attribute. The crucial part for the singleton is that Instance() has
+// no body in the header (see PrimConverterRegistry.h): a consumer cannot inline it
+// into its own module and therefore always binds to IDTXFlow's one instance.
 extern template class IDTXFLOW_GODOT_API idtxflow::converter::PrimConverterRegistry<idtxflow::types::TargetEngineGodot>;
-
-// ---- Cross-module singleton accessor (the ELF-safe entry point) ----
-//
-// On Windows, __declspec(dllimport) on the extern-template above binds every
-// module to IDTXFlow's single instantiation, so Instance() "just works".
-//
-// On ELF targets (Android/Linux) it does NOT. godot-cpp compiles with
-// -fvisibility-inlines-hidden, which forces the *inline* Instance() template
-// method — and its function-local `static` singleton — to HIDDEN visibility,
-// regardless of the visibility("default") attribute on the class. The symbol
-// therefore never enters libidtxflow's .dynsym, there is no dllimport-equivalent
-// to redirect the consumer, and each dependent .so instantiates its OWN copy of
-// the singleton. The result: converters a plugin registers land in a different
-// registry than the one IDTXFlow's StageConverter queries, so they never fire.
-//
-// The fix is a single NON-inline accessor with C language linkage. `extern "C"`
-// has no vague/COMDAT linkage, is not mangled into a namespace, and is not
-// subject to -fvisibility-inlines-hidden, so it always lands in libidtxflow's
-// .dynsym with default visibility. It is defined exactly once (in
-// PrimConverterRegistryGodot.cpp, compiled into libidtxflow) and returns
-// IDTXFlow's own Instance(), so every module that calls it shares that object.
-//
-// ANY code compiled into a separate shared library (third-party extensions)
-// MUST reach the registry through this accessor — or the
-// idtxflow::converter::GodotPrimConverterRegistry() wrapper below — rather than
-// calling PrimConverterRegistry<TargetEngineGodot>::Instance() directly.
-extern "C" IDTXFLOW_GODOT_API idtxflow::converter::PrimConverterRegistry<idtxflow::types::TargetEngineGodot>&
-IDTXFlow_GodotPrimConverterRegistry();
-
-namespace idtxflow
-{
-namespace converter
-{
-/**
- * Canonical cross-module accessor for the Godot prim-converter registry.
- *
- * Forwards to the exported extern "C" accessor, guaranteeing the single
- * IDTXFlow-owned singleton on every platform (Windows, macOS, Android/Linux).
- * Prefer this over PrimConverterRegistry<TargetEngineGodot>::Instance() in any
- * translation unit that is linked into its own shared library.
- */
-inline PrimConverterRegistry<types::TargetEngineGodot>& GodotPrimConverterRegistry()
-{
-    return ::IDTXFlow_GodotPrimConverterRegistry();
-}
-} // namespace converter
-} // namespace idtxflow
