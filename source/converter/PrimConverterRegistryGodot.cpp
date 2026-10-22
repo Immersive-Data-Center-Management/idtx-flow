@@ -17,5 +17,26 @@
 #include "../include/idtxflow_godot/idtxflow_godot_api.h"
 #include "../include/idtxflow_godot/types/GodotTypes.h"
 
+// Out-of-line definition of the singleton accessor. It must precede the explicit
+// instantiation below so that instantiation emits this definition (exported with
+// default visibility via IDTXFLOW_GODOT_API) into libidtxflow. Consumer TUs — in
+// their own DLL/.so — only ever see the declaration in PrimConverterRegistry.h,
+// so they cannot inline or re-instantiate it and instead bind to this one symbol.
+namespace idtxflow
+{
+namespace converter
+{
+template <typename TargetEngine>
+    requires types::ValidTargetEngine<TargetEngine>
+PrimConverterRegistry<TargetEngine>& PrimConverterRegistry<TargetEngine>::Instance()
+{
+    // Meyers singleton — exactly one instance within libidtxflow, shared by every
+    // module that links it (IDTXFlow, third-party extensions).
+    static PrimConverterRegistry instance;
+    return instance;
+}
+} // namespace converter
+} // namespace idtxflow
+
 // Explicit instantiation – the exported definition of the entire class template.
 template class IDTXFLOW_GODOT_API idtxflow::converter::PrimConverterRegistry<idtxflow::types::TargetEngineGodot>;

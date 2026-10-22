@@ -9,12 +9,12 @@
 
 #define IDTXFLOW_GODOT_VERSION_MAJOR 0
 #define IDTXFLOW_GODOT_VERSION_MINOR 6
-#define IDTXFLOW_GODOT_VERSION_PATCH 0
+#define IDTXFLOW_GODOT_VERSION_PATCH 1
 
 /**
  * Encode version as a single integer for easy comparison.
  * Usage:
- *   #if IDTXFLOW_GODOT_VERSION >= IDTXFLOW_GODOT_MAKE_VERSION(0, 1, 0)
+ *   #if IDTXFLOW_GODOT_VERSION >= IDTXFLOW_GODOT_MAKE_VERSION(0, 6, 1)
  */
 #define IDTXFLOW_GODOT_MAKE_VERSION(major, minor, patch) ((major) * 10000 + (minor) * 100 + (patch))
 
