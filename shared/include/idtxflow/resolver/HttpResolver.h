@@ -79,6 +79,7 @@
 #include <pxr/usd/ar/filesystemWritableAsset.h>
 
 #include "HttpAssetCache.h"
+#include "UrlCanonical.h"
 #include <idtxflow/utils/Logger.h>
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -155,15 +156,18 @@ class UsdHttpAssetResolver : public ArResolver
      */
     static inline void EvictFromCache(const std::string& url)
     {
+        // The cache is keyed by layer identifier, so any spelling of the URL
+        // evicts the one entry.
+        const std::string key = idtxflow::resolver::CanonicalUrl(url);
         std::lock_guard lock(ConfigMutex());
         if (EvictFunction())
         {
-            EvictFunction()(url);
+            EvictFunction()(key);
             return;
         }
         if (Cache())
         {
-            Cache()->Evict(url);
+            Cache()->Evict(key);
         }
     }
 
@@ -197,12 +201,12 @@ class UsdHttpAssetResolver : public ArResolver
 
     std::string _CreateIdentifier(const std::string& assetPath, const ArResolvedPath& anchorAssetPath) const override
     {
-        // HTTP(S) URLs are already absolute; normalised like resolved relative
-        // paths, so one file has one identifier (and one cache entry) however a
-        // reference spelled it ("./a.usda", "dir/../a.usda").
+        // HTTP(S) URLs are already absolute; canonicalised like resolved
+        // relative paths, so one file has one identifier (and one cache entry)
+        // however a reference spelled it ("./a.usda", "my%20a.usda").
         if (IsHttpUrl(assetPath))
         {
-            return NormalizeUrlPath(assetPath);
+            return idtxflow::resolver::CanonicalUrl(assetPath);
         }
 
         // If the asset path is relative and the anchor is an HTTP URL, resolve relative to it
@@ -232,7 +236,9 @@ class UsdHttpAssetResolver : public ArResolver
         // IMPORTANT: Return the HTTP URL as the resolved path.
         // This keeps the http/https scheme in the resolved path, which ensures that
         // OpenUSD routes _OpenAsset() back to THIS resolver (scheme-based dispatch).
-        return ArResolvedPath(assetPath);
+        // Canonical as well, for a caller that resolves without creating an
+        // identifier first: the resolved path is the URL fetched and cached.
+        return ArResolvedPath(idtxflow::resolver::CanonicalUrl(assetPath));
     }
 
     ArResolvedPath _ResolveForNewAsset(const std::string& assetPath) const override
@@ -312,36 +318,11 @@ class UsdHttpAssetResolver : public ArResolver
             // Replace everything after the last '/' with the relative path
             std::string resolved = base_url.substr(0, last_slash + 1) + relative_path;
 
-            // Simple normalization: resolve "./" and "../" segments
-            return NormalizeUrlPath(resolved);
+            return idtxflow::resolver::CanonicalUrl(resolved);
         }
 
         // Base URL has no path beyond the host — append relative path
-        return base_url + "/" + relative_path;
-    }
-
-    /**
-     * Normalize a URL path by resolving "." and ".." segments.
-     */
-    static inline std::string NormalizeUrlPath(const std::string& url)
-    {
-        auto scheme_end = url.find("://");
-        if (scheme_end == std::string::npos)
-        {
-            return url;
-        }
-
-        auto host_start = scheme_end + 3;
-        auto path_start = url.find('/', host_start);
-        if (path_start == std::string::npos)
-        {
-            return url;
-        }
-
-        std::string prefix = url.substr(0, path_start);
-        std::string path = url.substr(path_start);
-
-        return prefix + std::filesystem::path(path).lexically_normal().generic_string();
+        return idtxflow::resolver::CanonicalUrl(base_url + "/" + relative_path);
     }
 
     // -------------------------------------------------------------------

@@ -40,17 +40,20 @@ std::string RestClient::ws_base_url() const
 
 std::string RestClient::download_url(const std::string& usd_file) const
 {
-    return http_->base_url() + "/api/v1/download/" + usd_file;
+    // Encoded like the resolver spells layer identifiers, so the stage URL is
+    // valid on the wire (a raw space ends the request target) and names the
+    // same cache entry as a reference to the file.
+    return http_->base_url() + "/api/v1/download/" + url_encode(usd_file, /*keep_slash=*/true);
 }
 
-std::string RestClient::url_encode(const std::string& s)
+std::string RestClient::url_encode(const std::string& s, bool keep_slash)
 {
     static const char* hex = "0123456789ABCDEF";
     std::string out;
     out.reserve(s.size() * 3);
     for (unsigned char c: s)
     {
-        if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~')
+        if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~' || (keep_slash && c == '/'))
         {
             out.push_back(static_cast<char>(c));
         }
@@ -143,7 +146,7 @@ void RestClient::fetch_thumbnail(const std::string& usd_file, ThumbnailCb on_ok,
 
     ports::IHttpTransport::Request req;
     req.method = "GET";
-    req.endpoint = "/api/v1/thumbnail/" + usd_file;
+    req.endpoint = "/api/v1/thumbnail/" + url_encode(usd_file, /*keep_slash=*/true);
     if (!attach_auth(req, on_err)) return;
     IDTX_LOG(IDTX_DEBUG, "thumbnail cache miss -> GET {}", req.endpoint);
 
@@ -358,7 +361,7 @@ void RestClient::check_download_exists(const std::string& usd_file, ExistsCb on_
 {
     ports::IHttpTransport::Request req;
     req.method = "HEAD";
-    req.endpoint = "/api/v1/download/" + usd_file;
+    req.endpoint = "/api/v1/download/" + url_encode(usd_file, /*keep_slash=*/true);
     if (!attach_auth(req, on_err)) return;
 
     http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp) {
@@ -387,7 +390,7 @@ void RestClient::check_thumbnail_exists(const std::string& usd_file, ExistsCb on
 {
     ports::IHttpTransport::Request req;
     req.method = "HEAD";
-    req.endpoint = "/api/v1/thumbnail/" + usd_file;
+    req.endpoint = "/api/v1/thumbnail/" + url_encode(usd_file, /*keep_slash=*/true);
     if (!attach_auth(req, on_err)) return;
 
     http_->request_async(req, [this, on_ok, on_err](const ports::IHttpTransport::Response& resp) {
