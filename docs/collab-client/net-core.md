@@ -131,8 +131,12 @@ Its public surface, by area:
   `snapshot_complete`, and from then on ignores the session's stage frames (they are
   neither applied, buffered, nor counted towards the base), then reports
   `on_layer_reloaded(session_id, usd_path, file_url)`. The host evicts the file from
-  the HTTP cache, releases every stage node that uses it (nested ones first), reloads
-  them, and calls `reload_complete` once all have finished. The engine then sends a
+  the HTTP cache and finds the stage nodes that use it by the URL's canonical spelling
+  (`idtxflow::resolver::CanonicalUrl`, which the resolver also gives every HTTP layer
+  identifier and cache key), so a reference that spells the file differently
+  (`./a.usda`, `my%20a.usda`) is still matched. It releases those nodes (nested ones
+  first), reloads them, and calls `reload_complete` once all have finished. The engine
+  then sends a
   `SnapshotRequest` and re-arms only on the `SnapshotComplete` that echoes that
   request's id: the re-fetched file plus that snapshot supersede every frame it
   ignored. A further `LayerReloaded` during the rebuild is reported the same way; the

@@ -6,8 +6,6 @@
 #include <godot_cpp/variant/callable_method_pointer.hpp>
 
 #include <algorithm>
-#include <cctype>
-#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -19,6 +17,7 @@
 #include "stage_ops/TransformCodec.h"
 #include <idtxflow/net/CollabComposition.h>
 #include <idtxflow/net/ports/IStageBridge.h>
+#include <idtxflow/resolver/UrlCanonical.h>
 
 using namespace godot;
 
@@ -26,44 +25,15 @@ namespace gxform = idtxflow::collab::xform;
 
 namespace
 {
-// A URL in one comparable spelling: percent-decoded and with "." / ".." path
-// segments and repeated separators removed, like the resolver normalises the
-// identifiers of the layers it loads. Lets a server-sent download URL match a
-// layer whose reference was spelled differently.
-std::string canonical_url(const std::string& url)
-{
-    std::string decoded;
-    decoded.reserve(url.size());
-    for (std::size_t i = 0; i < url.size(); ++i)
-    {
-        if (url[i] == '%' && i + 2 < url.size() && std::isxdigit(static_cast<unsigned char>(url[i + 1]))
-            && std::isxdigit(static_cast<unsigned char>(url[i + 2])))
-        {
-            decoded.push_back(static_cast<char>(std::stoi(url.substr(i + 1, 2), nullptr, 16)));
-            i += 2;
-        }
-        else
-        {
-            decoded.push_back(url[i]);
-        }
-    }
-
-    const std::size_t scheme_end = decoded.find("://");
-    if (scheme_end == std::string::npos) return decoded;
-    const std::size_t path_start = decoded.find('/', scheme_end + 3);
-    if (path_start == std::string::npos) return decoded;
-    return decoded.substr(0, path_start)
-         + std::filesystem::path(decoded.substr(path_start)).lexically_normal().generic_string();
-}
-
 // Whether @p stage composes the layer at @p canonical (root, sublayer,
-// reference or payload).
+// reference or payload). Compared in the spelling the resolver gives layer
+// identifiers, so a server-sent URL matches however a reference spelled it.
 bool stage_uses(const pxr::UsdStageRefPtr& stage, const std::string& canonical)
 {
     if (!stage) return false;
     for (const pxr::SdfLayerHandle& layer: stage->GetUsedLayers())
     {
-        if (layer && canonical_url(layer->GetIdentifier()) == canonical) return true;
+        if (layer && idtxflow::resolver::CanonicalUrl(layer->GetIdentifier()) == canonical) return true;
     }
     return false;
 }
@@ -676,7 +646,7 @@ void IdtxClient::on_layer_reloaded(const std::string& session_id, const std::str
     UsdStageNode3D::evict_http_cache_entry(String(file_url.c_str()));
 
     ReloadState& state = reloads_[session_id];
-    const std::string wanted = canonical_url(file_url);
+    const std::string wanted = idtxflow::resolver::CanonicalUrl(file_url);
 
     // The session's stage nodes that compose the file: its root node, which
     // references or sublayers it, or is it, and nested payload stages, which
