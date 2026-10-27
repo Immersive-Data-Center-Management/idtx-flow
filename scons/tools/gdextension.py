@@ -208,7 +208,7 @@ def _build_extension(env):
 
     # Stash for the SDK composer
     env["gdextension_lib"]           = library_basename
-    env["gdextension_lib_filename"]  = library_full
+    env["gdextension_lib_filename"]  = profile.static_lib_filename(library_basename) if platform.is_windows else profile.shared_lib_filename(library_basename)
     env["gdextension_lib_dir"]       = os.path.abspath(build_dir)
     env["gdextension_library_node"]  = library
 

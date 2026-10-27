@@ -131,22 +131,34 @@ void UsdRestDatasourceNode3D::_process(double delta)
     args->body = body;
 
     if (!authorization.empty()) args->extraHeaders.insert({"Authorization", authorization});
+    /*IDTX_LOG(IDTX_DEBUG, "RestDataSource '{}' call to url '{}' with{} authorization",
+        get_name().to_camel_case().ascii().get_data(),
+        url,
+        authorization.empty() ? "out" : ""
+    );*/
     if (!http_client_.performRequest(args, [state, generation, url](const ix::HttpResponsePtr& response) {
             state->request_in_flight.store(false);
             if (!state->accepting_results.load() || state->generation.load() != generation) return;
 
             if (!response || response->statusCode < 200 || response->statusCode >= 300)
             {
-                IDTX_LOG(IDTX_WARN, "REST request failed for '{}' (HTTP {})", url, response ? response->statusCode : 0);
+                IDTX_LOG(IDTX_WARN, "REST request failed for '{}' (HTTP {}) - response '{}'",
+                    url,
+                    response ? response->statusCode : 0,
+                    response ? response->body : "empty"
+                );
                 return;
             }
             auto bridge = state->bridge.lock();
             if (!bridge) return;
 
+            auto response_body = std::string(response->body);
             idtxflow::exec::StageAttributeUpdate update{state->prim_path, state->attribute_name,
-                                                        pxr::VtValue(std::string(response->body)), generation, "rest"};
+                                                        pxr::VtValue(response_body), generation, "rest"};
             if (!bridge->EnqueueAttributeUpdate(std::move(update)))
                 IDTX_LOG(IDTX_DEBUG, "REST update rejected for '{}'", url);
+            /*else
+                IDTX_LOG(IDTX_DEBUG, "REST response for '{}' enqueued for stage update", name);*/
         }))
     {
         state->request_in_flight.store(false);
@@ -156,13 +168,22 @@ void UsdRestDatasourceNode3D::_process(double delta)
 
 void UsdRestDatasourceNode3D::OnComputeComplete(const std::vector<ExecComputeResult>& results)
 {
+    /*IDTX_LOG(IDTX_DEBUG, "RestDataSource '{}' recieved new computed values",
+        get_name().to_camel_case().ascii().get_data()
+    );*/
     std::lock_guard<std::mutex> lock(state_mutex_);
     for (const auto& result: results)
     {
         if (result.primAttribute == "authorization" && result.value.IsHolding<std::string>())
+        {
+            //IDTX_LOG(IDTX_DEBUG, "New authorization token");
             authorization_header_ = result.value.Get<std::string>();
+        }
         if (result.primAttribute == "jsonBody" && result.value.IsHolding<std::string>())
+        {
+            //IDTX_LOG(IDTX_DEBUG, "New request nody");
             json_body_ = result.value.Get<std::string>();
+        }
     }
 }
 

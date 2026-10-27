@@ -158,8 +158,6 @@ void StageBridge::_on_objects_changed(const pxr::UsdNotice::ObjectsChanged& noti
     // Ignore changes we are authoring ourselves (loopback suppression). The
     // engine owns the remote/armed gating; this bridge only reports genuine,
     // externally-triggered stage changes for tracked prims.
-    IDTX_LOG(IDTX_DEBUG, "[trace] C _on_objects_changed fired: suppress={} has_on_changed={}", suppress_broadcast_,
-             on_changed_ != nullptr);
     if (suppress_broadcast_) return;
     if (!on_changed_) return;
     // Ignore notices arriving while the stage is being released.
@@ -173,8 +171,7 @@ void StageBridge::_on_objects_changed(const pxr::UsdNotice::ObjectsChanged& noti
     auto consider = [&](const pxr::SdfPath& path) {
         const pxr::SdfPath prim_path = path.IsPropertyPath() ? path.GetPrimPath() : path;
         const std::string key = prim_path.GetString();
-        const bool is_tracked = tracked_.find(key) != tracked_.end();
-        IDTX_LOG(IDTX_DEBUG, "[trace] C consider path='{}' key='{}' tracked={}", path.GetString(), key, is_tracked);
+        const bool is_tracked = tracked_.find(key) != tracked_.end();        
         if (tracked_.find(key) == tracked_.end()) return;
         if (!reported.insert(key).second) return;
 

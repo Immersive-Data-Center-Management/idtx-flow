@@ -846,6 +846,35 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertPrimPo
     // TODO: check if required, as all nodes converted from an usdPrim implement IUsdNode3D
     converted_prim->set_meta("USD_NODE", true);
 
+    // use the prims custom data and store it as metadata to the node
+    for (const auto& customData : usd_prim.GetCustomData())
+    {
+        if (customData.second.IsHolding<std::string>())
+        {
+            converted_prim->set_meta(customData.first.c_str(),customData.second.Get<std::string>().c_str());
+        } else if (customData.second.IsHolding<pxr::VtDictionary>())
+        {
+            pxr::VtDictionary dict = customData.second.Get<pxr::VtDictionary>();
+            for (const auto& entry : dict)
+            {
+                if (entry.second.IsHolding<std::string>())
+                {
+                    converted_prim->set_meta((customData.first + "__" + entry.first).c_str(),entry.second.Get<std::string>().c_str());
+                } else if (entry.second.IsHolding<pxr::VtDictionary>())
+                {
+                    pxr::VtDictionary dict2 = entry.second.Get<pxr::VtDictionary>();
+                    for (const auto& entry2 : dict2)
+                    {
+                        if (entry2.second.IsHolding<std::string>())
+                        {
+                            converted_prim->set_meta((customData.first + "__" + entry.first +  "__" + entry2.first).c_str(),entry2.second.Get<std::string>().c_str());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // store data in the shared IUsdNode3D class
     IUsdNode3D* usd_node = IUsdNode3D::from_node(converted_prim);
     // it is an implementation error if the node we convert into does not implement IUsdNode3D

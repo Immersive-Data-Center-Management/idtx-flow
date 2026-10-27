@@ -5,20 +5,14 @@ compatibility_minimum = "4.5"
 
 [libraries]
 ; Relative paths ensure that our GDExtension can be placed anywhere in the project directory.
-windows.arm64.single.debug = "./bin/windows/libidtxflow.windows.template_debug.arm64.dll"
-windows.arm64.double.debug = "./bin/windows/libidtxflow.windows.template_debug.arm64.double.dll"
-windows.arm64.single.release = "./bin/windows/libidtxflow.windows.template_release.arm64.dll"
-windows.arm64.double.release = "./bin/windows/libidtxflow.windows.template_release.arm64.double.dll"
+windows.arm64.debug = "./bin/windows/idtxflow.windows.template_debug.arm64.dll"
+windows.arm64.release = "./bin/windows/idtxflow.windows.template_release.arm64.dll"
 
-windows.x86_64.single.debug = "./bin/windows/libidtxflow.windows.template_debug.x86_64.dll"
-windows.x86_64.double.debug = "./bin/windows/libidtxflow.windows.template_debug.x86_64.double.dll"
-windows.x86_64.single.release = "./bin/windows/libidtxflow.windows.template_release.x86_64.dll"
-windows.x86_64.double.release = "./bin/windows/libidtxflow.windows.template_release.x86_64.double.dll"
+windows.x86_64.debug = "./bin/windows/idtxflow.windows.template_debug.x86_64.dll"
+windows.x86_64.release = "./bin/windows/idtxflow.windows.template_release.x86_64.dll"
 
-macos.arm64.single.debug = "./bin/macos/libidtxflow.macos.template_debug.arm64.dylib"
-macos.arm64.double.debug = "./bin/macos/libidtxflow.macos.template_debug.arm64.double.dylib"
-macos.arm64.single.release = "./bin/macos/libidtxflow.macos.template_release.arm64.dylib"
-macos.arm64.double.release = "./bin/macos/libidtxflow.macos.template_release.arm64.double.dylib"
+macos.arm64.debug = "./bin/macos/libidtxflow.macos.template_debug.arm64.dylib"
+macos.arm64.release = "./bin/macos/libidtxflow.macos.template_release.arm64.dylib"
 
 android.arm64.debug = "./bin/android/libidtxflow.android.template_debug.arm64.so"
 android.arm64.release = "./bin/android/libidtxflow.android.template_release.arm64.so"

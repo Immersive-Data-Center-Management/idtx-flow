@@ -31,6 +31,7 @@
 #include <pxr/usd/usd/stage.h>
 #include <pxr/usd/usd/attribute.h>
 #include <pxr/usd/usd/timeCode.h>
+#include <pxr/usd/usd/editContext.h>
 #include <pxr/exec/execUsd/system.h>
 #include <pxr/exec/execUsd/valueKey.h>
 #include <pxr/exec/execUsd/request.h>
@@ -114,6 +115,11 @@ class ExecBridge
         if (GetLifecycle() != ExecBridgeLifecycle::Active || update.prim_path.IsEmpty() ||
             update.attribute_name.IsEmpty() || update.value.IsEmpty())
         {
+            /*IDTX_LOG(IDTX_DEBUG, "EnqueueAttributeUpdate rejected (lifecycle={}, pathEmpty={}, attrEmpty={}, valEmpty={}) for '{}.{}'",
+                (int)GetLifecycle(),
+                update.prim_path.IsEmpty(), update.attribute_name.IsEmpty(), update.value.IsEmpty(),
+                update.prim_path.GetText(), update.attribute_name.GetText()
+            );*/
             rejected_updates_.fetch_add(1);
             return false;
         }
@@ -139,6 +145,9 @@ class ExecBridge
         pending_update_order_.push_back(key);
         pending_updates_.emplace(key, std::move(update));
         accepted_updates_.fetch_add(1);
+        
+        /*IDTX_LOG(IDTX_DEBUG, "EnqueueAttributeUpdate accepted for '{}.{}'",
+            update.prim_path.GetText(), update.attribute_name.GetText());*/
         return true;
     }
 
@@ -181,8 +190,8 @@ class ExecBridge
             attribute.GetPrimPath(),
         });
 
-        IDTX_LOG(IDTX_DEBUG, "AddValueKeyFromConnection: resolved connection '{}' -> prim '{}', computation '{}'",
-                 attribute.GetPath().GetText(), primPath.GetText(), propName);
+        /*IDTX_LOG(IDTX_DEBUG, "AddValueKeyFromConnection: resolved connection '{}' -> prim '{}', computation '{}'",
+                 attribute.GetPath().GetText(), primPath.GetText(), propName);*/
 
         return index;
     }
@@ -206,7 +215,7 @@ class ExecBridge
         // for the time being we only note down how many values have been invalidated and will be re-calculated
         auto invalidation_callback = [&](const pxr::ExecRequestIndexSet& indices,
                                          const pxr::EfTimeInterval& /* timeInterval*/) {
-            // IDTX_LOG(IDTX_DEBUG, "Invalidation Callback with {} indices called", indices.size());
+            //(IDTX_DEBUG, "Invalidation Callback with {} indices called", indices.size());
         };
         exec_request_ = std::make_unique<pxr::ExecUsdRequest>(
             exec_system_->BuildRequest(std::move(exec_value_keys_), invalidation_callback));
@@ -262,7 +271,18 @@ class ExecBridge
         // is irrelevant to our providers (they read wall-clock/host state directly); all that matters
         // is that the time changes each cycle so Exec performs its time-based invalidation. Advancing
         // by a whole frame each tick keeps the values distinct and avoids any floating point stalling.
-        exec_time_frame_ += 1.0;
+        // Running an update of the computation invalidation for time based computations each fime might
+        // impact the performance if many of them exist. Thus keeping those updated only every second.
+        if (exec_time_frame_ < 1.0)
+        {
+            exec_timestamp_ = std::chrono::steady_clock::now();
+            exec_time_frame_ += 1.0;
+        } else if (std::chrono::steady_clock::now() - exec_timestamp_ >= std::chrono::seconds(1))
+        {
+            exec_timestamp_ = std::chrono::steady_clock::now();
+            exec_time_frame_ += 1.0;
+        }
+        
         exec_system_->ChangeTime(pxr::UsdTimeCode(exec_time_frame_));
 
         // Run the Exec computation.
@@ -288,9 +308,9 @@ class ExecBridge
             metadata.lastComputedValue = computedValue;
 
             // Keep this code commented for easy re-activation if error analysis is required.
-            // IDTX_LOG(IDTX_DEBUG, "Compute result of Attribute {} using Computation {} = {}",
-            //     metadata.attributePath.GetText(), metadata.computationName.GetText(),
-            //     pxr::TfStringify(computedValue).c_str());
+            /*IDTX_LOG(IDTX_DEBUG, "Compute result of Attribute {} using Computation {} = {}",
+                metadata.attributePath.GetText(), metadata.computationName.GetText(),
+                pxr::TfStringify(computedValue).c_str());*/
 
             ExecComputeResult result = {metadata.attributePath.GetPrimPath(), metadata.attributePath.GetName(),
                                         metadata.computationName, computedValue, static_cast<int>(i)};
@@ -321,6 +341,7 @@ class ExecBridge
         std::vector<StageAttributeUpdate> updates;
         {
             std::lock_guard<std::mutex> lock(queue_mutex_);
+            //IDTX_LOG(IDTX_DEBUG, "ApplyPendingUpdates - applying {} updates.", pending_update_order_.size());
             for (const auto& key: pending_update_order_)
             {
                 auto it = pending_updates_.find(key);
@@ -329,21 +350,40 @@ class ExecBridge
             pending_updates_.clear();
             pending_update_order_.clear();
         }
-        for (const auto& update: updates)
+        if (updates.size() > 0)
         {
-            pxr::UsdPrim prim = stage_->GetPrimAtPath(update.prim_path);
-            pxr::UsdAttribute attribute = prim ? prim.GetAttribute(update.attribute_name) : pxr::UsdAttribute();
-            const pxr::TfToken type = attribute ? attribute.GetTypeName().GetAsToken() : pxr::TfToken();
-            const bool compatible =
-                attribute && ((type == pxr::TfToken("string") && update.value.IsHolding<std::string>()) ||
-                              (type == pxr::TfToken("float") && update.value.IsHolding<float>()) ||
-                              (type == pxr::TfToken("double") && update.value.IsHolding<double>()));
-            if (!compatible || !attribute.Set(update.value))
+            for (const auto& update: updates)
             {
-                failed_updates_.fetch_add(1);
-                continue;
+                pxr::UsdPrim prim = stage_->GetPrimAtPath(update.prim_path);
+                pxr::UsdAttribute attribute = prim ? prim.GetAttribute(update.attribute_name) : pxr::UsdAttribute();
+                const pxr::TfToken type = attribute ? attribute.GetTypeName().GetAsToken() : pxr::TfToken();
+                /*IDTX_LOG(IDTX_DEBUG, "ApplyPendingUpdates: processing '{}.{}' (type='{}', valueHolding='{}')",
+                    update.prim_path.GetText(), update.attribute_name.GetText(),
+                    type.GetText(), update.value.GetTypeName()
+                );*/
+                const bool compatible =
+                    attribute && ((type == pxr::TfToken("string") && update.value.IsHolding<std::string>()) ||
+                                  (type == pxr::TfToken("float") && update.value.IsHolding<float>()) ||
+                                  (type == pxr::TfToken("double") && update.value.IsHolding<double>()));
+                // all changes shall target the stage session layer, never the root layer.
+                pxr::UsdEditContext edit_ctx(stage_, stage_->GetSessionLayer());
+                if (!compatible || !attribute.Set(update.value))
+                {
+                    /*IDTX_LOG(IDTX_WARN, "ApplyPendingUpdates -  Incompatible attribute type '{}' or update failed for prim '{}' and attribute '{}'.",
+                        type.GetText(),
+                        update.prim_path.GetText(),
+                        update.attribute_name.GetText()
+                    );*/
+                    failed_updates_.fetch_add(1);
+                    continue;
+                } else
+                {
+                    /*IDTX_LOG(IDTX_DEBUG, "ApplyPendingUpdates: OK wrote '{}.{}'",
+                        update.prim_path.GetText(), update.attribute_name.GetText()
+                    );*/
+                }
+                applied_updates_.fetch_add(1);
             }
-            applied_updates_.fetch_add(1);
         }
     }
 
@@ -391,6 +431,7 @@ class ExecBridge
     // e.g. Compute_VarReplacements) are re-run each cycle. Its absolute value carries no meaning
     // for our providers; it only needs to change monotonically so Exec sees a new time each tick.
     double exec_time_frame_ = 0.0;
+    std::chrono::steady_clock::time_point exec_timestamp_;
 
   private:
     // disallow copy construct on the ExecBridge
@@ -472,7 +513,9 @@ class ExecBridgeManager
      */
     void ActivateBridge(std::shared_ptr<ExecBridge> bridge)
     {
-        if (!bridge || bridge->GetLifecycle() != ExecBridgeLifecycle::Created) return;
+        if (!bridge || bridge->GetLifecycle() != ExecBridgeLifecycle::Created){
+            return;
+        }
         bridge->BuildRequest();
         if (!bridge->Activate()) return;
         std::lock_guard<std::mutex> lock(activation_mutex_);
@@ -542,6 +585,8 @@ class ExecBridgeManager
     std::atomic<bool> cancelled_{false};
     std::vector<std::shared_ptr<ExecBridge>> active_bridges_;
     mutable std::mutex activation_mutex_;
+
+    IDTX_LOG_CATEGORY("ExecBridgeManager");
 };
 } // namespace exec
 } // namespace idtxflow
