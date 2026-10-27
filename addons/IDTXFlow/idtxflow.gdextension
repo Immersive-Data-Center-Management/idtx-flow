@@ -39,6 +39,16 @@ windows.arm64 = {
     "./bin/windows/arm64/nv_openimageio.dll":""
 }
 
+macos.arm64 = {
+    "./bin/macos/arm64/tbb12.dylib":"",
+    "./bin/macos/arm64/usd_ms.dylib":"",
+    "./bin/macos/arm64/idtx_usd.dylib":"",
+    "./bin/macos/arm64/libmdl_core.dylib":"",
+    "./bin/macos/arm64/libmdl_sdk.dylib":"",
+    "./bin/macos/arm64/mdl_distiller.dylib":"",
+    "./bin/macos/arm64/nv_openimageio.dylib":""
+}
+
 android.arm64 = {
     "./bin/android/arm64/libtbb.so":"",
     "./bin/android/arm64/libusd_ms.so":"",

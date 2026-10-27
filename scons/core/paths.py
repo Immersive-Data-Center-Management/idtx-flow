@@ -86,9 +86,10 @@ class BuildPaths:
     def addon_install(self) -> str:
         return f"addons/IDTXFlow/bin/{self.platform.name}/{self.platform.arch}"
 
+
     @property
     def addon_plugin_install(self) -> str:
-        return "addons/IDTXFlow/bin/plugin/usd"
+        return f"addons/IDTXFlow/bin/{self.platform.name}/plugin/usd"
 
     @property
     def sdk_root(self) -> str:
