@@ -80,11 +80,11 @@ class BuildPaths:
     # ---- IDTX build / install / SDK output ---------------------------------
     @property
     def gdext_build(self) -> str:
-        return f"build/IDTXFlow/bin/{self.platform.name}"
+        return f"build/IDTXFlow/bin/{self.platform.name}/{self.platform.arch}"
 
     @property
     def addon_install(self) -> str:
-        return f"addons/IDTXFlow/bin/{self.platform.name}"
+        return f"addons/IDTXFlow/bin/{self.platform.name}/{self.platform.arch}"
 
     @property
     def addon_plugin_install(self) -> str:
@@ -100,7 +100,7 @@ class BuildPaths:
 
     @property
     def sdk_libs(self) -> str:
-        return f"{self.sdk_root}/lib"
+        return f"{self.sdk_root}/lib/{self.platform.name}/{self.platform.arch}"
 
     @property
     def usd_ext_root(self) -> str:
@@ -108,11 +108,11 @@ class BuildPaths:
 
     @property
     def usd_ext_build(self) -> str:
-        return f"{self.usd_ext_root}/build/{self.platform.name}"
+        return f"{self.usd_ext_root}/build/{self.platform.name}/{self.platform.arch}"
 
     @property
     def usd_ext_libs(self) -> str:
-        return f"{self.usd_ext_root}/libs/{self.platform.name}"
+        return f"{self.usd_ext_root}/libs/{self.platform.name}/{self.platform.arch}"
 
     @property
     def usd_ext_include(self) -> str:

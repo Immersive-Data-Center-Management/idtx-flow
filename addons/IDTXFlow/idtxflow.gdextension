@@ -5,22 +5,42 @@ compatibility_minimum = "4.5"
 
 [libraries]
 ; Relative paths ensure that our GDExtension can be placed anywhere in the project directory.
-windows.arm64.debug = "./bin/windows/idtxflow.windows.template_debug.arm64.dll"
-windows.arm64.release = "./bin/windows/idtxflow.windows.template_release.arm64.dll"
+windows.arm64.debug = "./bin/windows/arm64/idtxflow.windows.template_debug.arm64.dll"
+windows.arm64.release = "./bin/windows/arm64/idtxflow.windows.template_release.arm64.dll"
 
-windows.x86_64.debug = "./bin/windows/idtxflow.windows.template_debug.x86_64.dll"
-windows.x86_64.release = "./bin/windows/idtxflow.windows.template_release.x86_64.dll"
+windows.x86_64.debug = "./bin/windows/x86_64/idtxflow.windows.template_debug.x86_64.dll"
+windows.x86_64.release = "./bin/windows/x86_64/idtxflow.windows.template_release.x86_64.dll"
 
-macos.arm64.debug = "./bin/macos/libidtxflow.macos.template_debug.arm64.dylib"
-macos.arm64.release = "./bin/macos/libidtxflow.macos.template_release.arm64.dylib"
+macos.arm64.debug = "./bin/macos/arm64/libidtxflow.macos.template_debug.arm64.dylib"
+macos.arm64.release = "./bin/macos/arm64/libidtxflow.macos.template_release.arm64.dylib"
 
-android.arm64.debug = "./bin/android/libidtxflow.android.template_debug.arm64.so"
-android.arm64.release = "./bin/android/libidtxflow.android.template_release.arm64.so"
+android.arm64.debug = "./bin/android/arm64/libidtxflow.android.template_debug.arm64.so"
+android.arm64.release = "./bin/android/arm64/libidtxflow.android.template_release.arm64.so"
 
 [dependencies]
 
+windows.x86_64 = {
+    "./bin/windows/x86_64/tbb12.dll":"",
+    "./bin/windows/x86_64/usd_ms.dll":"",
+    "./bin/windows/x86_64/idtx_usd.dll":"",
+    "./bin/windows/x86_64/libmdl_core.dll":"",
+    "./bin/windows/x86_64/libmdl_sdk.dll":"",
+    "./bin/windows/x86_64/mdl_distiller.dll":"",
+    "./bin/windows/x86_64/nv_openimageio.dll":""
+}
+
+windows.arm64 = {
+    "./bin/windows/arm64/tbb12.dll":"",
+    "./bin/windows/arm64/usd_ms.dll":"",
+    "./bin/windows/arm64/idtx_usd.dll":"",
+    "./bin/windows/arm64/libmdl_core.dll":"",
+    "./bin/windows/arm64/libmdl_sdk.dll":"",
+    "./bin/windows/arm64/mdl_distiller.dll":"",
+    "./bin/windows/arm64/nv_openimageio.dll":""
+}
+
 android.arm64 = {
-    "./bin/android/libtbb.so":"",
-    "./bin/android/libusd_ms.so":"",
-    "./bin/android/libidtx_usd.so":""
+    "./bin/android/arm64/libtbb.so":"",
+    "./bin/android/arm64/libusd_ms.so":"",
+    "./bin/android/arm64/libidtx_usd.so":""
 }
