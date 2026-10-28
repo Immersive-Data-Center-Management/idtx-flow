@@ -14,6 +14,7 @@
 #include <idtxflow/resolver/HttpResolver.h>
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
 #include <idtxflow/exec/ExecBridgeManager.h>
+#include <idtxflow/async/IxHttpClientPool.h>
 #include <idtxflow/net/CollabComposition.h>
 #include <idtxflow/net/adapters/transport/ix/IxTransportFactory.h>
 
@@ -204,6 +205,11 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level)
     // Run the openExec computation bridge
     idtxflow::exec::ExecBridgeManager::Instance().Start();
 
+    // Eagerly create the shared HTTP client pool so its bounded set of worker threads
+    // exists from init on. REST datasource nodes submit async requests into this one
+    // pool instead of each owning a private async client (one thread per node).
+    idtxflow::async::IxHttpClientPool::Instance();
+
     IDTX_LOGF(IDTX_INFO, "GDExtension initialized");
 }
 
@@ -216,6 +222,11 @@ void uninitialize_idtxflow_module(ModuleInitializationLevel p_level)
 
     // Stop the openExec computation bridge
     idtxflow::exec::ExecBridgeManager::Instance().Cancel();
+
+    // Drain and join the shared HTTP client pool's worker threads before the module is
+    // torn down, so no in-flight request outlives the logger / DLL (mirrors the
+    // ExecBridgeManager::Cancel() ordering above).
+    idtxflow::async::IxHttpClientPool::Instance().Shutdown();
 
     // Tear down and free the collaboration singleton created at init.
     if (IdtxClient* idtx_client = IdtxClient::get_singleton())

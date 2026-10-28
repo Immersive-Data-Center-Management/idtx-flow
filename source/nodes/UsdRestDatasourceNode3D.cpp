@@ -1,7 +1,7 @@
 #include "UsdRestDatasourceNode3D.h"
 
 #include <idtx/tokens.h>
-#include <idtxflow/net/adapters/transport/ix/IxTlsDefaults.h>
+#include <idtxflow/async/IxHttpClientPool.h>
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
 
 using namespace godot;
@@ -70,12 +70,6 @@ void UsdRestDatasourceNode3D::_enter_tree()
 {
     Node3D::_enter_tree();
 
-    // Platform-aware CA selection, mirroring IxHttpTransport: "SYSTEM" on desktop
-    // (OS trust store) and "NONE" on Android, where IXWebSocket's MbedTLS backend
-    // cannot resolve "SYSTEM" (loadSystemCertificates() is Windows-only) and would
-    // otherwise fail the TLS handshake before any request — surfacing as HTTP 0.
-    tls_options_.caFile = idtxflow::net::adapters::default_ca_file();
-
     auto state = callback_state_;
     state->accepting_results.store(true);
     if (stage_node_ && stage_node_->get_stage())
@@ -121,8 +115,12 @@ void UsdRestDatasourceNode3D::_process(double delta)
     const uint64_t generation = state->generation.load();
     const std::string url = endpoint + (query.empty() ? "" : "?" + query);
 
-    http_client_.setTLSOptions(tls_options_);
-    ix::HttpRequestArgsPtr args = http_client_.createRequest(url, method);
+    // Submit onto the shared, bounded HTTP client pool instead of a per-node client.
+    // TLS is owned by the pool; the request runs on one of its worker threads and the
+    // callback fires there (the generation / accepting_results guards below make a late
+    // callback after this node left the tree a safe no-op).
+    auto& pool = idtxflow::async::IxHttpClientPool::Instance();
+    ix::HttpRequestArgsPtr args = pool.createRequest(url, method);
     args->followRedirects = true;
     args->maxRedirects = 5;
     args->connectTimeout = 30;
@@ -136,7 +134,7 @@ void UsdRestDatasourceNode3D::_process(double delta)
         url,
         authorization.empty() ? "out" : ""
     );*/
-    if (!http_client_.performRequest(args, [state, generation, url](const ix::HttpResponsePtr& response) {
+    if (!pool.performRequest(args, [state, generation, url](const ix::HttpResponsePtr& response) {
             state->request_in_flight.store(false);
             if (!state->accepting_results.load() || state->generation.load() != generation) return;
 

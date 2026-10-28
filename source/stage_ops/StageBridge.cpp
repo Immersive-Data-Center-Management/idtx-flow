@@ -237,6 +237,7 @@ void StageBridge::apply_remote_edit(const net::model::PrimEdit& edit)
 
 bool StageBridge::author_to_usd(const std::string& prim_path, const Transform3D& xform)
 {
+    IDTX_LOG(IDTX_INFO, "Authoring to USD requested for prim: '{}'", prim_path);
     // The stage may have been released (node left the tree) between an inbound
     // edit being queued and applied; bail rather than touch a dead stage.
     if (!stage_ || !stage_->GetRootLayer())

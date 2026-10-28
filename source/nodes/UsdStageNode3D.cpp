@@ -24,6 +24,9 @@ using namespace pxr;
 
 idtxflow::net::ports::IStageBridge* UsdStageNode3D::get_or_create_bridge()
 {
+    // TEMPORARY DISABLE ANY LIVE-SYNC to analyze spurious freeze of the main thread
+    return nullptr;
+
     if (bridge_) return bridge_.get();
     if (!get_stage()) return nullptr;
     bridge_ = std::make_unique<idtxflow::collab::StageBridge>(this, get_stage(),

@@ -6,7 +6,6 @@
 #include <mutex>
 #include <idtxflow/exec/ExecBridgeManager.h>
 
-#include <ixwebsocket/IXHttpClient.h>
 #include <idtxflow/utils/Logger.h>
 #include <idtxflow/exec/ExecBridgeHandler.h>
 #include <idtxflow_godot/nodes/IUsdNode3D.h>
@@ -52,10 +51,6 @@ class UsdRestDatasourceNode3D : public godot::Node3D, public IExecBridgeHandler,
     double time_accumulator_ = 0.0;
 
   private:
-    /// TLS options passed to IXWebSocket's HttpClient.
-    /// caFile is set platform-aware in _enter_tree() via default_ca_file(). (see IxTlsDefaults.h).
-    ix::SocketTLSOptions tls_options_;
-    ix::HttpClient http_client_ = ix::HttpClient(true); // use an async client
     // this allows us to ensure proper synchronization if the http callback would like to mutate the stage and
     // update data there. This should be queued into the ExecBridge to prevent data races.
     // openUSD does not allow concurrent stage mutations

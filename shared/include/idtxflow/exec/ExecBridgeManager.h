@@ -341,7 +341,7 @@ class ExecBridge
         std::vector<StageAttributeUpdate> updates;
         {
             std::lock_guard<std::mutex> lock(queue_mutex_);
-            //IDTX_LOG(IDTX_DEBUG, "ApplyPendingUpdates - applying {} updates.", pending_update_order_.size());
+            //IDTX_LOG(IDTX_INFO, "ApplyPendingUpdates - applying {} updates.", pending_update_order_.size());
             for (const auto& key: pending_update_order_)
             {
                 auto it = pending_updates_.find(key);
