@@ -37,6 +37,7 @@
 #include <pxr/exec/execUsd/cacheView.h>
 
 #include <idtxflow/utils/Logger.h>
+#include <idtxflow_godot/idtxflow_godot_api.h>
 
 #include "ExecBridgeHandler.h"
 #include "ExecComputeResult.h"
@@ -409,13 +410,18 @@ class ExecBridgeManager
   public:
     /**
      * Singleton Accessor
+     *
+     * Defined OUT-OF-LINE in source/exec/ExecBridgeManager.cpp and exported from
+     * libidtxflow via IDTXFLOW_GODOT_API — this is deliberate, not a style choice.
+     * A header-inline Meyers singleton (a static local in an inline method) is
+     * forced to HIDDEN visibility by godot-cpp's -fvisibility=hidden on
+     * ELF/Android, so every shared library that includes this header would get its
+     * OWN ExecBridgeManager. That breaks cross-module exec-bridge lookup. A non-inline,
+     * exported accessor lands in libidtxflow's .dynsym with default visibility, so
+     * all modules (IDTXFlow, third-party extensions) share the one instance.
      * @return The ExecBridgeManager
      */
-    static ExecBridgeManager& Instance()
-    {
-        static ExecBridgeManager instance;
-        return instance;
-    }
+    IDTXFLOW_GODOT_API static ExecBridgeManager& Instance();
 
     /**
      * Get or instantiate the execution bridge for the stage provided. To actually run a computation
