@@ -9,10 +9,14 @@ Usage in SConstruct:
     env.BuildOpenUSD(with_python_support=False)  # Set to True to include Python bindings
 """
 import os
+import platform
 import subprocess
 import shutil
 
 from SCons.Script import Exit
+
+from cross_cmake import cmake_cross_args
+from download_utils import download_file, extract_archive
 
 
 def generate(env):
@@ -45,10 +49,12 @@ def _build_open_usd(env, with_python_support=False):
             print(f"Failed to clone openUSD repo.")
             Exit(f"Build aborted due to subprocess failure (exit code: {result.returncode})")              
 
-    platform_name = env["platform_name"]
+    # the python-enabled build only runs usdGenSchema on the build machine, so it is always a host build
+    is_android = env.get('is_android', False) and not with_python_support
+    platform_name = env["platform_name"] if not with_python_support else _host_platform_name()
 
     # check if we have build the openUSD lib already
-    open_usd_build_path = open_usd_path if not with_python_support else f"{open_usd_path}-withPython"
+    open_usd_build_path = open_usd_path if not with_python_support else f"{env['OPENUSD_HOST_PATH']}-withPython"
     if platform_name == "windows":
         open_usd_lib = f"{open_usd_build_path}/lib/usd_ms.dll"
     elif platform_name == "macos":
@@ -56,7 +62,9 @@ def _build_open_usd(env, with_python_support=False):
     else:
         open_usd_lib = f"{open_usd_build_path}/lib/libusd_ms.so"
     
-    if not os.path.exists(open_usd_lib):
+    if not os.path.exists(open_usd_lib) and is_android:
+        _build_open_usd_android(env, open_usd_src_path, open_usd_build_path)
+    elif not os.path.exists(open_usd_lib):
         print("Building openUSD...")
         if os.path.exists(open_usd_build_path):
             print("Cleaning up incomplete openUSD build folder")
@@ -103,6 +111,207 @@ def _build_open_usd(env, with_python_support=False):
         if result.returncode != 0:
             print(f"Failed to build openUSD")
             Exit(f"Build aborted due to subprocess failure (exit code: {result.returncode})")        
+
+def _host_platform_name():
+    if platform.system() == "Windows":
+        return "windows"
+    if platform.system() == "Darwin":
+        return "macos"
+    return "linux"
+
+
+# Same oneTBB version OpenUSD's own build_usd.py pins.
+ONETBB_VERSION = "2021.12.0"
+ONETBB_URL = f"https://github.com/oneapi-src/oneTBB/archive/refs/tags/v{ONETBB_VERSION}.zip"
+
+
+def _run(cmd, what, env=None):
+    result = subprocess.run(cmd, cwd=os.getcwd(), env=env)
+    if result.returncode != 0:
+        Exit(f"{what} failed (exit code: {result.returncode})")
+
+
+def _cmake_build_install(build_dir, what):
+    _run(["cmake", "--build", build_dir, "--config", "Release", "--parallel"], f"{what} build")
+    # --strip: the NDK toolchain adds -g even to Release builds (libusd_ms.so would be ~570 MB)
+    _run(["cmake", "--install", build_dir, "--config", "Release", "--strip"], f"{what} install")
+
+
+def _build_tbb_android(env):
+    """Download and cross-compile oneTBB for Android (build_usd.py cannot target Android). Returns the install prefix."""
+    tbb_install_prefix = os.path.abspath(env["ONETBB_ANDROID_PATH"])
+    if os.path.isfile(os.path.join(tbb_install_prefix, "include", "oneapi", "tbb.h")):
+        print(f"oneTBB for Android already built: {tbb_install_prefix}")
+        return tbb_install_prefix
+
+    tbb_src_dir = os.path.abspath(f"thirdparty/onetbb-{ONETBB_VERSION}-src")
+    if not os.path.exists(tbb_src_dir):
+        zip_path = os.path.abspath(f"thirdparty/onetbb-{ONETBB_VERSION}.zip")
+        download_file(ONETBB_URL, zip_path, "oneTBB")
+        extract_archive(zip_path, "thirdparty")
+        os.rename(os.path.abspath(f"thirdparty/oneTBB-{ONETBB_VERSION}"), tbb_src_dir)
+        os.remove(zip_path)
+
+    tbb_build_dir = os.path.abspath(f"thirdparty/onetbb-{ONETBB_VERSION}-android-build")
+    print("Building oneTBB for Android...")
+    _run([
+        "cmake", f"-S{tbb_src_dir}", f"-B{tbb_build_dir}",
+        *cmake_cross_args(env),
+        f"-DCMAKE_INSTALL_PREFIX={tbb_install_prefix}",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DTBB_TEST=OFF",
+        "-DTBB_STRICT=OFF",
+        "-DBUILD_SHARED_LIBS=ON",
+        "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
+        # NDK 29+ ld.lld defaults to --no-undefined-version, which rejects version-script symbols that are not
+        # present (e.g. the Intel compiler symbols in lin64-tbbmalloc.def)
+        "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,--undefined-version",
+    ], "oneTBB CMake configure for Android")
+    _cmake_build_install(tbb_build_dir, "oneTBB for Android")
+    return tbb_install_prefix
+
+
+# ---------------------------------------------------------------------------
+# Android source patches  (applied temporarily, reverted after build)
+# ---------------------------------------------------------------------------
+
+# Files that need patching relative to the OpenUSD source root.
+_ANDROID_PATCH_FILES = [
+    os.path.join("pxr", "base", "arch", "align.cpp"),
+    os.path.join("pxr", "base", "arch", "daemon.cpp"),
+    os.path.join("pxr", "base", "arch", "stackTrace.cpp"),
+]
+
+def _patch_openusd_for_android(open_usd_path):
+    """Apply source patches and back up originals so they can be reverted later.
+
+    Returns a list of (original, backup) path tuples for use by the revert
+    function.  The caller **must** call ``_revert_openusd_android_patches``
+    in a finally-block to restore the originals.
+    """
+    print("Applying temporary Android patches to OpenUSD source...")
+    backup_pairs = []
+
+    for rel in _ANDROID_PATCH_FILES:
+        src = os.path.join(open_usd_path, rel)
+        bak = src + ".android_bak"
+        shutil.copy2(src, bak)
+        backup_pairs.append((src, bak))
+
+    # --- 1) align.cpp ---------------------------------------------------
+    _patch_file(os.path.join(open_usd_path, "pxr", "base", "arch", "align.cpp"), [
+        (
+            '#if defined(ARCH_OS_DARWIN) || (defined(ARCH_OS_LINUX) && defined(__GLIBCXX__) && !defined(_GLIBCXX_HAVE_ALIGNED_ALLOC))\n'
+            '    // alignment must be >= sizeof(void*)',
+            '#if defined(ARCH_OS_DARWIN) || defined(__ANDROID__) || (defined(ARCH_OS_LINUX) && defined(__GLIBCXX__) && !defined(_GLIBCXX_HAVE_ALIGNED_ALLOC))\n'
+            '    // alignment must be >= sizeof(void*)',
+        ),
+        (
+            '#if defined(ARCH_OS_DARWIN) || (defined(ARCH_OS_LINUX) && defined(__GLIBCXX__) && !defined(_GLIBCXX_HAVE_ALIGNED_ALLOC))\n'
+            '    free(ptr);',
+            '#if defined(ARCH_OS_DARWIN) || defined(__ANDROID__) || (defined(ARCH_OS_LINUX) && defined(__GLIBCXX__) && !defined(_GLIBCXX_HAVE_ALIGNED_ALLOC))\n'
+            '    free(ptr);',
+        ),
+    ])
+
+    # --- 2) daemon.cpp ---------------------------------------------------
+    _patch_file(os.path.join(open_usd_path, "pxr", "base", "arch", "daemon.cpp"), [
+        (
+            '#include <sys/param.h>',
+            '#include <sys/param.h>\n'
+            '#if defined(__ANDROID__) && !defined(NOFILE)\n'
+            '#define NOFILE 256\n'
+            '#endif',
+        ),
+    ])
+
+    # --- 3) stackTrace.cpp -----------------------------------------------
+    _patch_file(os.path.join(open_usd_path, "pxr", "base", "arch", "stackTrace.cpp"), [
+        (
+            '#if defined(ARCH_OS_LINUX)\n'
+            '     return nonLockingLinux__execve (path, argv, __environ);',
+            '#if defined(ARCH_OS_LINUX)\n'
+            '#if defined(__ANDROID__)\n'
+            '     return nonLockingLinux__execve (path, argv, environ);\n'
+            '#else\n'
+            '     return nonLockingLinux__execve (path, argv, __environ);\n'
+            '#endif',
+        ),
+    ])
+
+    print("Android patches applied (backups saved with .android_bak suffix).")
+    return backup_pairs
+
+
+def _revert_openusd_android_patches(backup_pairs):
+    """Restore original files from backups created by _patch_openusd_for_android."""
+    print("Reverting Android patches from OpenUSD source...")
+    for src, bak in backup_pairs:
+        if os.path.exists(bak):
+            shutil.move(bak, src)
+    print("OpenUSD source restored to original state.")
+
+
+def _patch_file(filepath, replacements):
+    """Apply a list of (old, new) string replacements to a file."""
+    with open(filepath, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    for old, new in replacements:
+        if old not in content:
+            Exit(f"  ERROR: Android patch pattern not found in {filepath}:\n"
+                 f"    {old[:120]}\n"
+                 f"  The OpenUSD source may have changed. Review the Android patches in openusd.py.")
+        content = content.replace(old, new, 1)
+
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write(content)
+
+
+def _build_open_usd_android(env, open_usd_path, open_usd_build_path):
+    """Cross-compile OpenUSD for Android with plain CMake + the NDK toolchain (build_usd.py has no Android target).
+
+    Temporarily patches the OpenUSD source for Android compatibility and **always** reverts the patches afterwards
+    (even on build failure).
+    """
+    print("Building openUSD for Android (cross-compilation via NDK)...")
+    tbb_root = _build_tbb_android(env)
+    cmake_build_dir = os.path.abspath(f"{open_usd_build_path}-build")
+
+    backup_pairs = _patch_openusd_for_android(open_usd_path)
+    try:
+        _run([
+            "cmake", f"-S{os.path.abspath(open_usd_path)}", f"-B{cmake_build_dir}",
+            *cmake_cross_args(env),
+            f"-DCMAKE_INSTALL_PREFIX={os.path.abspath(open_usd_build_path)}",
+            # Release only: debug info inflated libusd_ms.so to ~590 MB
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DCMAKE_CXX_STANDARD=17",
+            "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
+            "-DBUILD_SHARED_LIBS=ON",
+            "-DPXR_BUILD_MONOLITHIC=ON",
+            # Disable features not needed/supported on Android
+            "-DPXR_BUILD_IMAGING=OFF",
+            "-DPXR_BUILD_USD_IMAGING=OFF",
+            "-DPXR_BUILD_USDVIEW=OFF",
+            "-DPXR_BUILD_TESTS=OFF",
+            "-DPXR_BUILD_EXAMPLES=OFF",
+            "-DPXR_BUILD_TUTORIALS=OFF",
+            "-DPXR_BUILD_DOCUMENTATION=OFF",
+            "-DPXR_ENABLE_PYTHON_SUPPORT=OFF",
+            "-DPXR_ENABLE_MATERIALX_SUPPORT=OFF",
+            "-DPXR_ENABLE_OPENVDB_SUPPORT=OFF",
+            "-DPXR_ENABLE_VULKAN_SUPPORT=OFF",
+            # TBB: the cross-compiled oneTBB installation
+            f"-DTBB_DIR={os.path.join(tbb_root, 'lib', 'cmake', 'TBB')}",
+            f"-DCMAKE_PREFIX_PATH={tbb_root}",
+            "-DPXR_FIND_TBB_IN_CONFIG=ON",
+        ], "OpenUSD CMake configure for Android")
+        _cmake_build_install(cmake_build_dir, "OpenUSD for Android")
+    finally:
+        _revert_openusd_android_patches(backup_pairs)
+    print(f"OpenUSD for Android built successfully: {open_usd_build_path}")
+
 
 def _get_windows_msvc_env(env):
     vswhere_path = r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"

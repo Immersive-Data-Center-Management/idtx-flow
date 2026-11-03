@@ -53,9 +53,10 @@ def _build_extension(env):
     platform_name = env["platform_name"]
     build_target = env["target"]
     build_arch = env["arch"]
+    is_android = env.get('is_android', False)
 
     ixws_build_dir = f"{ixws_path}/build_{platform_name}_{build_target}"
-    
+
     extension_env = env.Clone()
 
     # Protobuf: runtime include dir + the generated idtxcore.* sources directory.
@@ -135,9 +136,17 @@ def _build_extension(env):
                 extension_env.Append(LIBPATH=[os.path.join(_vcpkg_installed, "lib")])
                 extension_env.Append(CPPPATH=[os.path.join(_vcpkg_installed, "include")])
         
-    libs = [
-        "usd_ms", "tbb12" if platform_name == "windows" else "tbb.12",        
-        f"libgodot-cpp.{platform_name}.{build_target}.{build_arch}",
+    if is_android:
+        # oneTBB is built separately for Android (see openusd.py)
+        extension_env.Append(CPPPATH=[f"{env['ONETBB_ANDROID_PATH']}/include"])
+        extension_env.Append(LIBPATH=[f"{env['ONETBB_ANDROID_PATH']}/lib"])
+        libs = ["usd_ms", "tbb", f"libgodot-cpp.{platform_name}.{build_target}.{build_arch}"]
+    else:
+        libs = [
+            "usd_ms", "tbb12" if platform_name == "windows" else "tbb.12",
+            f"libgodot-cpp.{platform_name}.{build_target}.{build_arch}",
+        ]
+    libs += [
         "ixwebsocket",
         "libidtx_usd",  # USD extension library
     ]
@@ -146,16 +155,19 @@ def _build_extension(env):
     if protobuf_lib_name:
         libs.append(protobuf_lib_name)
 
-    # OpenSSL static libs (all platforms)
+    # OpenSSL static libs (desktop only - IXWebSocket is built without TLS on Android)
     if platform_name == "windows":
         # vcpkg static OpenSSL lib names on Windows
         libs.extend(["libssl", "libcrypto"])
-    else:
+    elif not is_android:
         # Linux/macOS: standard OpenSSL lib names
         libs.extend(["ssl", "crypto"])
 
     # generic build flags
-    if platform.system() == "Windows" and (env["CXX"] == "cl" or env["CC"] == "cl"):
+    if is_android:
+        extension_env.Append(CXXFLAGS=['-fexceptions', '-frtti', '-std=c++20'])
+        extension_env.Append(CCFLAGS=["-O3" if build_target == "template_release" else "-g"])
+    elif platform.system() == "Windows" and (env["CXX"] == "cl" or env["CC"] == "cl"):
         extension_env.Append(CXXFLAGS=['/EHsc', '/GR', '/arch:AVX2', '/std:c++20'])        
     else:
         extension_env.Append(CXXFLAGS=['-fexceptions', '-frtti', '-g', '-std=c++20'])
@@ -164,7 +176,14 @@ def _build_extension(env):
     extension_env.Append(CPPDEFINES=["IDTXFLOW_ENABLED", "IDTXFLOW_GODOT_EXPORTS", "THREADS_ENABLED", "GDEXTENSION"])
 
     # Platform-specific configuration
-    if platform_name == "linux":
+    if platform_name == "android":
+        extension_env.Append(LIBS=libs + ["log", "android", "dl", "m"])
+        extension_env.Append(CCFLAGS=["-fPIC", "-frtti"])
+        extension_env.Append(LINKFLAGS=["-Wl,-z,relro", "-Wl,-z,now"])
+        if build_target == "template_release":
+            extension_env.Append(LINKFLAGS=["-s"])  # strip the shipped .so (it ends up inside the APK)
+
+    elif platform_name == "linux":
         extension_env.Append(LIBS=libs + ["dl", "pthread", "m"])
         extension_env.Append(CCFLAGS=["-fPIC", "-g", "-frtti"])
         extension_env.Append(LINKFLAGS=["-Wl,-rpath,$ORIGIN"])
@@ -235,7 +254,7 @@ def _build_extension(env):
     stage_ops_glob = os.path.join("shared", "src", "idtxflow", "stage_ops", "**", "*.cpp")
     stage_ops_sources = [extension_env.File(p) for p in glob.glob(stage_ops_glob, recursive=True)]
     sources += stage_ops_sources
-    
+
     if build_target in ["editor", "template_debug"]:
         print("Generating doc data..")
         try:
@@ -270,7 +289,7 @@ def _build_extension(env):
         install_targets.append(extension_env.File(pdb_file))
 
     install_ext = extension_env.Install(install_dir, install_targets)
-    install_libs = extension_env.Install(install_dir, _get_libs_to_install(platform_name, open_usd_path))
+    install_libs = extension_env.Install(install_dir, _get_libs_to_install(platform_name, open_usd_path, env.get("ONETBB_ANDROID_PATH", "")))
     extension_env.AddPostAction(library, _copy_usd_plugins)
     extension_env.AddPostAction(library, _copy_third_party_licenses)
 
@@ -282,11 +301,18 @@ def _build_extension(env):
     env['gdextension_library_node'] = library
 
 
-def _get_libs_to_install(platform_name, open_usd_path=""):
+def _get_libs_to_install(platform_name, open_usd_path="", onetbb_android_path=""):
     print("Getting libs to install...")
     usd_root = open_usd_path
     mdl_sdk_root = "./thirdparty/mdl_sdk"
-    if platform_name == "windows":
+    if platform_name == "android":
+        # loaded through the [dependencies] section of idtxflow.gdextension; no MDL SDK on Android
+        libs_to_install = [
+            f"{usd_root}/lib/libusd_ms.so",
+            f"{onetbb_android_path}/lib/libtbb.so",
+            f"./shared/libs/{platform_name}/libidtx_usd.so",
+        ]
+    elif platform_name == "windows":
         libs_to_install = [
             f"{usd_root}/lib/usd_ms.dll",
             f"{usd_root}/bin/tbb12.dll",

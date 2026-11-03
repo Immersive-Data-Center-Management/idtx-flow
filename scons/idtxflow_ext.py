@@ -37,7 +37,7 @@ def _build_ext_bootstrap_lib(env):
     ])
 
     # Compile flags
-    if platform.system() == "Windows" and (env["CXX"] == "cl" or env["CC"] == "cl"):
+    if not env.get('is_android', False) and platform.system() == "Windows" and (env["CXX"] == "cl" or env["CC"] == "cl"):
         bootstrap_env.Append(CXXFLAGS=['/EHsc', '/GR', '/std:c++20'])
         bootstrap_env.Append(CPPDEFINES=["NOMINMAX", "WIN32_LEAN_AND_MEAN"])
     else:

@@ -3,6 +3,7 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 import sysconfig
 from SCons.Script import Exit
 
@@ -18,7 +19,7 @@ def exists(env):
 #-----------------------------------------------------------------------------------------------------------------------
 def _generate_usd_extensions_code(env):
     print("Generate openUSD Extension code from schema...")
-    open_usd_path =  env["OPENUSD_PATH"]
+    open_usd_path =  env["OPENUSD_HOST_PATH"]
 
     extension_root = f"usd"
     openusd_root = os.path.abspath(f"{open_usd_path}-withPython")
@@ -77,8 +78,14 @@ def _build_usd_extension(env):
 
     platform_name = env["platform_name"]
     build_target = env["target"]
+    is_android = env.get('is_android', False)
 
     extension_env = env.Clone()
+    if is_android and sys.platform in ("win32", "msys"):
+        # bypass cmd.exe command-line length limits with the NDK compilers (as godot-cpp does)
+        sys.path.insert(0, "thirdparty/godot-cpp/tools")
+        import my_spawn
+        my_spawn.configure(extension_env)
     # Python include path is needed because the OpenUSD withPython build
     # headers transitively include Python.h (via pySafePython.h / wrap_python.hpp)
     python_include = sysconfig.get_path('include')
@@ -94,19 +101,36 @@ def _build_usd_extension(env):
         f"{openusd_root}/lib"
     ])
 
-    libs = [
-        "usd_ms", "tbb12" if platform_name == "windows" else "tbb.12"
-    ]
+    if is_android:
+        # oneTBB is built separately for Android (see openusd.py)
+        extension_env.Append(CPPPATH=[f"{env['ONETBB_ANDROID_PATH']}/include"])
+        extension_env.Append(LIBPATH=[f"{env['ONETBB_ANDROID_PATH']}/lib"])
+        libs = ["usd_ms", "tbb"]
+    else:
+        libs = [
+            "usd_ms", "tbb12" if platform_name == "windows" else "tbb.12"
+        ]
 
     # generic build flags
-    if platform.system() == "Windows" and (extension_env["CXX"] == "cl" or extension_env["CC"] == "cl"):
+    if is_android:
+        extension_env.Append(CXXFLAGS=['-fexceptions', '-frtti', '-std=c++20'])
+        extension_env.Append(CCFLAGS=["-O3" if build_target == "template_release" else "-g"])
+    elif platform.system() == "Windows" and (extension_env["CXX"] == "cl" or extension_env["CC"] == "cl"):
         extension_env.Append(CXXFLAGS=['/EHsc', '/GR', '/FS', '/arch:AVX2'])        
     else:
         extension_env.Append(CXXFLAGS=['-fexceptions', '-frtti', '-g'])
         extension_env.Append(CCFLAGS=["-O3" if build_target == "template_release" else "-g"])
 
     # Platform-specific configuration
-    if platform_name == "linux":
+    if platform_name == "android":
+        extension_env.Append(LIBS=libs + ["log", "android", "dl", "m"])
+        extension_env.Append(CCFLAGS=["-fPIC", "-frtti"])
+        extension_env.Append(LINKFLAGS=["-Wl,-z,relro", "-Wl,-z,now"])
+        if build_target == "template_release":
+            extension_env.Append(LINKFLAGS=["-s"])  # strip the shipped .so (it ends up inside the APK)
+        extension_env.Append(CPPDEFINES=["IDTX_EXPORTS"])
+
+    elif platform_name == "linux":
         # Shared library settings
         extension_env.Append(LIBS=libs + ["dl", "pthread", "m"])
         extension_env.Append(CCFLAGS=["-fPIC", "-g", "-frtti"])

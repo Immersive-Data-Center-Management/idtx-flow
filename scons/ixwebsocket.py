@@ -11,6 +11,7 @@ import platform
 import subprocess
 from SCons.Script import Exit
 
+from cross_cmake import cmake_cross_args
 from download_utils import download_file, extract_archive
 
 IXWEBSOCKET_VERSION = "v11.4.6"
@@ -205,6 +206,22 @@ def _build_ixwebsocket(env):
         print(f"IXWebSocket already built: {lib_file}")
         return
 
+    if env.get('is_android', False):
+        # Android: NDK cross-compile without TLS (no OpenSSL for Android yet)
+        print(f"Building IXWebSocket for {platform_name}/{build_target} (TLS: OFF)...")
+        _run_cmake_build(build_dir, [
+            "cmake", f"-S{os.path.abspath(ixws_path)}", f"-B{os.path.abspath(build_dir)}",
+            *cmake_cross_args(env),
+            "-DBUILD_SHARED_LIBS=OFF",
+            "-DUSE_TLS=OFF",
+            "-DUSE_ZLIB=OFF",
+            "-DCMAKE_CXX_STANDARD=20",
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DCMAKE_CXX_FLAGS=-std=c++20 -fPIC",
+            "-DCMAKE_C_FLAGS=-fPIC",
+        ], lib_file)
+        return
+
     # Resolve OpenSSL: prefer system install, fall back to vcpkg
     use_vcpkg_toolchain = False
     vcpkg_root = None
@@ -288,6 +305,10 @@ def _build_ixwebsocket(env):
         elif openssl_root_dir:
             cmake_args.append(f"-DOPENSSL_ROOT_DIR={openssl_root_dir}")
 
+    _run_cmake_build(build_dir, cmake_args, lib_file)
+
+
+def _run_cmake_build(build_dir, cmake_args, lib_file):
     result = subprocess.run(cmake_args, cwd=os.getcwd())
     if result.returncode != 0:
         Exit(f"IXWebSocket CMake configuration failed (exit code: {result.returncode})")

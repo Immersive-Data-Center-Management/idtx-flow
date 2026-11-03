@@ -76,6 +76,12 @@ def _do_compose_sdk(target, source, env):
         shutil.copy(f"{open_usd_path}/lib/libusd_ms.dylib", f"{sdk_libs}")
         shutil.copy(f"{open_usd_path}/lib/libtbb.12.dylib", f"{sdk_libs}")
         shutil.copy(f"./shared/libs/macos/libidtx_usd.dylib", f"{sdk_libs}")
+    elif platform_name == "android":
+        shutil.copy(f"{env['gdextension_lib_dir']}/{env['gdextension_lib']}.so", f"{sdk_libs}")
+        shutil.copy(f"{env['ext_bootstrap_lib_dir']}/{env['ext_bootstrap_lib']}.a",f"{sdk_libs}")
+        shutil.copy(f"{open_usd_path}/lib/libusd_ms.so", f"{sdk_libs}")
+        shutil.copy(f"{env['ONETBB_ANDROID_PATH']}/lib/libtbb.so", f"{sdk_libs}")
+        shutil.copy(f"./shared/libs/android/libidtx_usd.so", f"{sdk_libs}")
     else:
         shutil.copy(f"{env['gdextension_lib_dir']}/{env['gdextension_lib']}.se", f"{sdk_libs}")
         shutil.copy(f"{env['ext_bootstrap_lib_dir']}/{env['ext_bootstrap_lib']}.a",f"{sdk_libs}")
@@ -85,8 +91,9 @@ def _do_compose_sdk(target, source, env):
 
     # Copy the header files into the SDK folder that will be required to compile the plugin
     shutil.copytree(f"{open_usd_path}/include/pxr", f"{sdk_includes}/pxr", dirs_exist_ok=True)
-    shutil.copytree(f"{open_usd_path}/include/tbb", f"{sdk_includes}/tbb", dirs_exist_ok=True)
-    shutil.copytree(f"{open_usd_path}/include/oneapi", f"{sdk_includes}/oneapi", dirs_exist_ok=True)
+    tbb_include = f"{env['ONETBB_ANDROID_PATH']}/include" if platform_name == "android" else f"{open_usd_path}/include"
+    shutil.copytree(f"{tbb_include}/tbb", f"{sdk_includes}/tbb", dirs_exist_ok=True)
+    shutil.copytree(f"{tbb_include}/oneapi", f"{sdk_includes}/oneapi", dirs_exist_ok=True)
 
     shutil.copytree(f"./shared/include/idtx", f"{sdk_includes}/idtx", dirs_exist_ok=True)
     shutil.copytree(f"./shared/include/idtxflow", f"{sdk_includes}/idtxflow", dirs_exist_ok=True)

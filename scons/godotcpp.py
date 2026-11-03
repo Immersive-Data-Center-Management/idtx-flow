@@ -8,6 +8,7 @@ Usage in SConstruct:
     env.BuildGodotCPP()
 """
 import os
+from SCons.Script import ARGUMENTS
 
 from download_utils import download_file, extract_archive
 
@@ -45,5 +46,14 @@ def _build_godot_cpp(env):
     env["use_exceptions"] = "yes"
     env["use_rtti"] = "yes"
     env["use_threads"] = "yes"
+
+    if env.get('is_android', False):
+        env["platform"] = "android"
+        env["android_api_level"] = str(env['android_api_level'])
+        # godot-cpp uses ANDROID_HOME/ndk/<its pinned ndk_version> when ANDROID_HOME is set and only falls back to
+        # ANDROID_NDK_ROOT otherwise. Setting env["ANDROID_HOME"] is not enough (its option default overwrites env),
+        # so clear it as a command-line argument to make godot-cpp use the same NDK as everything else.
+        ARGUMENTS["ANDROID_HOME"] = ""
+        os.environ["ANDROID_NDK_ROOT"] = env['android_ndk_root']
 
     return env.SConscript(f"{godot_cpp_path}/SConstruct", exports=['env'])

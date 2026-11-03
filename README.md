@@ -66,6 +66,30 @@ Once all required software and tools are installed and configured the plugin can
 checked_out_repo_dir $>scons
 ```
 
+### Android
+
+Cross-compiling to Android target devices is supported in a BETA state. Required software to enable cross compilation:
+- **Android Studio** - Use the Android Studio to install the additional requires toolchain 
+- **Android SDK** - the installed components and their versions should be:
+  - Android SDK Platform: 36
+  - SDK Build Tools: 37.0.0
+  - NDK (Side-by-side): 29.0.x
+  - CommandLine Tools: 20.0
+  - CMake: 4.1.2
+  - Android SDK Platform Tools: 37.0.0
+
+Use this command to run cross compilation on a windows machine:
+
+```bash
+checked_out_repo_dir $>scons platform=android ANDROID_NDK_ROOT=C:\Users\<your-user>\AppData\Local\Android\Sdk\ndk\29.0.14206865 target=template_release    
+```
+
+Ninja is required for the Android build; the one bundled with the Android SDK's CMake is picked up automatically.
+The Android build still needs the desktop OpenUSD build with Python to generate the schema code, so the first
+Android build also builds OpenUSD for the host.
+
+Web (WebAssembly) builds are not supported yet, see [docs/web-support.md](docs/web-support.md).
+
 > Please be patient, as the first initial build will download and compile openUSD from source. Depending on the used hardware this may take up to 40 minutes or more.
 
 The binary artifacts and all additional required files for the plugin can be found in the folder `addons/IDTXFlow`. Just copy this folder into the `addons` folder of the Godot project. To verify and enable the plugin, open the project in Godot, go to **Project → Project Settings → Plugins**, find the plugin and click the respective checkbox.
