@@ -4,6 +4,9 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/godot.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
+#include <godot_cpp/classes/resource_loader.hpp>
+
+#include <pxr/base/plug/registry.h>
 
 #include <filesystem>
 #ifndef _WIN32
@@ -27,6 +30,7 @@
 #include "nodes/UsdMultiMeshInstanceNode3D.h"
 #include "nodes/UsdRestDatasourceNode3D.h"
 #include "nodes/UsdXFormNode3D.h"
+#include "resource/UsdSceneFormatLoader.h"
 #include "collab/IdtxClient.h"
 #include "utils/IDTXFlowGodotLogger.h"
 #include "exec/GodotEnvironmentProviders.h"
@@ -45,6 +49,9 @@ static idtxflow::utils::IDTXFlowGodotLogger g_logger;
 //    prefixed "project:" (Godot ProjectSettings snapshot)
 static idtxflow::exec::GodotEnvVarProvider g_env_var_provider;
 static idtxflow::exec::GodotProjectSettingProvider* g_project_setting_provider = nullptr;
+
+// Registers *.usd[a|c|z] as PackedScene with Godot's ResourceLoader (FileSystem dock, drag & drop, export)
+static Ref<UsdSceneFormatLoader> g_usd_scene_loader;
 
 #ifdef IDTXFLOW_MDL_ENABLED
 #include <idtxflow/converter/MdlMaterialConverter.h>
@@ -73,6 +80,16 @@ inline std::string get_gdextension_dir()
 #endif
 }
 
+// The plugin/usd tree next to the binaries, as laid out by a desktop export ([dependencies] in
+// idtxflow.gdextension copies bin/plugin next to the executable), or "" for the addon layout
+// (bin/<os>/ + bin/plugin/), which usd_ms finds on its own via its built-in ../plugin/usd path.
+static std::string exported_plugin_dir(const std::string& extension_dir)
+{
+    const std::filesystem::path dir = std::filesystem::path(extension_dir) / "plugin" / "usd";
+    std::error_code ec;
+    return std::filesystem::exists(dir / "plugInfo.json", ec) ? dir.string() : "";
+}
+
 // Startup sanity checks for the extension's runtime environment. Each check logs an
 // actionable error for a missing prerequisite instead of letting a later failure crash
 // or fail silently. Add further checks here.
@@ -89,14 +106,15 @@ static void check_prerequisites(const std::string& extension_dir)
     // bin/plugin/usd/). If an export or a manual install drops that tree, PlugRegistry
     // fails fatally inside the first stage open with no actionable message, so name
     // every missing file up front. Keep this list in sync with the addon's bin/ layout.
-    const char* required_plugin_files[] = {
+    const std::string plugin_dir = exported_plugin_dir(extension_dir).empty() ? "../plugin/usd/" : "plugin/usd/";
+    const std::string required_plugin_files[] = {
         "usd/plugInfo.json",
-        "../plugin/usd/plugInfo.json",
-        "../plugin/usd/idtx/resources/plugInfo.json",
-        "../plugin/usd/godot/resources/plugInfo.json",
-        "../plugin/usd/usdShaders/resources/plugInfo.json",
+        plugin_dir + "plugInfo.json",
+        plugin_dir + "idtx/resources/plugInfo.json",
+        plugin_dir + "godot/resources/plugInfo.json",
+        plugin_dir + "usdShaders/resources/plugInfo.json",
     };
-    for (const char* rel: required_plugin_files)
+    for (const std::string& rel: required_plugin_files)
     {
         const std::filesystem::path full = (std::filesystem::path(extension_dir) / rel).lexically_normal();
         std::error_code ec;
@@ -119,6 +137,12 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level)
 
     // Initialize logger
     idtxflow::utils::Log::set_logger(&g_logger);
+
+    // exported desktop build: plugin/usd sits next to the binaries, not at usd_ms's ../plugin/usd
+    if (const std::string dir = exported_plugin_dir(get_gdextension_dir()); !dir.empty())
+    {
+        pxr::PlugRegistry::GetInstance().RegisterPlugins(dir);
+    }
 
 #ifdef _WIN32
     // Pin this DLL so it outlives OpenUSD's static teardown. Ar keeps our resolver
@@ -146,6 +170,10 @@ void initialize_idtxflow_module(ModuleInitializationLevel p_level)
     GDREGISTER_CLASS(UsdRestDatasourceNode3D)
     GDREGISTER_CLASS(UsdStaticBodyNode3D)
     GDREGISTER_CLASS(IdtxClient)
+    GDREGISTER_CLASS(UsdSceneFormatLoader)
+
+    g_usd_scene_loader.instantiate();
+    ResourceLoader::get_singleton()->add_resource_format_loader(g_usd_scene_loader);
 
     // Create and register the collaboration client as the engine singleton
     // "IdtxClient" from module init (before any script runs), then start it, so
@@ -203,6 +231,9 @@ void uninitialize_idtxflow_module(ModuleInitializationLevel p_level)
     {
         return;
     }
+
+    ResourceLoader::get_singleton()->remove_resource_format_loader(g_usd_scene_loader);
+    g_usd_scene_loader.unref();
 
     // Stop the openExec computation bridge
     idtxflow::exec::ExecBridgeManager::Instance().Cancel();
