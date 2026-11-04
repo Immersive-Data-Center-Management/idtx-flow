@@ -2,6 +2,7 @@
 
 #include <map>
 #include <optional>
+#include <shared_mutex>
 
 #include <pxr/usd/sdf/path.h>
 
@@ -25,10 +26,8 @@ class UsdResourceCache
 
     std::optional<const typename Types::Texture> GetCachedTexture(const std::string& path)
     {
-        if (TextureCache.contains(path))
-        {
-            return std::move(TextureCache.at(path));
-        }
+        std::shared_lock lock(mutex_);
+        if (TextureCache.contains(path)) return TextureCache.at(path); // copy, not move
 
         return std::nullopt;
     }
@@ -45,10 +44,8 @@ class UsdResourceCache
 
     std::optional<const typename Types::Material> GetCachedMaterial(const std::string& path)
     {
-        if (MaterialCache.contains(path))
-        {
-            return std::move(MaterialCache.at(path));
-        }
+        std::shared_lock lock(mutex_);
+        if (MaterialCache.contains(path)) return MaterialCache.at(path);
 
         return std::nullopt;
     }
@@ -60,6 +57,7 @@ class UsdResourceCache
     }
 
   private:
+    std::shared_mutex mutex_;
     std::map<std::string, typename Types::Texture> TextureCache;
     std::map<std::string, typename Types::Material> MaterialCache;
 };

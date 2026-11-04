@@ -84,6 +84,7 @@
 
   <ItemGroup>
     <ClInclude Include="shared\include\idtxflow\async\StageLoadTask.h" />
+    <ClInclude Include="shared\include\idtxflow\cache\ResourceCacheManager.h" />
     <ClInclude Include="shared\include\idtxflow\converter\IPrimConverter.h" />
     <ClInclude Include="shared\include\idtxflow\converter\MdlMaterialConverter.h" />
     <ClInclude Include="shared\include\idtxflow\converter\PrimConverterRegistry.h" />
