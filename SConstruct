@@ -1,12 +1,52 @@
-# Build Script for the IDTXFlow GDExtension
-import os
-import platform
+"""
+Build Script for IDTXFlow.
 
-from  SCons.Environment import Environment
+This is the core script delegating the actual work to the different SCons tools.
+
+The pipeline (top to bottom):
+    1. Download/clone third-party dependencies and tools
+       - godotcpp, OpenUSD, IXWebSocket, MDL SDK
+    2. Compile each third-party dependency (where required) from source
+    3. Compile the IDTXFlow GDExtension itself
+    4. Compile a small bootstrap library so downstream extensions can link
+       against IDTXFlow
+    5. Compose an IDTXFlow SDK package (headers + libs) for downstream use
+
+The build is fully driven by a precomputed ``BuildProfile`` constructed at
+the top of this file:
+
+    profile = build_profile(ARGUMENTS, openusd_version=OPENUSD_VERSION)
+
+This profile is the *single* source of truth for what flags, link
+libraries, install names, NDK toolchain args, and library naming this
+build will use. Tools never decide flags themselves — they read
+``env["profile"].cxx_flags`` (etc.) and pass each section through
+``apply_profile_section(env, ...)``.
+
+That keeps three layers cleanly separated:
+
+  * **profile**     — pure data; inspecting it tells you everything
+                      that will be appended to the env.
+  * **applicator**  — mechanical; ``env.Append(**section)``, no
+                      decisions.
+  * **side-effecting helpers** — ``cmake_runner``, ``openssl_locator``,
+                                  ``vcpkg``, ``msvc_env``, ``run`` —
+                                  procedural, with explicit call sites.
+"""
+
+import os
+
+from SCons.Environment import Environment
 from SCons.Script import ARGUMENTS
 
+from scons.core.apply import apply_profile_section
+from scons.core.profile import build_profile
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
 # USD Version and path configuration
-openusd_version = "26.05"
+openusd_version = "26.08"
 shared_thirdparty_root = "./thirdparty"
 
 # allow developer to overwrite those paths
@@ -22,52 +62,70 @@ if custom:
 usd_root = f"{shared_thirdparty_root}/openusd-{openusd_version}"
 usd_src = f"{shared_thirdparty_root}/openusd-{openusd_version}-src"
 
-# configure the main environment to use the different tools to build all we need
+# Construct the profile once. This freezes every flag and
+# path decision the build will make.
+profile  = build_profile(ARGUMENTS, openusd_version=openusd_version)
+platform = profile.platform
+paths    = profile.paths
+
+# ---------------------------------------------------------------------------
+# SCons Environment
+# ---------------------------------------------------------------------------
+
+SCONS_TOOLS = [
+    "godotcpp",
+    "mdlsdk",
+    "ixwebsocket",
+    "openusd",
+    "usd_extension",
+    "ext_bootstrap",
+    "gdextension",
+    "sdk_composer",
+    "protobuf"
+]
+
 env = Environment(
     ENV=os.environ.copy(),
-    tools=[
-    	"default",
-    	"mdlsdk",
-    	"godotcpp",
-    	"gdextension",
-    	"openusd",
-    	"openusdextension",
-    	"ixwebsocket",
-    	"protobuf",
-    	"idtxflow_ext",
-    	"idtxflow_sdk"
-    ],
-    toolpath=["scons"],
-    MSVC_VERSION='14.3',
+    tools=["default"] + SCONS_TOOLS,
+    toolpath=["scons/tools"],
+    MSVC_VERSION="14.3",
     OPENUSD_VERSION=openusd_version,
     OPENUSD_PATH=usd_root,
     OPENUSD_SRC_PATH=usd_src,
-    PATH=os.environ.get("PATH", "")
+    PATH=os.environ.get("PATH", ""),
 )
 
-if platform.system() == "Windows":
-    env["PLATFORM"] = "windows"
-elif platform.system() == "Darwin":
-    env["PLATFORM"] = "macos"
-else:
-    env["PLATFORM"] = "linux"
+# ---------------------------------------------------------------------------
+# Stash the profile on the env  (every tool reads from env["profile"])
+# ---------------------------------------------------------------------------
 
-env['platform_name'] = env["PLATFORM"]
-arch = platform.machine().lower()
-if arch in ("aarch64", "arm64"):
-    arch = "arm64"
-env['arch'] = ARGUMENTS.get('arch', arch )
-# default build target should be debug
-env['target'] = ARGUMENTS.get('target', 'template_debug')
+env["profile"] = profile
 
-if platform.system() == "Windows" and (env["CXX"] == "cl" or env["CC"] == "cl"):
-    # MSVC: Enable C++20
-    env.Append(CXXFLAGS=['/std:c++20'])
-else:
-    # GCC/Clang: Enable C++20
-    env.Append(CXXFLAGS=['-std=c++20'])
+# Back-compat keys — godot-cpp's own SConstruct expects these.
+env["PLATFORM"]      = platform.name
+env["platform_name"] = platform.name
+env["target"]        = platform.target
+env["arch"]          = platform.arch
 
-# download and build IXWebSocket from source as a static library
+
+# ---------------------------------------------------------------------------
+# Apply the profile's flag sections to the root env once.
+#
+# Each tool will *also* apply the relevant sections to its own Cloned
+# env (Clone() captures the env state at clone time, so flags set on the
+# root env after a tool runs Clone() do not propagate). Applying here
+# covers anything that compiles directly off the root env.
+# ---------------------------------------------------------------------------
+
+apply_profile_section(env, profile.cxx_flags)
+apply_profile_section(env, profile.msvc_extras)
+
+
+# ---------------------------------------------------------------------------
+# Build pipeline
+# ---------------------------------------------------------------------------
+
+# 1. Third-party libraries
 env.BuildIXWebSocket()
 # download and build protobuf from source (static lib + protoc), then generate the
 # C++ sources for the idtxcore.* wire messages used by the collaboration client.
@@ -75,21 +133,22 @@ env.BuildIXWebSocket()
 # extension) with headers alongside them (added to the include path in gdextension.py).
 env.BuildProtobuf()
 env.GenerateProtoSources("shared/proto/idtxcore", "shared/src/idtxflow/net/proto_gen")
-# download and build openUSD from source without python support, as we don't need it and it will speed up the build process significantly
 env.BuildOpenUSD(with_python_support=False)
-env.BuildOpenUSD(with_python_support=True)  # with python support, to be able to generate the usd plugin code
-# generate the openUSD extension (plugin) code
+env.BuildOpenUSD(with_python_support=True)   # needed for usdGenSchema
+
+# 2. IDTX USD plugin (codegen + shared lib)
 env.GenerateUsdExtensionCode()
-# compile the openUSD extension into it's library
 env.BuildUsdExtension()
-# download NVIDIA's mdlSdk
+
+# 3. NVIDIA MDL SDK
 env.DownloadMdlSdk()
-# download and build the Godot C++ bindings
+
+# 4. godot-cpp (returns a *new* env — replaces the local one for the rest)
 env = env.BuildGodotCPP()
-# Build the extension bootstrap static library (for dependent third-party extensions)
+
+# 5. Bootstrap static lib for downstream extensions
 env.BuildExtBootstrapLib()
-# finally build the GDExtension itself, which will link against the previously built OpenUSD and Godot C++ bindings
+
+# 6. The GDExtension itself, then compose the SDK
 env.BuildGdExtension()
-# with the GDExtension built, we can grab everything that is required to form an IDTXFlowGodotExtension SDK to implement
-# an extension of this very GDExtension
 env.ComposeIdtxFlowGodotSDK()

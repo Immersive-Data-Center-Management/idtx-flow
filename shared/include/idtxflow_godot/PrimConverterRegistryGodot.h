@@ -39,7 +39,7 @@
 // instantiation lives in PrimConverterRegistryGodot.cpp inside the IDTXFlow DLL.
 //
 // On Windows, __declspec(dllimport) on this extern-template binds every module to
-// IDTXFlow's instantiation. On ELF targets (Android/Linux), godot-cpp compiles
+// IDTXFlow's instantiation. On ELF targets, godot-cpp compiles
 // with -fvisibility=hidden, so the exported symbols reach IDTXFlow's .dynsym only
 // because the explicit instantiation carries the IDTXFLOW_GODOT_API default-
 // visibility attribute. The crucial part for the singleton is that Instance() has
