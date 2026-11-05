@@ -8,7 +8,7 @@ Both backends are kept in this single file because they are *only* used
 by this tool. Splitting them out would just add files without reducing
 duplication.
 
-Registers the SCons env method ``BuildOpenUSDV2``.
+Registers the SCons env method ``BuildOpenUSD``.
 """
 import os
 import platform as sys_platform

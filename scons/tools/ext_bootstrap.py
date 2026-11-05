@@ -4,7 +4,7 @@ Builds the IDTXFlow extension bootstrap static library that downstream
 plugins link against. Renamed from the legacy ``idtxflow_ext`` module.
 
 Reads everything from ``env["profile"]`` (a ``BuildProfile``).
-Registers the SCons env method ``BuildExtBootstrapLibV2``.
+Registers the SCons env method ``BuildExtBootstrapLib``.
 """
 import os
 

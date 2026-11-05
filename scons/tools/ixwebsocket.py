@@ -3,7 +3,7 @@
 Builds the IXWebSocket library via CMake. Uses the consolidated OpenSSL
 locator (with vcpkg fallback) instead of duplicating the probe.
 
-Registers the SCons env method ``BuildIXWebSocketV2``.
+Registers the SCons env method ``BuildIXWebSocket``.
 """
 import os
 

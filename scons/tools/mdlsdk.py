@@ -2,7 +2,7 @@
 
 Downloads and extracts NVIDIA's MDL SDK.
 
-Registers the SCons env method ``DownloadMdlSdkV2``.
+Registers the SCons env method ``DownloadMdlSdk``.
 """
 import os
 import platform

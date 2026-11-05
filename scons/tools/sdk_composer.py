@@ -4,7 +4,7 @@ Composes the IDTXFlow Godot SDK by copying the built libraries and
 required headers into one SDK output tree.
 
 Reads everything from ``env["profile"]`` (a ``BuildProfile``).
-Registers the SCons env method ``ComposeIdtxFlowGodotSDKV2``.
+Registers the SCons env method ``ComposeIdtxFlowGodotSDK``.
 """
 import os
 import pathlib

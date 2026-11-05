@@ -5,7 +5,7 @@ addon directory, and copies USD plugin metadata + third-party LICENSE
 files into the addon for distribution.
 
 Reads everything from ``env["profile"]`` (a ``BuildProfile``).
-Registers the SCons env method ``BuildGdExtensionV2``.
+Registers the SCons env method ``BuildGdExtension``.
 """
 import configparser
 import datetime

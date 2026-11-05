@@ -5,7 +5,7 @@ resulting plugin shared library. Renamed from the legacy
 ``openusdextension``.
 
 Reads everything from ``env["profile"]`` (a ``BuildProfile``).
-Registers ``GenerateUsdExtensionCodeV2`` and ``BuildUsdExtensionV2``.
+Registers ``GenerateUsdExtensionCode`` and ``BuildUsdExtension``.
 """
 import os
 import platform as _stdlib_platform   # for usdGenSchema.cmd vs usdGenSchema lookup
@@ -41,11 +41,8 @@ def _generate_code(env):
     gen_env = os.environ.copy()
     gen_env["USD_ROOT"]   = openusd_root
     
-    if env["OPENUSD_VERSION"] == "26.08":
-        # note that openUSD 26.08 uses 'site-packages' while older versions use 'python'  as path here
-        gen_env["PYTHONPATH"] = f"{openusd_root}/lib/site-packages"
-    else:
-        gen_env["PYTHONPATH"] = f"{openusd_root}/lib/python" 
+    # note that openUSD >= 26.08 uses 'site-packages' while older versions use 'python'  as path here
+    gen_env["PYTHONPATH"] = f"{openusd_root}/lib/python3.14/site-packages"
     gen_env["PATH"] = f"{openusd_root}/bin{os.pathsep}{openusd_root}/lib{os.pathsep}{os.environ.get('PATH', '')}"
 
     bin_dir = f"{openusd_root}/bin"

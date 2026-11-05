@@ -2,7 +2,7 @@
 
 Builds the godot-cpp library.
 
-Registers the SCons env method ``BuildGodotCPPV2``.
+Registers the SCons env method ``BuildGodotCPP``.
 """
 from scons.core.fetcher import ThirdPartySource
 
