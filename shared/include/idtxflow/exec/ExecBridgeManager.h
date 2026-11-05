@@ -415,7 +415,7 @@ class ExecBridgeManager
      * libidtxflow via IDTXFLOW_GODOT_API — this is deliberate, not a style choice.
      * A header-inline Meyers singleton (a static local in an inline method) is
      * forced to HIDDEN visibility by godot-cpp's -fvisibility=hidden on
-     * ELF/Android, so every shared library that includes this header would get its
+     * ELF, so every shared library that includes this header would get its
      * OWN ExecBridgeManager. That breaks cross-module exec-bridge lookup. A non-inline,
      * exported accessor lands in libidtxflow's .dynsym with default visibility, so
      * all modules (IDTXFlow, third-party extensions) share the one instance.

@@ -36,3 +36,5 @@ IDTXFlowGodot.sln.DotSettings.user
 
 # ignore local scons settings
 custom.py
+# ignore local MSBuild settings (mirrors custom.py for Visual Studio)
+custom.props

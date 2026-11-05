@@ -47,7 +47,7 @@ class PrimConverterRegistry
      * is compiled exactly once, inside IDTXFlow, and exported with default
      * visibility. Keeping the body out of this header is deliberate: an inline
      * Meyers singleton (a static local in an inline template method) is forced to
-     * HIDDEN visibility by godot-cpp's -fvisibility=hidden on ELF/Android, so every
+     * HIDDEN visibility by godot-cpp's -fvisibility=hidden on ELF, so every
      * shared library that could see the body would inline its OWN copy of the
      * registry. With only a declaration visible, extensions in their own DLL/.so
      * cannot inline or implicitly instantiate it — they emit an undefined reference
