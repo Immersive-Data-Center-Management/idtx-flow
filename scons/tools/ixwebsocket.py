@@ -58,7 +58,7 @@ def _build_ixwebsocket(env):
     # Desktop uses OpenSSL (via the locator);
     # TLS is always enabled now so https:// works everywhere.
     use_tls     = True
-    openssl     = openssl_locator.find_openssl(platform) if not use_mbedtls else None
+    openssl     = openssl_locator.find_openssl(platform)
 
     # ---- Build CMake configure args ----------------------------------------
     cmake_args = [
@@ -109,7 +109,7 @@ def _build_ixwebsocket(env):
         elif openssl:
             cmake_args.append(f"-DOPENSSL_ROOT_DIR={openssl.cmake_root_dir}")
 
-    tls_label = "MbedTLS" if use_mbedtls else ("OpenSSL" if use_tls else "OFF")
+    tls_label = "OpenSSL" if use_tls else "OFF"
     print(f"Building IXWebSocket for {platform.name}/{platform.target} (TLS: {tls_label})...")
 
     cmake_runner.configure(paths.ixwebsocket, build_dir, cmake_args, "IXWebSocket")
