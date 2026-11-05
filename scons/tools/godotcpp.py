@@ -4,8 +4,6 @@ Builds the godot-cpp library.
 
 Registers the SCons env method ``BuildGodotCPPV2``.
 """
-import os
-
 from scons.core.fetcher import ThirdPartySource
 
 
@@ -24,7 +22,6 @@ def exists(env):
 
 def _build_godot_cpp(env):
     profile  = env["profile"]
-    platform = profile.platform
     paths    = profile.paths
 
     src = ThirdPartySource(

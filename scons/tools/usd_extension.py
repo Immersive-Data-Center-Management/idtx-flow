@@ -11,7 +11,6 @@ import os
 import platform as _stdlib_platform   # for usdGenSchema.cmd vs usdGenSchema lookup
 import shutil
 import subprocess
-import sys
 import sysconfig
 
 from SCons.Script import Exit

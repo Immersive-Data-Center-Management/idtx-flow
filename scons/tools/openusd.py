@@ -12,13 +12,11 @@ Registers the SCons env method ``BuildOpenUSDV2``.
 """
 import os
 import platform as sys_platform
-import shutil
 import subprocess
-import sys
 
 from SCons.Script import Exit
 
-from scons.core import cmake_runner, msvc_env
+from scons.core import msvc_env
 from scons.core.run import run_or_exit
 from scons.core.platform_info import PlatformInfo
 

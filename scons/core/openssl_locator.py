@@ -83,7 +83,9 @@ def _probe_pkg_config() -> Optional[tuple]:
         if inc and lib and os.path.isfile(os.path.join(inc, "openssl", "ssl.h")):
             return (inc, lib)
     except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
+        # pkg-config is optional in our discovery chain; failure here means
+        # "not found via pkg-config", and callers will try other providers.
+        return None
     return None
 
 

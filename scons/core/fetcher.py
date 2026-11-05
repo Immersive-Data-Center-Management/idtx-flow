@@ -7,7 +7,6 @@ The low-level primitives still come from ``download_utils.py`` at the top
 of the ``scons/`` directory.
 """
 import os
-import sys
 from dataclasses import dataclass
 from typing import Optional
 

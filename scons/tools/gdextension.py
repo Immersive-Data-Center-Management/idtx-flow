@@ -315,3 +315,5 @@ def _copy_third_party_licenses(target, source, env):
         for f in missing:
             print(f"  {f}")
         return 1
+
+    return 0
