@@ -35,14 +35,19 @@ def _generate_code(env):
     """Run ``usdGenSchema schema.usda ../generated`` against the python build."""
     print("Generate openUSD Extension code from schema...")
 
-    paths = env["profile"].paths
+    profile  = env["profile"]
+    platform = profile.platform
+    paths    = profile.paths
     openusd_root = os.path.abspath(paths.openusd_python)    
 
     gen_env = os.environ.copy()
     gen_env["USD_ROOT"]   = openusd_root
     
     # note that openUSD >= 26.08 uses 'site-packages' while older versions use 'python'  as path here
-    gen_env["PYTHONPATH"] = f"{openusd_root}/lib/python3.14/site-packages"
+    if platform.is_macos:
+        gen_env["PYTHONPATH"] = f"{openusd_root}/lib/python3.14/site-packages"
+    else:
+        gen_env["PYTHONPATH"] = f"{openusd_root}/lib/site-packages"
     gen_env["PATH"] = f"{openusd_root}/bin{os.pathsep}{openusd_root}/lib{os.pathsep}{os.environ.get('PATH', '')}"
 
     bin_dir = f"{openusd_root}/bin"
