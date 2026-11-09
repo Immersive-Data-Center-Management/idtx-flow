@@ -25,6 +25,7 @@ const char* usd_type_token(idtxcore::PrimType type)
     case idtxcore::PRIM_TYPE_CONE:     return "Cone";
     case idtxcore::PRIM_TYPE_CYLINDER: return "Cylinder";
     case idtxcore::PRIM_TYPE_CAPSULE:  return "Capsule";
+    case idtxcore::PRIM_TYPE_PLANE:    return "Plane";
     case idtxcore::PRIM_TYPE_XFORM:    return "Xform";
     case idtxcore::PRIM_TYPE_UNSPECIFIED:
     default:                           return "";
@@ -112,8 +113,13 @@ bool decode(const std::string& bytes, DecodedMessage& out)
     }
     case idtxcore::BaseMessage::kCreatePrimBroadcast: {
         const auto& b = msg.create_prim_broadcast();
-        const char* type_token = usd_type_token(b.type());
-        if (type_token[0] == '\0')
+
+        // A REF prim is a typeless reference/payload holder, so it has no schema
+        // type token; every other type must resolve to one or the frame is
+        // ignored (unknown/unspecified type we cannot author).
+        const bool is_ref = (b.type() == idtxcore::PRIM_TYPE_REF);
+        const char* type_token = is_ref ? "" : usd_type_token(b.type());
+        if (!is_ref && type_token[0] == '\0')
         {
             // Unknown/unspecified prim type: nothing we can author. Leave kind
             // None so the frame is ignored rather than mishandled.
@@ -125,7 +131,7 @@ bool decode(const std::string& bytes, DecodedMessage& out)
 
         model::PrimEdit& edit = out.remote_edit.edit;
         edit.kind = model::PrimEdit::Kind::CreatePrim;
-        edit.prim_type = type_token;
+        edit.prim_type = type_token; // empty for a reference holder
 
         // Full child path = parent + "/" + name. The root "/" has no trailing
         // slash to double up, every other prim path does.
@@ -151,6 +157,55 @@ bool decode(const std::string& bytes, DecodedMessage& out)
         {
             edit.has_axis = true;
             edit.axis = b.axis();
+        }
+        if (b.has_width())
+        {
+            edit.has_width = true;
+            edit.width = b.width();
+        }
+        if (b.has_length())
+        {
+            edit.has_length = true;
+            edit.length = b.length();
+        }
+
+        // A reference holder carries the arc kind and the stage-relative target
+        // path; the prim stays typeless and the referenced asset composes in.
+        if (b.has_reference_path())
+        {
+            edit.has_ref = true;
+            edit.reference_path = b.reference_path();
+            edit.ref_kind = (b.ref_type() == idtxcore::PRIM_REF_PAYLOAD)
+                                ? model::PrimEdit::RefKind::Payload
+                                : model::PrimEdit::RefKind::Reference;
+        }
+
+        // Optional create-time LOCAL transform, copied into the dedicated create
+        // members without composition (the separate->matrix resolve happens on
+        // the authoring side). Per-field has_* accessors keep this independent of
+        // the oneof's name.
+        if (b.has_matrix())
+        {
+            edit.has_create_transform = true;
+            edit.create_is_matrix = true;
+            const auto& m = b.matrix();
+            edit.create_matrix.m = {m.m00(), m.m01(), m.m02(), m.m03(), m.m10(), m.m11(), m.m12(), m.m13(),
+                                    m.m20(), m.m21(), m.m22(), m.m23(), m.m30(), m.m31(), m.m32(), m.m33()};
+        }
+        else if (b.has_seperate()) // the wire field name is intentionally "seperate"
+        {
+            edit.has_create_transform = true;
+            edit.create_is_matrix = false;
+            const auto& s = b.seperate();
+            edit.create_separate.translation[0] = s.translation().x();
+            edit.create_separate.translation[1] = s.translation().y();
+            edit.create_separate.translation[2] = s.translation().z();
+            edit.create_separate.rotation[0] = s.rotation().x();
+            edit.create_separate.rotation[1] = s.rotation().y();
+            edit.create_separate.rotation[2] = s.rotation().z();
+            edit.create_separate.scale[0] = s.scale().x();
+            edit.create_separate.scale[1] = s.scale().y();
+            edit.create_separate.scale[2] = s.scale().z();
         }
         return true;
     }

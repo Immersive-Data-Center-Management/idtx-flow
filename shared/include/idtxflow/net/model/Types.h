@@ -40,6 +40,10 @@ struct SeparateXform
 /// (carried as a full matrix or separate T/R/S), the creation of a built-in
 /// prim, or an active-state change (soft delete / undo). The kind is modelled
 /// explicitly so the shape can grow without changing call sites.
+///
+/// A CreatePrim edit may additionally carry Plane dimensions, a reference/payload
+/// arc (for a typeless reference holder), and an optional local transform that is
+/// authored verbatim as the new prim's placement.
 struct PrimEdit
 {
     enum class Kind
@@ -47,6 +51,14 @@ struct PrimEdit
         Transform,
         CreatePrim, ///< author a built-in prim of `prim_type` at `prim_path`
         SetActive   ///< author `active` metadata on `prim_path`
+    };
+
+    /// How a reference prim holds its target: a USD reference or a payload.
+    /// Relevant only when `has_ref` is set on a CreatePrim edit.
+    enum class RefKind
+    {
+        Reference,
+        Payload
     };
 
     Kind kind = Kind::Transform;
@@ -60,12 +72,13 @@ struct PrimEdit
 
     // --- CreatePrim ---
     /// USD schema type token, e.g. "Cube"/"Sphere"/"Cone"/"Cylinder"/
-    /// "Capsule"/"Xform". Empty for non-create edits.
+    /// "Capsule"/"Plane"/"Xform". Empty for non-create edits and for a reference
+    /// holder (which is typeless; see `has_ref`).
     std::string prim_type;
     // Optional built-in shape defaults the server authored (has-field semantics
     // mirror the wire's proto3 optional fields). Only the ones that apply to the
     // type are set: Cube -> size; Sphere -> radius; Cone/Cylinder/Capsule ->
-    // height, radius, axis; Xform -> none.
+    // height, radius, axis; Plane -> width, length, axis; Xform -> none.
     bool has_size = false;
     double size = 0.0;
     bool has_height = false;
@@ -74,6 +87,24 @@ struct PrimEdit
     double radius = 0.0;
     bool has_axis = false;
     std::string axis; ///< "X"/"Y"/"Z"
+    bool has_width = false;
+    double width = 0.0;
+    bool has_length = false;
+    double length = 0.0;
+
+    // A reference holder: a typeless prim carrying a reference or payload arc to
+    // `reference_path` (stage-relative). `prim_type` is empty for such a prim.
+    bool has_ref = false;
+    RefKind ref_kind = RefKind::Reference;
+    std::string reference_path;
+
+    // Optional create-time LOCAL transform, kept distinct from the Transform-kind
+    // members above so a create placement can never flow through the transform
+    // path's spine-axis bake. Authored verbatim as the new prim's local xformOp.
+    bool has_create_transform = false;
+    bool create_is_matrix = true; ///< choose create_matrix vs. create_separate
+    Mat4 create_matrix;
+    SeparateXform create_separate;
 
     // --- SetActive ---
     bool active = true; ///< target active state (false = soft delete)
