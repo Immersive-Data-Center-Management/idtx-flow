@@ -61,8 +61,10 @@ void StageEditController::author_from_node(Node3D* child, bool authoring_enabled
     }
 
     // Author the node's local transform (not its world transform): a parent
-    // move changes a child's world transform but not its local.
-    bridge_->author_local_edit(gxform::transform_to_prim_edit(prim_path, child->get_transform()));
+    // move changes a child's world transform but not its local. This is a local
+    // edit, so it is reported back for broadcast.
+    bridge_->author_edit(gxform::transform_to_prim_edit(prim_path, child->get_transform()),
+                         net::ports::EditOrigin::Local);
 }
 
 } // namespace collab

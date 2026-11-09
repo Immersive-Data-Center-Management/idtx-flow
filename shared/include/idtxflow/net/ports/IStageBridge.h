@@ -3,10 +3,11 @@
 /**
  * @file IStageBridge.h
  * @brief Port through which the core reads and writes prim transforms without
- *        knowing about USD. Authoring a local edit writes into the live stage
- *        (which is also the local save); applying a remote edit is suppressed
- *        from re-broadcast; and stage-originated changes are reported back so the
- *        core can gate and coalesce the outbound update.
+ *        knowing about USD. Authoring an edit writes into the live stage (which
+ *        is also the local save); the edit's origin decides whether the
+ *        resulting stage change is reported back as a local change (Local) or
+ *        suppressed from re-broadcast (External). Stage-originated changes are
+ *        reported back so the core can gate and coalesce the outbound update.
  */
 
 #include <functional>
@@ -20,6 +21,15 @@ namespace net
 {
 namespace ports
 {
+/// Where an authored edit came from. Local edits are the user's own changes and
+/// must be broadcast; External edits arrive from a peer and must not be echoed
+/// back out. The origin is the single switch that drives loopback suppression.
+enum class EditOrigin
+{
+    Local,
+    External
+};
+
 struct IStageBridge
 {
     virtual ~IStageBridge() = default;
@@ -30,13 +40,10 @@ struct IStageBridge
     /// Read a prim's current transform; returns false if the prim is unknown.
     virtual bool read_prim(const std::string& prim_path, model::PrimEdit& out) const = 0;
 
-    /// Write an edit into the live stage. This is the free local save; the
-    /// resulting stage change is what feeds the change-report sink below.
-    virtual void author_local_edit(const model::PrimEdit& edit) = 0;
-
-    /// Apply an inbound edit, marking it so the resulting stage change is not
-    /// reported back as a local change (loopback suppression).
-    virtual void apply_remote_edit(const model::PrimEdit& edit) = 0;
+    /// Write an edit into the live stage. This is the free local save. A Local
+    /// edit lets the resulting stage change report back as a local change (to be
+    /// broadcast); an External edit suppresses that report (loopback suppression).
+    virtual void author_edit(const model::PrimEdit& edit, EditOrigin origin) = 0;
 
     /// Sink the bridge invokes when a stage-originated (non-remote) change
     /// fires, letting the core gate the broadcast and coalesce the update.

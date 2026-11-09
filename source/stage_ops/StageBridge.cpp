@@ -264,42 +264,53 @@ bool StageBridge::read_prim(const std::string& prim_path, net::model::PrimEdit& 
     return true;
 }
 
-void StageBridge::author_local_edit(const net::model::PrimEdit& edit)
+void StageBridge::author_edit(const net::model::PrimEdit& edit, net::ports::EditOrigin origin)
 {
-    // This IS the local change we want to broadcast, so do not suppress: authoring
-    // trips the TfNotice listener, which reports it back through on_changed_.
+    // Re-entrancy guard: an authoring call that arrives while we are mid-author
+    // (suppress already raised) would be our own suppressed notice looping back;
+    // ignore it rather than author on top of an in-flight edit.
     if (suppress_broadcast_) return;
-    author_to_usd(edit.prim_path, gxform::prim_edit_to_transform(edit));
-}
 
-void StageBridge::apply_remote_edit(const net::model::PrimEdit& edit)
-{
+    // Loopback suppression is owned here, once, for the whole edit. A Local edit
+    // leaves the flag down so the resulting TfNotice reports back through
+    // on_changed_ (the change we want to broadcast); an External (peer) edit
+    // raises it so the applied change is not echoed straight back out. The
+    // per-kind helpers below never touch the flag.
+    const bool external = (origin == net::ports::EditOrigin::External);
+    suppress_broadcast_ = external;
+
     switch (edit.kind)
     {
-    case net::model::PrimEdit::Kind::Transform:  apply_remote_transform(edit);  break;
-    case net::model::PrimEdit::Kind::CreatePrim: apply_remote_create(edit);     break;
-    case net::model::PrimEdit::Kind::SetActive:  apply_remote_set_active(edit); break;
+    case net::model::PrimEdit::Kind::Transform:  author_transform(edit, external); break;
+    case net::model::PrimEdit::Kind::CreatePrim: author_create(edit);              break;
+    case net::model::PrimEdit::Kind::SetActive:  author_set_active(edit);          break;
     }
+
+    suppress_broadcast_ = false;
 }
 
-void StageBridge::apply_remote_transform(const net::model::PrimEdit& edit)
+void StageBridge::author_transform(const net::model::PrimEdit& edit, bool external)
 {
     auto it = tracked_.find(edit.prim_path);
 
-    // Suppress the TfNotice our authoring will trigger so the remote change is not
-    // echoed straight back out.
-    suppress_broadcast_ = true;
-
-    // The wire/USD value is raw (no spine-axis rotation). Re-apply the
-    // load-time presentation rotation so both the USD author (which strips it back
-    // out) and the live node carry the same node-space transform the importer
-    // produced. No-op for prim types without a baked spine axis.
-    const xform::SpineAxis axis = spine_axis_for(edit.prim_path);
+    // The wire/USD value is raw (no spine-axis rotation). For an external edit,
+    // re-apply the load-time presentation rotation so both the USD author (which
+    // strips it back out) and the live node carry the same node-space transform
+    // the importer produced; a local edit already carries the node-space basis
+    // the live node holds, so it is authored as-is. No-op for prim types without
+    // a baked spine axis.
     Transform3D node_xform = gxform::prim_edit_to_transform(edit);
-    node_xform.basis = gxform::apply_spine_axis(node_xform.basis, axis);
+    if (external)
+    {
+        const xform::SpineAxis axis = spine_axis_for(edit.prim_path);
+        node_xform.basis = gxform::apply_spine_axis(node_xform.basis, axis);
+    }
 
     author_to_usd(edit.prim_path, node_xform);
-    if (it != tracked_.end())
+
+    // Mirror the authored transform onto the live node only for external edits;
+    // a local edit originates from the node, which already holds this transform.
+    if (external && it != tracked_.end())
     {
         // Resolve the stored ObjectID to a live node. ObjectDB::get_instance()
         // returns null if the node has been freed. Prevents dangling pointer issues.
@@ -311,11 +322,9 @@ void StageBridge::apply_remote_transform(const net::model::PrimEdit& edit)
             node->set_block_signals(false);
         }
     }
-
-    suppress_broadcast_ = false;
 }
 
-void StageBridge::apply_remote_create(const net::model::PrimEdit& edit)
+void StageBridge::author_create(const net::model::PrimEdit& edit)
 {
     // The stage may have been released between the inbound message being queued
     // and applied; bail rather than touch a dead stage.
@@ -330,50 +339,44 @@ void StageBridge::apply_remote_create(const net::model::PrimEdit& edit)
     pxr::SdfLayerHandle target_layer =
         (edit_target_ == EditTarget::RootLayer) ? stage_->GetRootLayer() : stage_->GetSessionLayer();
 
-    // Suppress the outbound echo of our own authoring; reconcile_structural still
-    // runs on the resulting notice to build the Godot node.
-    suppress_broadcast_ = true;
+    // reconcile_structural runs on the resulting notice to build the Godot node.
+    // One SdfChangeBlock so the typed def and its attributes land atomically and a
+    // single coalesced resync notice fires with the fully-authored prim — the
+    // conversion then reads the final attribute state. Authoring at the Sdf level
+    // avoids the Usd-DefinePrim-inside-a-change-block pattern USD advises against.
+    pxr::SdfChangeBlock block;
+    if (pxr::SdfPrimSpecHandle spec = pxr::SdfCreatePrimInLayer(target_layer, path))
     {
-        // One SdfChangeBlock so the typed def and its attributes land atomically
-        // and a single coalesced resync notice fires with the fully-authored prim —
-        // the conversion then reads the final attribute state. Authoring at the
-        // Sdf level avoids the Usd-DefinePrim-inside-a-change-block pattern USD
-        // advises against.
-        pxr::SdfChangeBlock block;
-        if (pxr::SdfPrimSpecHandle spec = pxr::SdfCreatePrimInLayer(target_layer, path))
-        {
-            spec->SetSpecifier(pxr::SdfSpecifierDef);
-            spec->SetTypeName(pxr::TfToken(edit.prim_type));
+        spec->SetSpecifier(pxr::SdfSpecifierDef);
+        spec->SetTypeName(pxr::TfToken(edit.prim_type));
 
-            // Author the built-in shape defaults the server sent. Only the fields
-            // that apply to the type are present (has-field semantics).
-            auto author_double = [&](const pxr::TfToken& name, double value) {
-                if (pxr::SdfAttributeSpecHandle attr =
-                        pxr::SdfAttributeSpec::New(spec, name.GetString(), pxr::SdfValueTypeNames->Double))
-                    attr->SetDefaultValue(pxr::VtValue(value));
-            };
-            if (edit.has_size) author_double(pxr::UsdGeomTokens->size, edit.size);
-            if (edit.has_height) author_double(pxr::UsdGeomTokens->height, edit.height);
-            if (edit.has_radius) author_double(pxr::UsdGeomTokens->radius, edit.radius);
-            if (edit.has_axis)
-            {
-                // axis is a uniform token on the gprim schema.
-                if (pxr::SdfAttributeSpecHandle attr =
-                        pxr::SdfAttributeSpec::New(spec, pxr::UsdGeomTokens->axis.GetString(),
-                                                   pxr::SdfValueTypeNames->Token, pxr::SdfVariabilityUniform))
-                    attr->SetDefaultValue(pxr::VtValue(pxr::TfToken(edit.axis)));
-            }
-        }
-        else
+        // Author the built-in shape defaults the server sent. Only the fields
+        // that apply to the type are present (has-field semantics).
+        auto author_double = [&](const pxr::TfToken& name, double value) {
+            if (pxr::SdfAttributeSpecHandle attr =
+                    pxr::SdfAttributeSpec::New(spec, name.GetString(), pxr::SdfValueTypeNames->Double))
+                attr->SetDefaultValue(pxr::VtValue(value));
+        };
+        if (edit.has_size) author_double(pxr::UsdGeomTokens->size, edit.size);
+        if (edit.has_height) author_double(pxr::UsdGeomTokens->height, edit.height);
+        if (edit.has_radius) author_double(pxr::UsdGeomTokens->radius, edit.radius);
+        if (edit.has_axis)
         {
-            IDTX_LOG(IDTX_WARN, "apply_remote_create: could not create prim spec for '{}'", edit.prim_path);
+            // axis is a uniform token on the gprim schema.
+            if (pxr::SdfAttributeSpecHandle attr =
+                    pxr::SdfAttributeSpec::New(spec, pxr::UsdGeomTokens->axis.GetString(),
+                                               pxr::SdfValueTypeNames->Token, pxr::SdfVariabilityUniform))
+                attr->SetDefaultValue(pxr::VtValue(pxr::TfToken(edit.axis)));
         }
     }
-    suppress_broadcast_ = false;
+    else
+    {
+        IDTX_LOG(IDTX_WARN, "author_create: could not create prim spec for '{}'", edit.prim_path);
+    }
     IDTX_LOG(IDTX_DEBUG, "authored create of {} '{}'", edit.prim_type, edit.prim_path);
 }
 
-void StageBridge::apply_remote_set_active(const net::model::PrimEdit& edit)
+void StageBridge::author_set_active(const net::model::PrimEdit& edit)
 {
     if (!stage_ || !stage_->GetRootLayer()) return;
 
@@ -383,21 +386,17 @@ void StageBridge::apply_remote_set_active(const net::model::PrimEdit& edit)
     pxr::UsdPrim prim = stage_->GetPrimAtPath(path);
     if (!prim)
     {
-        IDTX_LOG(IDTX_DEBUG, "apply_remote_set_active: prim not found '{}'", edit.prim_path);
+        IDTX_LOG(IDTX_DEBUG, "author_set_active: prim not found '{}'", edit.prim_path);
         return;
     }
 
     pxr::SdfLayerHandle target_layer =
         (edit_target_ == EditTarget::RootLayer) ? stage_->GetRootLayer() : stage_->GetSessionLayer();
 
-    // Suppress the outbound echo; the resulting resync notice drives the Godot
-    // hide/show through reconcile_structural.
-    suppress_broadcast_ = true;
-    {
-        pxr::UsdEditContext edit_ctx(stage_, target_layer);
-        prim.SetActive(edit.active);
-    }
-    suppress_broadcast_ = false;
+    // The resulting resync notice drives the Godot hide/show through
+    // reconcile_structural.
+    pxr::UsdEditContext edit_ctx(stage_, target_layer);
+    prim.SetActive(edit.active);
     IDTX_LOG(IDTX_DEBUG, "authored active={} on '{}'", edit.active, edit.prim_path);
 }
 

@@ -5,10 +5,11 @@
  * @brief IStageBridge over a live USD stage and its converted Godot nodes.
  *
  * Where Godot and OpenUSD types meet for the net binding's transform
- * authoring/reading. It authors edits onto USD
- * prims (the free local save), applies inbound edits with loopback suppression,
+ * authoring/reading. It authors edits onto USD prims (the free local save),
  * reads prim transforms, and reports stage-originated changes back to the engine
  * through a TfNotice listener so the engine can gate and coalesce the broadcast.
+ * Each authored edit carries an EditOrigin: a Local edit is reported back for
+ * broadcast, an External (peer) edit is applied with loopback suppression.
  *
  * Transforms cross the port as model::PrimEdit (matrix form, row-major, matching
  * the wire convention). USD authoring/reading applies the distinct USD basis
@@ -73,8 +74,7 @@ class StageBridge : public net::ports::IStageBridge, public pxr::TfWeakBase
     // IStageBridge
     void build_index() override;
     bool read_prim(const std::string& prim_path, net::model::PrimEdit& out) const override;
-    void author_local_edit(const net::model::PrimEdit& edit) override;
-    void apply_remote_edit(const net::model::PrimEdit& edit) override;
+    void author_edit(const net::model::PrimEdit& edit, net::ports::EditOrigin origin) override;
     void set_on_changed(OnChanged sink) override
     {
         on_changed_ = std::move(sink);
@@ -97,10 +97,12 @@ class StageBridge : public net::ports::IStageBridge, public pxr::TfWeakBase
     void revoke_listener();
     void _on_objects_changed(const pxr::UsdNotice::ObjectsChanged& notice, const pxr::UsdStageWeakPtr& sender);
 
-    // apply_remote_edit dispatches on edit.kind to one of these.
-    void apply_remote_transform(const net::model::PrimEdit& edit);
-    void apply_remote_create(const net::model::PrimEdit& edit);
-    void apply_remote_set_active(const net::model::PrimEdit& edit);
+    // author_edit dispatches on edit.kind to one of these. `external` is true for
+    // peer-originated edits (transform re-applies the spine-axis presentation
+    // rotation); loopback suppression is owned by author_edit, not these helpers.
+    void author_transform(const net::model::PrimEdit& edit, bool external);
+    void author_create(const net::model::PrimEdit& edit);
+    void author_set_active(const net::model::PrimEdit& edit);
 
     // Create / show / hide the Godot node(s) for resynced prim paths so the
     // scene tree matches inbound create and active-toggle authoring. Runs for

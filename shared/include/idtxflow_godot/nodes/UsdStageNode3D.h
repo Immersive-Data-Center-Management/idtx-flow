@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <mutex>
+#include <vector>
 
 #include <godot_cpp/classes/node3d.hpp>
 #include <godot_cpp/classes/mesh_instance3d.hpp>
@@ -227,6 +228,22 @@ class UsdStageNode3D : public godot::Node3D, public IUsdNode3D
      * @param owner Owner to be set for this node
      */
     void _configure_nodes_recursive(godot::Node3D* node, godot::Node* owner, bool register_compute = false);
+
+    /**
+     * Attach a set of freshly converted root nodes under a parent and rebuild the
+     * authoring bridge index. Each root is owner-configured before it is parented
+     * (the owner must be set before the node enters the tree), then added as a
+     * child of @p parent. After every root is attached, the authoring bridge's
+     * prim index is rebuilt so it tracks the new node(s).
+     *
+     * Shared by full-stage conversion and single-subtree conversion so both reach
+     * the tree the same way.
+     *
+     * Must run on the main thread (mutates the Godot scene tree).
+     * @param roots Converted root nodes to attach, in order.
+     * @param parent Node the roots become children of.
+     */
+    void attach_converted_subtree(const std::vector<godot::Node3D*>& roots, godot::Node* parent);
 
     /**
      * remove all child nodes that has been converted as part of the referenced usd stage

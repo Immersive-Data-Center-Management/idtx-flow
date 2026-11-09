@@ -105,17 +105,9 @@ void UsdStageNode3D::convert_prim_subtree(const String& prim_path)
     std::vector<Node3D*> roots = converter->ConvertSubtree(stage, prim, is_stage_root_level);
     if (roots.empty()) return;
 
-    for (Node3D* node: roots)
-    {
-        _configure_nodes_recursive(node, this); // set owner (deferred) before add_child, as _convert_stage does
-        if (parent_node)
-            parent_node->add_child(node);
-        else
-            this->add_child(node);
-    }
-
-    // Re-index so the authoring bridge tracks the freshly converted node(s).
-    if (idtxflow::net::ports::IStageBridge* b = get_or_create_bridge()) b->build_index();
+    // Attach under the resolved converted parent, or under this node when the
+    // prim is a stage-level root (its USD parent chain reached the pseudo-root).
+    attach_converted_subtree(roots, parent_node ? static_cast<Node*>(parent_node) : static_cast<Node*>(this));
 }
 
 void UsdStageNode3D::_enter_tree()
@@ -383,23 +375,14 @@ void UsdStageNode3D::_convert_stage()
     // store the stage handle
     stage_handle_ = std::make_unique<idtxflow::converter::StageHandle>(std::move(conversion_result.Handle));
 
-    // once all nodes are converted, we need to add them as child to the current node.
-    // And we need to recursively maintain the owner of all nodes, which is
-    // only possible, once the nodes are added to the tree (by adding them as children to this node)
-    for (Node3D* node: conversion_result.ConvertedEntities)
-    {
-        _configure_nodes_recursive(
-            node, this);       // we set the owner here, but defer this to ensure adding to the tree happens first
-        this->add_child(node); // this invokes _ready() on node at earliest convenient from Godot engine point of
-                               // view, which expects the "config" already run
-    }
+    // once all nodes are converted, attach them under this node: the shared
+    // helper sets each node's owner (deferred so tree insertion happens first),
+    // adds it as a child, and rebuilds the authoring bridge index.
+    attach_converted_subtree(conversion_result.ConvertedEntities, this);
 
     // name our-self after the root layer of the stage we opened
     set_name(stage_handle_->Stage()->GetRootLayer()->GetDisplayName().c_str());
 
-    // Build the authoring bridge over the freshly converted stage so transform
-    // edits can be authored into it. No-op when no factory is registered.
-    if (idtxflow::net::ports::IStageBridge* b = get_or_create_bridge()) b->build_index();
 
     // generate and store a unique cached scene name for this converted stage
     cached_scene_name_ = _generate_cached_scene_name(stage_uri_);
@@ -533,6 +516,22 @@ void UsdStageNode3D::_configure_nodes_recursive(godot::Node3D* node, godot::Node
         if (child_stage_path == stage_path)
             _configure_nodes_recursive(Object::cast_to<Node3D>(child), owner, register_compute);
     }
+}
+
+void UsdStageNode3D::attach_converted_subtree(const std::vector<godot::Node3D*>& roots, godot::Node* parent)
+{
+    if (parent == nullptr) return;
+
+    for (Node3D* node: roots)
+    {
+        // Set the owner before the node enters the tree: add_child triggers the
+        // node's _ready, which expects configuration already run.
+        _configure_nodes_recursive(node, this);
+        parent->add_child(node);
+    }
+
+    // Re-index so the authoring bridge tracks the freshly converted node(s).
+    if (idtxflow::net::ports::IStageBridge* b = get_or_create_bridge()) b->build_index();
 }
 
 void UsdStageNode3D::_cleanup_nodes()

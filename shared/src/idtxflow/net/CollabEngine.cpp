@@ -431,7 +431,7 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
                 if (sp && sp->stage)
                 {
                     sp->applying_remote = true;
-                    sp->stage->apply_remote_edit(edit);
+                    sp->stage->author_edit(edit, ports::EditOrigin::External);
                     sp->applying_remote = false;
                     advance_server_seq(*sp, server_seq);
                 }
@@ -535,7 +535,7 @@ void CollabEngine::attach_stage(const std::string& session_id, ports::IStageBrid
         {
             s->applying_remote = true;
             for (const auto& edit: s->pending_remote)
-                s->stage->apply_remote_edit(edit);
+                s->stage->author_edit(edit, ports::EditOrigin::External);
             s->applying_remote = false;
             s->pending_remote.clear();
         }
