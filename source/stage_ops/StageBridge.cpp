@@ -10,12 +10,15 @@
 
 #include <pxr/base/gf/matrix4d.h>
 #include <pxr/base/tf/weakPtr.h>
+#include <pxr/base/vt/array.h>
 #include <pxr/base/vt/value.h>
 #include <pxr/usd/sdf/attributeSpec.h>
 #include <pxr/usd/sdf/changeBlock.h>
 #include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/sdf/path.h>
+#include <pxr/usd/sdf/payload.h>
 #include <pxr/usd/sdf/primSpec.h>
+#include <pxr/usd/sdf/reference.h>
 #include <pxr/usd/sdf/types.h>
 #include <pxr/usd/sdf/valueTypeName.h>
 #include <pxr/usd/usd/prim.h>
@@ -23,6 +26,7 @@
 #include <pxr/usd/usdGeom/xformable.h>
 #include <pxr/usd/usdGeom/cone.h>
 #include <pxr/usd/usdGeom/cylinder.h>
+#include <pxr/usd/usdGeom/plane.h>
 #include <pxr/usd/usdGeom/tokens.h>
 
 #include <idtxflow_godot/nodes/IUsdNode3D.h>
@@ -329,7 +333,9 @@ void StageBridge::author_create(const net::model::PrimEdit& edit)
     // The stage may have been released between the inbound message being queued
     // and applied; bail rather than touch a dead stage.
     if (!stage_ || !stage_->GetRootLayer()) return;
-    if (edit.prim_type.empty()) return;
+    // A create is either a typed built-in prim or a typeless reference holder;
+    // nothing to author otherwise.
+    if (edit.prim_type.empty() && !edit.has_ref) return;
 
     const pxr::SdfPath path(edit.prim_path);
     if (!path.IsPrimPath()) return;
@@ -340,40 +346,78 @@ void StageBridge::author_create(const net::model::PrimEdit& edit)
         (edit_target_ == EditTarget::RootLayer) ? stage_->GetRootLayer() : stage_->GetSessionLayer();
 
     // reconcile_structural runs on the resulting notice to build the Godot node.
-    // One SdfChangeBlock so the typed def and its attributes land atomically and a
-    // single coalesced resync notice fires with the fully-authored prim — the
-    // conversion then reads the final attribute state. Authoring at the Sdf level
-    // avoids the Usd-DefinePrim-inside-a-change-block pattern USD advises against.
+    // One SdfChangeBlock so the def, its attributes, any reference/payload arc and
+    // the local transform land atomically and a single coalesced resync notice
+    // fires with the fully-authored prim — the conversion then reads the final
+    // state. Authoring at the Sdf level avoids the Usd-DefinePrim-inside-a-change-
+    // block pattern USD advises against.
     pxr::SdfChangeBlock block;
     if (pxr::SdfPrimSpecHandle spec = pxr::SdfCreatePrimInLayer(target_layer, path))
     {
         spec->SetSpecifier(pxr::SdfSpecifierDef);
-        spec->SetTypeName(pxr::TfToken(edit.prim_type));
 
-        // Author the built-in shape defaults the server sent. Only the fields
-        // that apply to the type are present (has-field semantics).
-        auto author_double = [&](const pxr::TfToken& name, double value) {
-            if (pxr::SdfAttributeSpecHandle attr =
-                    pxr::SdfAttributeSpec::New(spec, name.GetString(), pxr::SdfValueTypeNames->Double))
-                attr->SetDefaultValue(pxr::VtValue(value));
-        };
-        if (edit.has_size) author_double(pxr::UsdGeomTokens->size, edit.size);
-        if (edit.has_height) author_double(pxr::UsdGeomTokens->height, edit.height);
-        if (edit.has_radius) author_double(pxr::UsdGeomTokens->radius, edit.radius);
-        if (edit.has_axis)
+        // A reference holder is typeless and carries a reference or payload arc to
+        // the target asset; a built-in prim carries its schema type and the shape
+        // defaults the server sent.
+        if (edit.has_ref)
         {
-            // axis is a uniform token on the gprim schema.
+            if (edit.ref_kind == net::model::PrimEdit::RefKind::Payload)
+                spec->GetPayloadList().GetExplicitItems().push_back(pxr::SdfPayload(edit.reference_path));
+            else
+                spec->GetReferenceList().GetExplicitItems().push_back(pxr::SdfReference(edit.reference_path));
+        }
+        else
+        {
+            spec->SetTypeName(pxr::TfToken(edit.prim_type));
+
+            // Author the built-in shape defaults the server sent. Only the fields
+            // that apply to the type are present (has-field semantics).
+            auto author_double = [&](const pxr::TfToken& name, double value) {
+                if (pxr::SdfAttributeSpecHandle attr =
+                        pxr::SdfAttributeSpec::New(spec, name.GetString(), pxr::SdfValueTypeNames->Double))
+                    attr->SetDefaultValue(pxr::VtValue(value));
+            };
+            if (edit.has_size) author_double(pxr::UsdGeomTokens->size, edit.size);
+            if (edit.has_height) author_double(pxr::UsdGeomTokens->height, edit.height);
+            if (edit.has_radius) author_double(pxr::UsdGeomTokens->radius, edit.radius);
+            if (edit.has_width) author_double(pxr::UsdGeomTokens->width, edit.width);
+            if (edit.has_length) author_double(pxr::UsdGeomTokens->length, edit.length);
+            if (edit.has_axis)
+            {
+                // axis is a uniform token on the gprim schema.
+                if (pxr::SdfAttributeSpecHandle attr =
+                        pxr::SdfAttributeSpec::New(spec, pxr::UsdGeomTokens->axis.GetString(),
+                                                   pxr::SdfValueTypeNames->Token, pxr::SdfVariabilityUniform))
+                    attr->SetDefaultValue(pxr::VtValue(pxr::TfToken(edit.axis)));
+            }
+        }
+
+        // Optional create-time LOCAL transform, authored verbatim as a single
+        // matrix xformOp:transform. The server authored it with no spine-axis
+        // presentation bake, so it is written as-is (no strip_spine_axis) —
+        // unlike an inbound transform edit, whose raw value needs the bake
+        // re-applied. Resolved to a matrix here; a separate branch composes via
+        // the shared transform codec.
+        if (edit.has_create_transform)
+        {
+            const Transform3D node_xform =
+                gxform::to_transform(edit.create_is_matrix, edit.create_matrix, edit.create_separate);
+            const pxr::GfMatrix4d m = transform_to_gfmatrix(node_xform);
             if (pxr::SdfAttributeSpecHandle attr =
-                    pxr::SdfAttributeSpec::New(spec, pxr::UsdGeomTokens->axis.GetString(),
-                                               pxr::SdfValueTypeNames->Token, pxr::SdfVariabilityUniform))
-                attr->SetDefaultValue(pxr::VtValue(pxr::TfToken(edit.axis)));
+                    pxr::SdfAttributeSpec::New(spec, "xformOp:transform", pxr::SdfValueTypeNames->Matrix4d))
+                attr->SetDefaultValue(pxr::VtValue(m));
+            if (pxr::SdfAttributeSpecHandle order =
+                    pxr::SdfAttributeSpec::New(spec, pxr::UsdGeomTokens->xformOpOrder.GetString(),
+                                               pxr::SdfValueTypeNames->TokenArray, pxr::SdfVariabilityUniform))
+                order->SetDefaultValue(pxr::VtValue(pxr::VtTokenArray{pxr::TfToken("xformOp:transform")}));
         }
     }
     else
     {
         IDTX_LOG(IDTX_WARN, "author_create: could not create prim spec for '{}'", edit.prim_path);
     }
-    IDTX_LOG(IDTX_DEBUG, "authored create of {} '{}'", edit.prim_type, edit.prim_path);
+    IDTX_LOG(IDTX_DEBUG, "authored create of {} '{}'", edit.has_ref ? "reference" : edit.prim_type.c_str(),
+             edit.prim_path);
 }
 
 void StageBridge::author_set_active(const net::model::PrimEdit& edit)
@@ -519,16 +563,16 @@ bool StageBridge::read_prim_transform(const std::string& prim_path, Transform3D&
 
 xform::SpineAxis StageBridge::spine_axis_for(const std::string& prim_path) const
 {
-    // Only Cone and Cylinder are imported via toTransform(matrix, axis), with a
-    // baked spine-axis presentation rotation; every other prim type bakes none.
-    // Keep this in sync with StageConverter's Cone/Cylinder branches and with
-    // UsdGodotTypeConverter::toTransform.
+    // Only Cone, Cylinder and Plane are imported via toTransform(matrix, axis),
+    // with a baked spine-axis presentation rotation; every other prim type bakes
+    // none. Keep this in sync with StageConverter's Cone/Cylinder/Plane branches
+    // and with UsdGodotTypeConverter::toTransform.
     //
-    // Why the bake exists: USD's Cone/Cylinder store their spine direction in an
-    // `axis` attribute (x/y/z) with no matrix rotation, but Godot's CylinderMesh is
-    // fixed to the Y axis, so the loader rotates the node basis to compensate. This
-    // strip/re-apply is the exact inverse of that, so the two MUST be enabled as a
-    // matched pair, gated on the same prim types.
+    // Why the bake exists: USD's Cone/Cylinder/Plane store their axis direction in
+    // an `axis` attribute (x/y/z) with no matrix rotation, but Godot's CylinderMesh
+    // and PlaneMesh are fixed to the Y axis, so the loader rotates the node basis to
+    // compensate. This strip/re-apply is the exact inverse of that, so the two MUST
+    // be enabled as a matched pair, gated on the same prim types.
     //
     // Capsule is intentionally not handled here: no UsdGeomCapsule converter
     // (StageConverter has no Cone/Cylinder-style branch for it) With no loader bake there is nothing
@@ -546,6 +590,8 @@ xform::SpineAxis StageBridge::spine_axis_for(const std::string& prim_path) const
         pxr::UsdGeomCone(prim).GetAxisAttr().Get(&axis);
     else if (prim.IsA<pxr::UsdGeomCylinder>())
         pxr::UsdGeomCylinder(prim).GetAxisAttr().Get(&axis);
+    else if (prim.IsA<pxr::UsdGeomPlane>())
+        pxr::UsdGeomPlane(prim).GetAxisAttr().Get(&axis);
     else
         return xform::SpineAxis::None;
 

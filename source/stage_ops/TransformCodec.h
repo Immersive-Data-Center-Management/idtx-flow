@@ -45,6 +45,13 @@ godot::Transform3D mat4_to_transform(const net::model::Mat4& mm);
 /// Transform3D.
 godot::Transform3D separate_to_transform(const net::model::SeparateXform& s);
 
+/// Resolve an explicit (is_matrix, matrix, separate) triple to a Godot
+/// Transform3D, choosing the matrix or separate branch by `is_matrix`. The
+/// single composition point reused by both a transform edit and a create's
+/// placement, so the matrix/separate decode stays single-sourced.
+godot::Transform3D to_transform(bool is_matrix, const net::model::Mat4& matrix,
+                                const net::model::SeparateXform& separate);
+
 /// PrimEdit -> Godot Transform3D, choosing the matrix or separate branch by
 /// PrimEdit::is_matrix.
 godot::Transform3D prim_edit_to_transform(const net::model::PrimEdit& e);

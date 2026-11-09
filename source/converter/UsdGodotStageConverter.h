@@ -4,6 +4,7 @@
 #include <godot_cpp/classes/box_mesh.hpp>
 #include <godot_cpp/classes/sphere_mesh.hpp>
 #include <godot_cpp/classes/cylinder_mesh.hpp>
+#include <godot_cpp/classes/plane_mesh.hpp>
 #include <godot_cpp/classes/multi_mesh.hpp>
 #include <godot_cpp/classes/standard_material3d.hpp>
 #include <godot_cpp/classes/skin.hpp>
@@ -328,6 +329,55 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertSphere
 
     UsdMeshInstanceNode3D* converted_node = memnew(UsdMeshInstanceNode3D);
     converted_node->set_mesh(sphere);
+    converted_node->set_transform(transform);
+
+    if (animation.has_value())
+    {
+        const auto& animation_description = animation.value();
+        helper::AddAnimation(animation_description, converted_node, StageAnimationLength);
+    }
+
+    return converted_node;
+}
+
+template <>
+inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertPlane(
+    const godot::Transform3D& transform, const std::optional<AnimationDescription<types::TargetEngineGodot>>& animation,
+    const std::optional<godot::Ref<godot::StandardMaterial3D>>& material, float plane_width, float plane_length,
+    const pxr::VtArray<class pxr::GfVec4f>& display_colors, const class pxr::TfToken& color_interpolation)
+{
+    godot::Ref<godot::PlaneMesh> plane;
+    plane.instantiate();
+    // USD's plane lies in the plane normal to its axis (Z by default); the axis
+    // rotation is baked into `transform`, so the mesh is the unrotated XZ quad
+    // sized width x length.
+    plane->set_size(godot::Vector2(plane_width, plane_length));
+
+    godot::Ref<godot::StandardMaterial3D> standard_material;
+    if (material.has_value())
+    {
+        standard_material = material.value();
+    }
+    else
+    {
+        // use a default material if none could be created
+        standard_material.instantiate();
+        // if the current Mesh prim authored a display color as a constant value, pass this into the
+        // default material as base albedo color.
+        if (!display_colors.empty() && color_interpolation == pxr::UsdGeomTokens->constant)
+        {
+            godot::Color albedo = TypeConverter::toColor(display_colors[0]);
+            standard_material->set_albedo(albedo);
+            if (albedo.a < 1.0f) standard_material->set_transparency(godot::BaseMaterial3D::TRANSPARENCY_ALPHA);
+        }
+        else
+            standard_material->set_flag(godot::BaseMaterial3D::FLAG_ALBEDO_FROM_VERTEX_COLOR, true);
+    }
+
+    plane->set_material(standard_material);
+
+    UsdMeshInstanceNode3D* converted_node = memnew(UsdMeshInstanceNode3D);
+    converted_node->set_mesh(plane);
     converted_node->set_transform(transform);
 
     if (animation.has_value())

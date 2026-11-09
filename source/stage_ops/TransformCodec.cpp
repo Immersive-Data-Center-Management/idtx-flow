@@ -55,9 +55,14 @@ Transform3D separate_to_transform(const net::model::SeparateXform& s)
     return t;
 }
 
+Transform3D to_transform(bool is_matrix, const net::model::Mat4& matrix, const net::model::SeparateXform& separate)
+{
+    return is_matrix ? mat4_to_transform(matrix) : separate_to_transform(separate);
+}
+
 Transform3D prim_edit_to_transform(const net::model::PrimEdit& e)
 {
-    return e.is_matrix ? mat4_to_transform(e.matrix) : separate_to_transform(e.separate);
+    return to_transform(e.is_matrix, e.matrix, e.separate);
 }
 
 namespace

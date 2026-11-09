@@ -42,6 +42,7 @@
 #include <pxr/usd/usdGeom/cone.h>
 #include <pxr/usd/usdGeom/cylinder.h>
 #include <pxr/usd/usdGeom/sphere.h>
+#include <pxr/usd/usdGeom/plane.h>
 #include <pxr/usd/usdGeom/mesh.h>
 #include <pxr/usd/pcp/layerStack.h>
 #include <pxr/usd/pcp/layerStackIdentifier.h>
@@ -778,6 +779,20 @@ class UsdStageConverter
             return ConvertSphere(TypeConverter::toTransform(matrix), gPrimAnimation, material, sphereRadius,
                                  displayColors, colorInterpolation);
         }
+        else if (usdPrim.IsA<pxr::UsdGeomPlane>())
+        {
+            pxr::UsdGeomPlane usdPlane(usdPrim);
+            double planeWidth;
+            double planeLength;
+            if (!usdPlane.GetWidthAttr().Get(&planeWidth)) planeWidth = 1.0;
+            if (!usdPlane.GetLengthAttr().Get(&planeLength)) planeLength = 1.0;
+
+            class pxr::TfToken axis;
+            usdPlane.GetAxisAttr().Get(&axis);
+
+            return ConvertPlane(TypeConverter::toTransform(matrix, axis), gPrimAnimation, material, planeWidth,
+                                planeLength, displayColors, colorInterpolation);
+        }
         else if (usdPrim.IsA<pxr::UsdGeomMesh>())
         {
             pxr::UsdGeomMesh usdMesh(usdPrim);
@@ -874,6 +889,24 @@ class UsdStageConverter
                                                    float sphereRadius,
                                                    const pxr::VtArray<class pxr::GfVec4f>& displayColors,
                                                    const class pxr::TfToken& colorInterpolation);
+
+    /**
+     * Convert a Plane
+     * @param transform The transform of the plane (axis orientation baked in)
+     * @param animation The animation of the plane's transform, if any
+     * @param material The material of the plane
+     * @param planeWidth The width (local X extent)
+     * @param planeLength The length (local Z extent)
+     * @param displayColors The authored display colors
+     * @param colorInterpolation The authored color interpolation
+     * @return
+     */
+    typename Types::ConvertedEntity* ConvertPlane(const typename Types::Transform& transform,
+                                                  const std::optional<AnimationDescription<TargetEngine>>& animation,
+                                                  const std::optional<typename Types::Material>& material,
+                                                  float planeWidth, float planeLength,
+                                                  const pxr::VtArray<class pxr::GfVec4f>& displayColors,
+                                                  const class pxr::TfToken& colorInterpolation);
 
     /**
      * Convert a collision parent prim that holds additional information for
