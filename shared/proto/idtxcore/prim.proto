@@ -2,11 +2,14 @@ syntax = "proto3";
 
 package idtxcore;
 
+import "transform.proto";
+
 // Built-in USD prim types a client may ask the server to create. The numeric
 // values are wire-stable; append new types, never renumber. UNSPECIFIED (0) is
 // the proto3 default and is rejected by the server. The gprim types
-// (Cube..Capsule) may not be nested under another gprim; XFORM is a plain
-// transform group with no such restriction.
+// (Cube..Capsule, Plane) may not be nested under another gprim; XFORM is a plain
+// transform group and REF is a typeless reference/payload holder, neither of
+// which carries that restriction.
 //
 // Mirrors idtx-core shared/proto_messages/prim.proto. Keep in sync with the
 // server; the field tags and enum values are the wire contract.
@@ -18,15 +21,32 @@ enum PrimType {
   PRIM_TYPE_CYLINDER = 4;
   PRIM_TYPE_CAPSULE = 5;
   PRIM_TYPE_XFORM = 6;
+  PRIM_TYPE_PLANE = 7;
+  PRIM_TYPE_REF = 8;
 }
 
-// Client -> server. Ask the server to author a new built-in primitive of
-// @c type as a child of @c parent_path. (Outbound; not yet produced by this
-// client, kept for a faithful mirror of the server contract.)
+// How a reference prim holds its target layer/prim: as a USD reference or as a
+// payload. Relevant only for a PRIM_TYPE_REF prim.
+enum PrimRefType {
+  PRIM_REF_REFERENCE = 0;
+  PRIM_REF_PAYLOAD = 1;
+}
+
+// Client -> server. Ask the server to author a new primitive of @c type as a
+// child of @c parent_path. (Outbound; not yet produced by this client, kept for
+// a faithful mirror of the server contract.)
 message CreatePrimRequest {
   string session_id = 1;
   string parent_path = 2;
   PrimType type = 3;
+  optional PrimRefType ref_type = 4;
+  optional string reference_path = 5;
+  // Optional LOCAL transform of the new prim relative to its parent. Authored
+  // verbatim as the prim's local xformOp (no world->local conversion).
+  oneof transform {
+    SeparateTransform seperate = 6;
+    Matrix4dTransform matrix = 7;
+  }
 }
 
 // Server -> all clients (including the originator) and replayed in the join
@@ -34,15 +54,33 @@ message CreatePrimRequest {
 // parent, the server-assigned name, the type and the default attribute values
 // that were authored. Only the attribute fields that apply to @c type are set
 // (has-field semantics via proto3 optional): Cube -> size; Sphere -> radius;
-// Cone/Cylinder/Capsule -> height, radius, axis; Xform -> none.
+// Cone/Cylinder/Capsule -> height, radius, axis; Plane -> width, length, axis;
+// Xform -> none; REF -> ref_type, reference_path.
 message CreatePrimBroadcast {
   string parent_path = 1;
   string prim_name = 2;
   PrimType type = 3;
+  // Size is relevant for Cube only
   optional double size = 4;
+  // Height is relevant for Cylinder, Cone and Capsule only
   optional double height = 5;
+  // Radius is relevant for Cylinder, Cone, Capsule and Sphere only
   optional double radius = 6;
+  // Axis is relevant for Cylinder, Cone, Capsule and Plane only
   optional string axis = 7;
+  // Width is relevant for Plane only
+  optional double width = 8;
+  // Length is relevant for Plane only
+  optional double length = 9;
+  // Reference type is relevant for referencing prims only
+  optional PrimRefType ref_type = 10;
+  // The reference path as relative to the stage the reference is embedded into
+  optional string reference_path = 11;
+  // The optional LOCAL transform of the prim relative to its parent
+  oneof transform {
+    SeparateTransform seperate = 12;
+    Matrix4dTransform matrix = 13;
+  }
 }
 
 // Client -> server. Ask the server to change the active state of an existing
