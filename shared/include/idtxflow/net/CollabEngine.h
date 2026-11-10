@@ -182,11 +182,15 @@ class CollabEngine
     // client including the originator, which materializes it through the normal
     // inbound path. These send the request; they do not touch the stage.
 
-    // Ask the server to create a prim. The edit's prim_path is the parent path;
-    // prim_type (or has_ref + reference_path + ref_kind) selects what to create,
-    // and an optional create transform places it. No-op unless the session is
-    // remote, snapshot-complete and its socket open.
-    void request_create_prim(const std::string& session_id, const model::PrimEdit& edit);
+    // Ask the server to create a prim under @c parent_path (the server assigns
+    // the child name). @c is_reference selects a typeless reference/payload holder
+    // (@c is_payload picks the arc kind, @c reference_path its target); otherwise
+    // @c prim_type is the built-in schema type. @c has_transform places the new
+    // prim with @c transform (a local matrix, authored verbatim). No-op unless the
+    // session is remote, snapshot-complete and its socket open.
+    void request_create_prim(const std::string& session_id, const std::string& parent_path,
+                             const std::string& prim_type, bool is_reference, bool is_payload,
+                             const std::string& reference_path, bool has_transform, const model::Mat4& transform);
 
     // Ask the server to change a prim's active state (false = soft delete, true =
     // restore). Same session preconditions as request_create_prim.

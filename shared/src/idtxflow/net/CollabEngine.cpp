@@ -587,7 +587,10 @@ void CollabEngine::try_arm(Session& s)
     IDTX_LOG(IDTX_DEBUG, "[trace] E try_arm session='{}' ARMED (settle_done + snapshot_complete)", s.id);
 }
 
-void CollabEngine::request_create_prim(const std::string& session_id, const model::PrimEdit& edit)
+void CollabEngine::request_create_prim(const std::string& session_id, const std::string& parent_path,
+                                       const std::string& prim_type, bool is_reference, bool is_payload,
+                                       const std::string& reference_path, bool has_transform,
+                                       const model::Mat4& transform)
 {
     Session* s = find_session(session_id);
     if (!s) return;
@@ -601,6 +604,31 @@ void CollabEngine::request_create_prim(const std::string& session_id, const mode
                  s->snapshot_complete, s->socket != nullptr);
         return;
     }
+
+    // Build the request edit from the decomposed intent: a reference holder is
+    // typeless and carries its arc kind + target; every other create carries a
+    // built-in schema type. parent_path is the path the new prim is created
+    // under — the server assigns the child name.
+    model::PrimEdit edit;
+    edit.kind = model::PrimEdit::Kind::CreatePrim;
+    edit.prim_path = parent_path;
+    if (is_reference)
+    {
+        edit.has_ref = true;
+        edit.reference_path = reference_path;
+        edit.ref_kind = is_payload ? model::PrimEdit::RefKind::Payload : model::PrimEdit::RefKind::Reference;
+    }
+    else
+    {
+        edit.prim_type = prim_type;
+    }
+    if (has_transform)
+    {
+        edit.has_create_transform = true;
+        edit.create_is_matrix = true;
+        edit.create_matrix = transform;
+    }
+
     // The prim is materialized later by the server's broadcast echo, not here.
     s->socket->send_create_prim(edit);
 }
