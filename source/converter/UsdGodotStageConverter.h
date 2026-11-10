@@ -5,6 +5,7 @@
 #include <godot_cpp/classes/sphere_mesh.hpp>
 #include <godot_cpp/classes/cylinder_mesh.hpp>
 #include <godot_cpp/classes/capsule_mesh.hpp>
+#include <godot_cpp/classes/plane_mesh.hpp>
 #include <godot_cpp/classes/multi_mesh.hpp>
 #include <godot_cpp/classes/standard_material3d.hpp>
 #include <godot_cpp/classes/skin.hpp>
@@ -384,6 +385,59 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCapsul
 
     UsdMeshInstanceNode3D* converted_node = memnew(UsdMeshInstanceNode3D);
     converted_node->set_mesh(capsule);
+    converted_node->set_transform(transform);
+
+    if (animation.has_value())
+    {
+        const auto& animation_description = animation.value();
+        helper::AddAnimation(animation_description, converted_node, StageAnimationLength);
+    }
+
+    return converted_node;
+}
+
+template <>
+inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertPlane(
+    const godot::Transform3D& transform, const std::optional<AnimationDescription<types::TargetEngineGodot>>& animation,
+    const std::optional<typename Types::Material>& material, float planeWidth, float planeLength,
+    const pxr::VtArray<class pxr::GfVec4f>& display_colors, const class pxr::TfToken& color_interpolation)
+{
+    godot::Ref<godot::PlaneMesh> plane;
+    plane.instantiate();
+
+    // USD authors width and length attributes to determine plane dimensions
+    // width and length are perpendicular to the authored axis
+    // with axis set to Y (default) the axis of the width is the x-axis and the axis of the length is the z-axis
+    // which in Godot makes the width the x attribute and the length the y attribute of the plane size Vector2
+    // currently rotation to align the plane to a different axis is achieved using the transformation therefore
+    // other axis orientations dont need to be handled here since the plane orientation in Godot is not changed
+    plane->set_size(godot::Vector2(planeWidth, planeLength));
+
+    godot::Ref<godot::StandardMaterial3D> standard_material;
+    if (material.has_value())
+    {
+        standard_material = material.value();
+    }
+    else
+    {
+        // use a default material if none could be created
+        standard_material.instantiate();
+        // if the current Mesh prim authored a display color as a constant value, pass this into the
+        // default material as base albedo color.
+        if (!display_colors.empty() && color_interpolation == pxr::UsdGeomTokens->constant)
+        {
+            godot::Color albedo = TypeConverter::toColor(display_colors[0]);
+            standard_material->set_albedo(albedo);
+            if (albedo.a < 1.0f) standard_material->set_transparency(godot::BaseMaterial3D::TRANSPARENCY_ALPHA);
+        }
+        else
+            standard_material->set_flag(godot::BaseMaterial3D::FLAG_ALBEDO_FROM_VERTEX_COLOR, true);
+    }
+
+    plane->set_material(standard_material);
+
+    UsdMeshInstanceNode3D* converted_node = memnew(UsdMeshInstanceNode3D);
+    converted_node->set_mesh(plane);
     converted_node->set_transform(transform);
 
     if (animation.has_value())
