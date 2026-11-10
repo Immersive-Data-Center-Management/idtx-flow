@@ -31,6 +31,21 @@ const char* usd_type_token(idtxcore::PrimType type)
     default:                           return "";
     }
 }
+
+// Inverse of usd_type_token: the wire PrimType for a USD schema token. Returns
+// PRIM_TYPE_UNSPECIFIED for an unknown token. A reference holder is typeless and
+// is encoded as PRIM_TYPE_REF by the caller, not through this map.
+idtxcore::PrimType prim_type_from_token(const std::string& token)
+{
+    if (token == "Cube")     return idtxcore::PRIM_TYPE_CUBE;
+    if (token == "Sphere")   return idtxcore::PRIM_TYPE_SPHERE;
+    if (token == "Cone")     return idtxcore::PRIM_TYPE_CONE;
+    if (token == "Cylinder") return idtxcore::PRIM_TYPE_CYLINDER;
+    if (token == "Capsule")  return idtxcore::PRIM_TYPE_CAPSULE;
+    if (token == "Plane")    return idtxcore::PRIM_TYPE_PLANE;
+    if (token == "Xform")    return idtxcore::PRIM_TYPE_XFORM;
+    return idtxcore::PRIM_TYPE_UNSPECIFIED;
+}
 } // namespace
 
 bool decode(const std::string& bytes, DecodedMessage& out)
@@ -284,6 +299,94 @@ std::string encode_transform_update(const std::string& session_id, const model::
 void verify_protobuf_version()
 {
     GOOGLE_PROTOBUF_VERIFY_VERSION;
+}
+
+namespace
+{
+// Fill a request's transform oneof from the edit's create-transform members. The
+// matrix branch writes the 16 row-major elements; the separate branch writes
+// T/R/S. Keeps the oneof name local to this file.
+template <typename RequestT>
+void fill_create_transform(RequestT* req, const model::PrimEdit& edit)
+{
+    if (!edit.has_create_transform) return;
+    if (edit.create_is_matrix)
+    {
+        idtxcore::Matrix4dTransform* m = req->mutable_matrix();
+        const auto& a = edit.create_matrix.m;
+        m->set_m00(a[0]);  m->set_m01(a[1]);  m->set_m02(a[2]);  m->set_m03(a[3]);
+        m->set_m10(a[4]);  m->set_m11(a[5]);  m->set_m12(a[6]);  m->set_m13(a[7]);
+        m->set_m20(a[8]);  m->set_m21(a[9]);  m->set_m22(a[10]); m->set_m23(a[11]);
+        m->set_m30(a[12]); m->set_m31(a[13]); m->set_m32(a[14]); m->set_m33(a[15]);
+    }
+    else
+    {
+        idtxcore::SeparateTransform* s = req->mutable_seperate(); // "seperate" (sic)
+        const auto& sep = edit.create_separate;
+        s->mutable_translation()->set_x(sep.translation[0]);
+        s->mutable_translation()->set_y(sep.translation[1]);
+        s->mutable_translation()->set_z(sep.translation[2]);
+        s->mutable_rotation()->set_x(sep.rotation[0]);
+        s->mutable_rotation()->set_y(sep.rotation[1]);
+        s->mutable_rotation()->set_z(sep.rotation[2]);
+        s->mutable_scale()->set_x(sep.scale[0]);
+        s->mutable_scale()->set_y(sep.scale[1]);
+        s->mutable_scale()->set_z(sep.scale[2]);
+    }
+}
+} // namespace
+
+std::string encode_create_prim_request(const std::string& session_id, const model::PrimEdit& edit,
+                                       uint64_t base_server_seq, uint64_t request_id)
+{
+    idtxcore::BaseMessage msg;
+    msg.set_session_id(session_id);
+    msg.set_server_seq(base_server_seq);
+    msg.set_request_id(request_id);
+
+    idtxcore::CreatePrimRequest* req = msg.mutable_create_prim();
+    req->set_session_id(session_id);
+    // The edit's prim_path is the parent the new prim is created under; the
+    // server assigns the child name and reports it back in the broadcast.
+    req->set_parent_path(edit.prim_path);
+
+    // A reference holder is typeless (PRIM_TYPE_REF) and carries its arc kind and
+    // target path; every other create carries its built-in schema type.
+    if (edit.has_ref)
+    {
+        req->set_type(idtxcore::PRIM_TYPE_REF);
+        req->set_ref_type(edit.ref_kind == model::PrimEdit::RefKind::Payload ? idtxcore::PRIM_REF_PAYLOAD
+                                                                             : idtxcore::PRIM_REF_REFERENCE);
+        req->set_reference_path(edit.reference_path);
+    }
+    else
+    {
+        req->set_type(prim_type_from_token(edit.prim_type));
+    }
+
+    fill_create_transform(req, edit);
+
+    std::string bytes;
+    msg.SerializeToString(&bytes);
+    return bytes;
+}
+
+std::string encode_set_prim_active_request(const std::string& session_id, const model::PrimEdit& edit,
+                                           uint64_t base_server_seq, uint64_t request_id)
+{
+    idtxcore::BaseMessage msg;
+    msg.set_session_id(session_id);
+    msg.set_server_seq(base_server_seq);
+    msg.set_request_id(request_id);
+
+    idtxcore::SetPrimActiveRequest* req = msg.mutable_set_prim_active();
+    req->set_session_id(session_id);
+    req->set_prim_path(edit.prim_path);
+    req->set_active(edit.active);
+
+    std::string bytes;
+    msg.SerializeToString(&bytes);
+    return bytes;
 }
 
 } // namespace wire
