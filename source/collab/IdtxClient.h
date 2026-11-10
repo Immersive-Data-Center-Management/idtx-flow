@@ -154,6 +154,22 @@ class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
     // Does not end the session or close its socket (see end_session).
     void unbind_session(const godot::String& session_id);
 
+    // --- structural edits (per session) ---
+    //
+    // Results are async: a request returns immediately, the prim appears via the normal 
+    // sync path, and accept/reject arrives on the `ack_received` signal.
+    
+    // Create a prim under `parent_path`. `spec`:
+    //   { "type": String }                            built-in (e.g. "Cube"/"Plane")
+    //   { "reference_path": String, "payload": bool }  reference/payload holder
+    //   { "transform": Transform3D }                   optional initial placement
+    void request_create_prim(const godot::String& session_id, const godot::String& parent_path,
+                             const godot::Dictionary& spec);
+    // Soft-delete a prim (author active=false).
+    void request_delete_prim(const godot::String& session_id, const godot::String& prim_path);
+    // Restore a soft-deleted prim (author active=true).
+    void request_restore_prim(const godot::String& session_id, const godot::String& prim_path);
+
     // --- CollabObserver ---
 
     void on_login_ok(const idtxflow::net::model::LoginResult& result) override;
