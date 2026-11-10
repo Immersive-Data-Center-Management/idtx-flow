@@ -408,7 +408,7 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertPlane(
     // USD authors width and length attributes to determine plane dimensions
     // width and length are perpendicular to the authored axis
     // with axis set to Y (default) the axis of the width is the x-axis and the axis of the length is the z-axis
-    // which in Godot makes the width the x attribute and the length thy y attribute of the plane size Vector2
+    // which in Godot makes the width the x attribute and the length the y attribute of the plane size Vector2
     // currently rotation to align the plane to a different axis is achieved using the transformation therefore
     // other axis orientations dont need to be handled here since the plane orientation in Godot is not changed
     plane->set_size(godot::Vector2(planeWidth, planeLength));

@@ -881,8 +881,10 @@ class UsdStageConverter
     /**
      * Convert a plane
      * @param transform The transform of the capsule
-     * @param planeWidth The width of the plane
-     * @param planeLength The length of the plane
+     * @param planeWidth The finite visually rendered width of the plane. Only determines width of rendered plane,
+     * if collisions are enabled plane colliders are always infinite half-space volumes.
+     * @param planeLength The finite visually rendered length of the plane. Only determines length of rendered plane,
+     * if collisions are enabled plane colliders are always infinite half-space volumes.
      * @param material The material of the plane
      * @param displayColors The authored display colors
      * @param colorInterpolation The authored color interpolation
