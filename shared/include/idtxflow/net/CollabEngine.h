@@ -175,6 +175,23 @@ class CollabEngine
     // conversion-time writes don't phantom-broadcast.
     void arm_sync(const std::string& session_id);
 
+    // --- structural edits (client-originated), per session ---
+    //
+    // Structural edits are server-authoritative: the client asks, the server
+    // authors (assigning the prim name) and broadcasts the result back to every
+    // client including the originator, which materializes it through the normal
+    // inbound path. These send the request; they do not touch the stage.
+
+    // Ask the server to create a prim. The edit's prim_path is the parent path;
+    // prim_type (or has_ref + reference_path + ref_kind) selects what to create,
+    // and an optional create transform places it. No-op unless the session is
+    // remote, snapshot-complete and its socket open.
+    void request_create_prim(const std::string& session_id, const model::PrimEdit& edit);
+
+    // Ask the server to change a prim's active state (false = soft delete, true =
+    // restore). Same session preconditions as request_create_prim.
+    void request_set_prim_active(const std::string& session_id, const std::string& prim_path, bool active);
+
     /// Advance each session's auto-arm settle countdown. Driven by the frame
     /// ticker. Outbound edits are sent immediately in on_stage_changed, not here.
     void poll();

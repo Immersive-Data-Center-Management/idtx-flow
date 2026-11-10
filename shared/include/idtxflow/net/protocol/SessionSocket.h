@@ -78,6 +78,15 @@ class SessionSocket
     /// the duplicate info-only USD notice.
     void send(const model::PrimEdit& edit);
 
+    /// Request the server create a prim (the edit's prim_path is the parent).
+    /// Unlike send(), there is no per-prim dedup: a create has no stable prim
+    /// path yet (the server assigns the name). No-op if the socket is closed.
+    void send_create_prim(const model::PrimEdit& edit);
+
+    /// Request the server change a prim's active state (soft delete / restore).
+    /// No dedup: a delete/restore is a one-shot intent. No-op if closed.
+    void send_set_prim_active(const model::PrimEdit& edit);
+
     void on_opened(OpenedCb cb)
     {
         on_opened_ = std::move(cb);

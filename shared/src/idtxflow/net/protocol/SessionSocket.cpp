@@ -142,5 +142,31 @@ void SessionSocket::send(const model::PrimEdit& edit)
     last_sent_[edit.prim_path] = out;
 }
 
+void SessionSocket::send_create_prim(const model::PrimEdit& edit)
+{
+    if (!is_open_)
+    {
+        IDTX_LOG(IDTX_DEBUG, "send_create_prim SKIP: socket not open parent='{}'", edit.prim_path);
+        return;
+    }
+    const uint64_t request_id = next_request_id_++;
+    IDTX_LOG(IDTX_DEBUG, "send_create_prim parent='{}' base_seq={} req_id={}", edit.prim_path, base_server_seq_,
+             request_id);
+    ws_->send_binary(wire::encode_create_prim_request(session_id_, edit, base_server_seq_, request_id));
+}
+
+void SessionSocket::send_set_prim_active(const model::PrimEdit& edit)
+{
+    if (!is_open_)
+    {
+        IDTX_LOG(IDTX_DEBUG, "send_set_prim_active SKIP: socket not open prim='{}'", edit.prim_path);
+        return;
+    }
+    const uint64_t request_id = next_request_id_++;
+    IDTX_LOG(IDTX_DEBUG, "send_set_prim_active prim='{}' active={} base_seq={} req_id={}", edit.prim_path, edit.active,
+             base_server_seq_, request_id);
+    ws_->send_binary(wire::encode_set_prim_active_request(session_id_, edit, base_server_seq_, request_id));
+}
+
 } // namespace net
 } // namespace idtxflow

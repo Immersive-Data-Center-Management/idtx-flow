@@ -587,6 +587,43 @@ void CollabEngine::try_arm(Session& s)
     IDTX_LOG(IDTX_DEBUG, "[trace] E try_arm session='{}' ARMED (settle_done + snapshot_complete)", s.id);
 }
 
+void CollabEngine::request_create_prim(const std::string& session_id, const model::PrimEdit& edit)
+{
+    Session* s = find_session(session_id);
+    if (!s) return;
+
+    // Same preconditions as an outbound transform: a remote, snapshot-complete
+    // session with an open socket. The protocol forbids sending before the
+    // snapshot, and a request on a non-remote/unsynced/closed session is dropped.
+    if (!s->remote || !s->snapshot_complete || !s->socket || !s->socket->is_open())
+    {
+        IDTX_LOG(IDTX_DEBUG, "request_create_prim dropped (remote={} snapshot={} has_socket={})", s->remote,
+                 s->snapshot_complete, s->socket != nullptr);
+        return;
+    }
+    // The prim is materialized later by the server's broadcast echo, not here.
+    s->socket->send_create_prim(edit);
+}
+
+void CollabEngine::request_set_prim_active(const std::string& session_id, const std::string& prim_path, bool active)
+{
+    Session* s = find_session(session_id);
+    if (!s) return;
+
+    if (!s->remote || !s->snapshot_complete || !s->socket || !s->socket->is_open())
+    {
+        IDTX_LOG(IDTX_DEBUG, "request_set_prim_active dropped (remote={} snapshot={} has_socket={})", s->remote,
+                 s->snapshot_complete, s->socket != nullptr);
+        return;
+    }
+
+    model::PrimEdit edit;
+    edit.kind = model::PrimEdit::Kind::SetActive;
+    edit.prim_path = prim_path;
+    edit.active = active;
+    s->socket->send_set_prim_active(edit);
+}
+
 void CollabEngine::on_stage_changed(const std::string& session_id, const model::PrimEdit& edit)
 {
     Session* s = find_session(session_id);
