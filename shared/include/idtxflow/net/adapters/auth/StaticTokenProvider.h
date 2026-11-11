@@ -60,11 +60,7 @@ class StaticTokenProvider : public ports::ITokenProvider
     }
 
     /// The process-wide provider shared by the engine and the USD fetcher.
-    IDTXFLOW_API static StaticTokenProvider& instance()
-    {
-        static StaticTokenProvider provider;
-        return provider;
-    }
+    IDTXFLOW_API static StaticTokenProvider& instance();
 
   private:
     explicit StaticTokenProvider()

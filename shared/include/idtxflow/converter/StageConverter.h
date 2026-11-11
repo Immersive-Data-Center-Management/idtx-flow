@@ -43,6 +43,7 @@
 #include <pxr/usd/usdGeom/cylinder.h>
 #include <pxr/usd/usdGeom/sphere.h>
 #include <pxr/usd/usdGeom/plane.h>
+#include <pxr/usd/usdGeom/capsule.h>
 #include <pxr/usd/usdGeom/mesh.h>
 #include <pxr/usd/pcp/layerStack.h>
 #include <pxr/usd/pcp/layerStackIdentifier.h>
@@ -793,6 +794,20 @@ class UsdStageConverter
             return ConvertPlane(TypeConverter::toTransform(matrix, axis), gPrimAnimation, material, planeWidth,
                                 planeLength, displayColors, colorInterpolation);
         }
+        else if (usdPrim.IsA<pxr::UsdGeomCapsule>())
+        {
+            pxr::UsdGeomCapsule usdCapsule(usdPrim);
+            double capsuleHeight;
+            double capsuleRadius;
+            if (!usdCapsule.GetHeightAttr().Get(&capsuleHeight)) capsuleHeight = 1.0;
+            if (!usdCapsule.GetRadiusAttr().Get(&capsuleRadius)) capsuleRadius = 0.5;
+
+            class pxr::TfToken axis;
+            usdCapsule.GetAxisAttr().Get(&axis);
+
+            return ConvertCapsule(TypeConverter::toTransform(matrix, axis), gPrimAnimation, material, capsuleRadius,
+                                  capsuleHeight, displayColors, colorInterpolation);
+        }
         else if (usdPrim.IsA<pxr::UsdGeomMesh>())
         {
             pxr::UsdGeomMesh usdMesh(usdPrim);
@@ -907,6 +922,23 @@ class UsdStageConverter
                                                   float planeWidth, float planeLength,
                                                   const pxr::VtArray<class pxr::GfVec4f>& displayColors,
                                                   const class pxr::TfToken& colorInterpolation);
+    /**
+     * Convert a capsule
+     * @param transform The transform of the capsule
+     * @param capsuleHeight The height of the capsule
+     * @param capsuleRadius The radius of the capsule
+     * @param material The material of the capsule
+     * @param displayColors The authored display colors
+     * @param colorInterpolation The authored color interpolation
+     * @param animation The animation of the capsule transform if any
+     * @return
+     */
+    typename Types::ConvertedEntity* ConvertCapsule(const typename Types::Transform& transform,
+                                                    const std::optional<AnimationDescription<TargetEngine>>& animation,
+                                                    const std::optional<typename Types::Material>& material,
+                                                    float capsuleRadius, float capsuleHeight,
+                                                    const pxr::VtArray<class pxr::GfVec4f>& displayColors,
+                                                    const class pxr::TfToken& colorInterpolation);
 
     /**
      * Convert a collision parent prim that holds additional information for
