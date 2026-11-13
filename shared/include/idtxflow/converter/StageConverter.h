@@ -45,6 +45,7 @@
 #include <pxr/usd/usdGeom/capsule.h>
 #include <pxr/usd/usdGeom/plane.h>
 #include <pxr/usd/usdGeom/mesh.h>
+#include <pxr/usd/usdPhysics/collisionAPI.h>
 #include <pxr/usd/pcp/layerStack.h>
 #include <pxr/usd/pcp/layerStackIdentifier.h>
 
@@ -647,27 +648,61 @@ class UsdStageConverter
         UsdMaterialConverter<TargetEngine> materialConverter;
         UsdMeshConverter<TargetEngine> meshConverter;
         std::optional<typename Types::Material> material = ConvertMaterial(meshConverter.GetUsdMaterial(usdGprim));
+
         pxr::UsdPrim usdPrim = usdGprim.GetPrim();
 
-        // Handle colliders
-        if (usdPrim.HasAPI<pxr::IDTXCollisionAPI>())
-        {
-            pxr::IDTXCollisionAPI collisionAPI(usdPrim);
+        pxr::TfToken purpose;
 
-            pxr::UsdAttribute shapeAttribute = collisionAPI.GetCollisionShapeAttr();
-            pxr::UsdAttribute typeAttribute = collisionAPI.GetCollisionInteractionTypesAttr();
+        if (usdGprim.GetPurposeAttr().Get(&purpose))
+        {
+            IDTX_LOG(IDTX_INFO, "Prim has purpose {}", purpose.GetString().c_str());
+        }
+        // Handle colliders for prims with purpose `guide`, which are not rendered visually
+        // only UsdGeomImageable and those inheriting from it, like UsdGeomGprim, have GetPurposeAttr()
+        if (usdPrim.HasAPI<pxr::UsdPhysicsCollisionAPI>() && usdGprim.GetPurposeAttr().Get(&purpose) &&
+            purpose == pxr::UsdGeomTokens->guide)
+        {
             pxr::UsdAttribute axisAttribute = usdPrim.GetAttribute(pxr::UsdGeomTokens->axis);
             pxr::UsdAttribute heightAttribute = usdPrim.GetAttribute(pxr::UsdGeomTokens->height);
             pxr::UsdAttribute radiusAttribute = usdPrim.GetAttribute(pxr::UsdGeomTokens->radius);
 
             pxr::TfToken shape;
-            pxr::VtArray<pxr::TfToken> types;
+            pxr::VtTokenArray types = pxr::VtArray{pxr::IDTXTokens->Collide};
             pxr::TfToken axis;
             double height;
             double radius;
 
-            if (!shapeAttribute.Get(&shape)) shape = pxr::TfToken("Cube");
-            if (!typeAttribute.Get(&types)) types = pxr::VtArray{pxr::TfToken("NOT_VALID")};
+            if (usdPrim.IsA<pxr::UsdGeomCube>())
+            {
+                shape = pxr::UsdGeomTokens->Cube;
+            }
+            else if (usdPrim.IsA<pxr::UsdGeomCone>())
+            {
+                shape = pxr::UsdGeomTokens->Cone;
+            }
+            else if (usdPrim.IsA<pxr::UsdGeomCylinder>())
+            {
+                shape = pxr::UsdGeomTokens->Cylinder;
+            }
+            else if (usdPrim.IsA<pxr::UsdGeomSphere>())
+            {
+                shape = pxr::UsdGeomTokens->Sphere;
+            }
+            else if (usdPrim.IsA<pxr::UsdGeomCapsule>())
+            {
+                shape = pxr::UsdGeomTokens->Capsule;
+            }
+            else if (usdPrim.IsA<pxr::UsdGeomPlane>())
+            {
+                shape = pxr::UsdGeomTokens->Plane;
+            }
+            else
+            {
+                IDTX_LOG(IDTX_WARN, "Prim {} of kind `guide` has unsupported collision shape",
+                         usdPrim.GetPath().GetText());
+                return nullptr;
+            }
+
             if (!axisAttribute.Get(&axis)) axis = pxr::TfToken("");
             if (!radiusAttribute.Get(&radius)) radius = 0.0;
             if (!heightAttribute.Get(&height)) height = 0.0;
