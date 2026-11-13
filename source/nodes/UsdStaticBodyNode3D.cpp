@@ -7,6 +7,7 @@
 #include <godot_cpp/classes/sphere_shape3d.hpp>
 #include <godot_cpp/classes/cylinder_shape3d.hpp>
 #include <godot_cpp/classes/capsule_shape3d.hpp>
+#include <godot_cpp/classes/world_boundary_shape3d.hpp>
 #include <godot_cpp/classes/collision_object3d.hpp>
 #include <godot_cpp/classes/collision_shape3d.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
@@ -30,6 +31,7 @@ static const std::unordered_map<std::string, UsdStaticBodyNode3D::ShapeType> kSh
     {"Sphere", UsdStaticBodyNode3D::ShapeType::SHAPE_SPHERE},
     {"Capsule", UsdStaticBodyNode3D::ShapeType::SHAPE_CAPSULE},
     {"Cylinder", UsdStaticBodyNode3D::ShapeType::SHAPE_CYLINDER},
+    {"Plane", UsdStaticBodyNode3D::ShapeType::SHAPE_WORLD_BOUNDARY},
     // At the moment only simple primitives are supported. Mesh colliders are currently out of scope.
 };
 
@@ -49,6 +51,9 @@ void UsdStaticBodyNode3D::set_collision_shape_int(const int shape)
         break;
     case 3:
         set_collision_shape("Cylinder");
+        break;
+    case 4:
+        set_collision_shape("Plane");
         break;
     default:
         IDTX_LOG(IDTX_WARN, "Could not create collision shape since it looks to be unsupported!");
@@ -141,6 +146,17 @@ Ref<Shape3D> UsdStaticBodyNode3D::create_collision_shape(const ShapeType& shape)
         return cylinder_shape;
     }
 
+    // the world boundary shape is an infinite half-space volume collider shape in godot and
+    // equivalent to the infinite half-space colliders which is used during simulation in the
+    // USD standard for planes with collision enabled
+    case SHAPE_WORLD_BOUNDARY: {
+        Ref<WorldBoundaryShape3D> world_boundary_shape;
+        world_boundary_shape.instantiate();
+        world_boundary_shape->set_local_to_scene(true);
+        world_boundary_shape->set_name(world_boundary_shape->get_scene_unique_id());
+        return world_boundary_shape;
+    }
+
     default:
         return {};
     }
@@ -215,8 +231,9 @@ void UsdStaticBodyNode3D::_bind_methods()
     // Bind enums via wrapper
     ClassDB::bind_method(D_METHOD("_set_collision_shape_int", "shape"), &UsdStaticBodyNode3D::set_collision_shape_int);
     ClassDB::bind_method(D_METHOD("_get_collision_shape_int"), &UsdStaticBodyNode3D::get_collision_shape_int);
-    ADD_PROPERTY(PropertyInfo(Variant::INT, "collision_shape_", PROPERTY_HINT_ENUM, "Box,Sphere,Capsule,Cylinder"),
-                 "_set_collision_shape_int", "_get_collision_shape_int");
+    ADD_PROPERTY(
+        PropertyInfo(Variant::INT, "collision_shape_", PROPERTY_HINT_ENUM, "Box,Sphere,Capsule,Cylinder,Plane"),
+        "_set_collision_shape_int", "_get_collision_shape_int");
 
     ClassDB::bind_method(D_METHOD("set_collision_type", "type"), &UsdStaticBodyNode3D::set_collision_type);
     ClassDB::bind_method(D_METHOD("get_collision_type"), &UsdStaticBodyNode3D::get_collision_type);

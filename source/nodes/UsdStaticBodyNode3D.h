@@ -29,7 +29,8 @@ class UsdStaticBodyNode3D : public godot::StaticBody3D, public IUsdNode3D
         SHAPE_CUBE,
         SHAPE_SPHERE,
         SHAPE_CAPSULE,
-        SHAPE_CYLINDER
+        SHAPE_CYLINDER,
+        SHAPE_WORLD_BOUNDARY
     };
 
     enum InteractionType

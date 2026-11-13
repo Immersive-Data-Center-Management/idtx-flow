@@ -10,10 +10,14 @@
 #include <godot_cpp/classes/standard_material3d.hpp>
 #include <godot_cpp/classes/skin.hpp>
 #include <godot_cpp/classes/skeleton3d.hpp>
+#include <godot_cpp/classes/collision_shape3d.hpp>
+#include <godot_cpp/classes/static_body3d.hpp>
+#include <godot_cpp/classes/world_boundary_shape3d.hpp>
 
 #include <pxr/base/tf/token.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdGeom/xformCache.h>
+#include <pxr/usd/usdPhysics/collisionAPI.h>
 
 #include <idtx/datasource.h>
 #include <idtx/mockDatasource_RandomFloat.h>
@@ -910,6 +914,31 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertPrimPo
     usd_node->set_prim_path(usd_prim.GetPath().GetText());
     usd_node->set_prim_type(usd_prim.GetTypeName().GetText());
     usd_node->set_stage_path(Stage->GetRootLayer()->GetRealPath().c_str());
+
+    // Convert collision
+    if (usd_prim.HasAPI<pxr::UsdPhysicsCollisionAPI>())
+    {
+        if (usd_prim.IsA<pxr::UsdGeomPlane>())
+        {
+            pxr::TfToken shape = pxr::UsdGeomTokens->Plane;
+            pxr::VtTokenArray interaction_types = pxr::VtArray{pxr::IDTXTokens->Collide};
+
+            double height;
+            double radius;
+            if (!usd_prim.GetAttribute(pxr::UsdGeomTokens->height).Get(&height)) height = 0.0f;
+            if (!usd_prim.GetAttribute(pxr::UsdGeomTokens->radius).Get(&radius)) radius = 0.0f;
+            godot::Node3D* converted_node =
+                ConvertCollision(godot::Transform3D(), shape, interaction_types, pxr::GfVec3f(0), height, radius);
+
+            // cast to custom UsdStaticBodyNode3D* required for set_stage_path() method
+            UsdStaticBodyNode3D* collision_node = static_cast<UsdStaticBodyNode3D*>(converted_node);
+
+            // stage path must be set, otherwise the node will get discarded and not be added to the scene tree
+            // which prevents the collision shape being created
+            collision_node->set_stage_path(Stage->GetRootLayer()->GetRealPath().c_str());
+            converted_prim->add_child(collision_node);
+        }
+    }
 
     return converted_prim;
 }
