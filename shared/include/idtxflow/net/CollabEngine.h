@@ -254,6 +254,9 @@ class CollabEngine
         // SnapshotComplete arrives; 0 = none pending. A SnapshotComplete with
         // another id (an earlier join snapshot) does not end the wait.
         uint64_t snapshot_request_id = 0;
+        // Frames left until a SnapshotRequest the server rejected with
+        // "queue_full" is sent again; -1 = no retry pending. Counted down in poll().
+        int snapshot_retry_countdown = -1;
     };
 
     // Invoked by a session's stage bridge when its live stage changes; sends the

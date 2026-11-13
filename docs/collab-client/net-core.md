@@ -141,6 +141,9 @@ Its public surface, by area:
   request's id: the re-fetched file plus that snapshot supersede every frame it
   ignored. A further `LayerReloaded` during the rebuild is reported the same way; the
   host rebuilds the nodes concerned once more before completing.
+  If the server rejects the request with a not-ok `Ack` that echoes its id, the engine
+  sends it again after a short delay when the error is `queue_full`, and gives up
+  otherwise (`session_closing`: the session is going away).
 
 The adapters the engine needs are passed in one struct:
 

@@ -15,6 +15,9 @@ namespace
 // Frames to wait after a remote stage attaches before auto-arming outbound
 // broadcasting, so USD conversion-time transform writes settle first.
 constexpr int kArmAfterTicks = 3;
+// Frames to wait before re-sending a SnapshotRequest the server rejected
+// because the session's command queue was full (about half a second at 60 fps).
+constexpr int kSnapshotRetryTicks = 30;
 } // namespace
 
 CollabEngine::~CollabEngine()
@@ -411,8 +414,9 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
                 sp->snapshot_complete = false;
                 sp->armed = false;
                 // A request sent on the old connection is never answered; the join
-                // snapshot of the new one replaces it.
+                // snapshot of the new one replaces it, and so does no retry.
                 sp->snapshot_request_id = 0;
+                sp->snapshot_retry_countdown = -1;
             }
             if (observer_) observer_->on_socket_opened(session_id);
         });
@@ -492,6 +496,7 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
             sp->snapshot_complete = false;
             sp->armed = false;
             sp->snapshot_request_id = 0;
+            sp->snapshot_retry_countdown = -1; // reload_complete sends a new request
             sp->pending_remote.clear(); // superseded by the snapshot as well
             const std::string file_url = usd_uri.empty() ? download_url(usd_path) : base_url() + usd_uri;
             if (observer_) observer_->on_layer_reloaded(session_id, usd_path, file_url);
@@ -508,6 +513,24 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
             if (Session* sp = find_session(session_id))
             {
                 advance_server_seq(*sp, server_seq);
+                if (!ok && request_id != 0 && request_id == sp->snapshot_request_id)
+                {
+                    // The server refused the SnapshotRequest sent after a reload, so
+                    // no SnapshotComplete follows and the session would never re-arm.
+                    // A full queue is transient: ask again shortly. Any other reason
+                    // ("session_closing") means the session is going away.
+                    sp->snapshot_request_id = 0;
+                    if (error == "queue_full")
+                    {
+                        IDTX_LOG(IDTX_WARN, "snapshot request rejected (queue_full) session='{}', retrying",
+                                 session_id);
+                        sp->snapshot_retry_countdown = kSnapshotRetryTicks;
+                    }
+                    else
+                    {
+                        IDTX_LOG(IDTX_WARN, "snapshot request rejected session='{}' error='{}'", session_id, error);
+                    }
+                }
             }
             if (observer_) observer_->on_ack(session_id, ok, error);
         });
@@ -747,6 +770,18 @@ void CollabEngine::poll()
                 s.arm_countdown = -1;
                 s.settle_done = true;
                 try_arm(s);
+            }
+        }
+        if (s.snapshot_retry_countdown > 0 && --s.snapshot_retry_countdown == 0)
+        {
+            s.snapshot_retry_countdown = -1;
+            // Not while reloading or after a snapshot arrived (a reconnect's join
+            // snapshot also restores the state); a closed socket sends nothing and
+            // its reconnect delivers a join snapshot instead.
+            if (!s.reloading && !s.snapshot_complete && s.socket)
+            {
+                s.snapshot_request_id = s.socket->send_snapshot_request();
+                IDTX_LOG(IDTX_INFO, "retry snapshot request session='{}' req_id={}", id, s.snapshot_request_id);
             }
         }
     }
