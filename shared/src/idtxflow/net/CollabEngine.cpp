@@ -342,8 +342,11 @@ void CollabEngine::open_existing_session(const std::string& session_id)
 
 void CollabEngine::teardown_session(Session& s)
 {
-    // Detach the stage first (stops the change sink), then close+drop the socket
-    // and its transport, so no further frames flush over a socket we are tearing down.
+    // Closing a transport can notify synchronously, so retire deliveries before teardown.
+    if (s.callback_lifetime) s.callback_lifetime->active = false;
+    s.callback_lifetime.reset();
+    // Detach the stage (stops the change sink), then close+drop the socket
+    // and its transport, so no further updates are sent over a socket we are tearing down.
     if (s.stage)
     {
         s.stage->set_on_changed(nullptr);
@@ -385,9 +388,20 @@ void CollabEngine::end_all_sessions()
 
 void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
 {
-    if (!initialized_ || !ports_.ws_factory) return;
+    if (!initialized_ || !ports_.ws_factory || !ports_.dispatcher) return;
 
     const std::string session_id = s.id;
+    if (s.callback_lifetime) s.callback_lifetime->active = false;
+    s.callback_lifetime.reset();
+    if (s.socket)
+    {
+        s.socket->close();
+        s.socket.reset();
+    }
+    s.ws.reset();
+    s.callback_lifetime = std::make_shared<SessionCallbackLifetime>();
+    const std::weak_ptr<SessionCallbackLifetime> weak_lifetime = s.callback_lifetime;
+    ports::IMainThreadDispatcher* dispatcher = ports_.dispatcher;
 
     // Mint a fresh WebSocket transport for this session, then wrap it in the
     // protocol socket. Each session owns its own transport so concurrent
@@ -396,99 +410,105 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
     s.socket = std::make_unique<SessionSocket>(s.ws.get(), ports_.clock);
     s.socket->set_session_id(session_id);
 
-    // Socket callbacks arrive on the transport's network thread; marshal every
+    // Socket callbacks may arrive on the transport's network thread; marshal every
     // observer notification onto the host main thread through the dispatcher,
     // tagged with this session's id so the host can route it.
-    s.socket->on_opened([this, session_id] {
-        ports_.dispatcher->post([this, session_id] {
+    // Transport callbacks only enqueue work.
+    // Validate the captured lifetime before accessing the engine, since the same
+    // session ID can belong to a replacement membership and the engine may be gone.
+    const auto post = [this, dispatcher, session_id, weak_lifetime](auto action) {
+        dispatcher->post([this, session_id, weak_lifetime, action = std::move(action)] {
+            const auto lifetime = weak_lifetime.lock();
+            if (!lifetime || !lifetime->active) return;
+            Session* session = find_session(session_id);
+            if (!session || session->callback_lifetime != lifetime) return;
+            action(*session, lifetime);
+        });
+    };
+
+    s.socket->on_opened([this, post, session_id] {
+        post([this, session_id](Session& session, const auto&) {
             // A (re)connect restarts the snapshot handshake: clear the latch and
             // disarm so we never broadcast on a stale base. Only snapshot_complete
             // re-gates — settle_done stays latched from the original attach, since a
             // reconnect does not reconvert the stage (clearing it would strand the
             // session un-armed, as nothing restarts the settle countdown).
-            if (Session* sp = find_session(session_id))
-            {
-                sp->snapshot_complete = false;
-                sp->armed = false;
-            }
+            session.snapshot_complete = false;
+            session.armed = false;
             if (observer_) observer_->on_socket_opened(session_id);
         });
     });
-    s.socket->on_handshake([this](const std::string& sid, const std::string& path, const std::string& uri) {
-        ports_.dispatcher->post([this, sid, path, uri] {
+    s.socket->on_handshake([this, post](const std::string& sid, const std::string& path, const std::string& uri) {
+        post([this, sid, path, uri](Session&, const auto&) {
             if (observer_) observer_->on_handshake(sid, path, uri);
         });
     });
     s.socket->on_remote_edit(
-        [this, session_id](const model::PrimEdit& edit, const std::string& from, uint64_t server_seq) {
-            ports_.dispatcher->post([this, session_id, edit, from, server_seq] {
+        [this, post, session_id](const model::PrimEdit& edit, const std::string& from, uint64_t server_seq) {
+            post([this, session_id, edit, from, server_seq](Session& session, const auto& lifetime) {
                 IDTX_LOG(IDTX_DEBUG, "[trace] H on_remote_edit session='{}' prim='{}' from='{}' server_seq={}",
                          session_id, edit.prim_path, from, server_seq);
                 // Apply inbound to the stage with loopback suppression (so our author
                 // isn't re-broadcast), then report. The broadcast's server_seq (incl. a
                 // correction sent only to us) becomes our base, keeping updates non-stale.
-                Session* sp = find_session(session_id);
-                if (sp && sp->stage)
+                if (session.stage)
                 {
-                    sp->applying_remote = true;
-                    sp->stage->author_edit(edit, ports::EditOrigin::External);
-                    sp->applying_remote = false;
-                    advance_server_seq(*sp, server_seq);
+                    session.applying_remote = true;
+                    session.stage->author_edit(edit, ports::EditOrigin::External);
+                    // A bridge call may retire the engine or replace this membership with the same ID.
+                    if (!lifetime->active) return;
+                    Session* current = find_session(session_id);
+                    if (!current || current->callback_lifetime != lifetime) return;
+                    current->applying_remote = false;
+                    advance_server_seq(*current, server_seq);
                 }
-                else if (sp)
+                else
                 {
                     // No stage yet (snapshot arrived before the stage attached):
                     // buffer for replay in attach_stage rather than drop the edit.
-                    sp->pending_remote.push_back(edit);
-                    advance_server_seq(*sp, server_seq);
+                    // This buffer also retains live updates received before attachment.
+                    session.pending_remote.push_back(edit);
+                    advance_server_seq(session, server_seq);
                 }
                 if (observer_) observer_->on_remote_edit(session_id, edit, from);
             });
         });
-    s.socket->on_snapshot_complete([this, session_id](uint64_t server_seq) {
-        ports_.dispatcher->post([this, session_id, server_seq] {
+    s.socket->on_snapshot_complete([this, post, session_id](uint64_t server_seq) {
+        post([this, session_id, server_seq](Session& session, const auto&) {
             // Latch so a late reader (is_snapshot_complete) sees it, then report.
-            if (Session* sp = find_session(session_id))
-            {
-                sp->snapshot_complete = true;
-                advance_server_seq(*sp, server_seq);
-                try_arm(*sp); // snapshot gate satisfied; arm if settle also done
-            }
+            session.snapshot_complete = true;
+            advance_server_seq(session, server_seq);
+            try_arm(session); // snapshot gate satisfied; arm if settle also done
             if (observer_) observer_->on_snapshot_complete(session_id);
         });
     });
-    s.socket->on_ack([this, session_id](bool ok, const std::string& error, uint64_t request_id, uint64_t server_seq) {
-        ports_.dispatcher->post([this, session_id, ok, error, request_id, server_seq] {
+    s.socket->on_ack([this, post, session_id](bool ok, const std::string& error, uint64_t request_id,
+                                           uint64_t server_seq) {
+        post([this, session_id, ok, error, request_id, server_seq](Session& session, const auto&) {
             IDTX_LOG(IDTX_DEBUG, "[trace] H on_ack session='{}' ok={} error='{}' req_id={} server_seq={}", session_id,
                      ok, error, request_id, server_seq);
-            // The ack is diagnostic: adopt its server_seq so this author's base
+            // The ack also carries server progress: adopt its server_seq so this author's base
             // advances past its own applied edit (otherwise the next local edit on
             // the same prim would fail the server's stale check), log it, and
-            // notify. The server resolves ordering — a rejection needs no resend.
-            if (Session* sp = find_session(session_id))
-            {
-                advance_server_seq(*sp, server_seq);
-            }
+            // notify. The server resolves ordering — this handler does not retry rejected requests.
+            advance_server_seq(session, server_seq);
             if (observer_) observer_->on_ack(session_id, ok, error);
         });
     });
-    s.socket->on_error([this, session_id](const std::string& code, const std::string& message) {
-        IDTX_LOG(IDTX_ERROR, "session '{}' socket error code='{}' msg='{}'", session_id, code, message);
-        ports_.dispatcher->post([this, session_id, code, message] {
+    s.socket->on_error([this, post, session_id](const std::string& code, const std::string& message) {
+        post([this, session_id, code, message](Session&, const auto&) {
+            IDTX_LOG(IDTX_ERROR, "session '{}' socket error code='{}' msg='{}'", session_id, code, message);
             if (observer_) observer_->on_socket_error(session_id, code, message);
         });
     });
-    s.socket->on_disconnected([this, session_id](model::CloseReason reason, int code, const std::string& text) {
-        ports_.dispatcher->post([this, session_id, reason, code, text] {
+    s.socket->on_disconnected([this, post, session_id](model::CloseReason reason, int code, const std::string& text) {
+        post([this, session_id, reason, code, text](Session& session, const auto&) {
             // Disarm and drop the snapshot latch so a transport-level drop cannot
             // leave the session armed; a reconnect then re-gates on the fresh
-            // snapshot. The socket drops its last-sent cache as it goes down, so no
-            // edit authored before the drop outlives it. The join snapshot is authoritative.
-            if (Session* sp = find_session(session_id))
-            {
-                sp->snapshot_complete = false;
-                sp->armed = false;
-            }
+            // snapshot. The socket drops its last-sent cache as it goes down, so later
+            // edits are not deduplicated against pre-disconnect values. The join snapshot is authoritative.
+            session.snapshot_complete = false;
+            session.armed = false;
             if (observer_) observer_->on_disconnected(session_id, reason, code, text);
         });
     });

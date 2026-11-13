@@ -203,6 +203,12 @@ class CollabEngine
   private:
     IDTX_LOG_CATEGORY("CollabEngine")
 
+    // Explicit retirement revokes delivery even while an active callback still owns the token.
+    struct SessionCallbackLifetime
+    {
+        bool active = true;
+    };
+
     // One live session the engine holds: its identity, its own WebSocket
     // transport + protocol socket, the attached stage (if any), and the
     // per-session transform-sync state. Everything a session needs is here so
@@ -215,6 +221,7 @@ class CollabEngine
 
         std::unique_ptr<ports::IWebSocketTransport> ws; // owned per session
         std::unique_ptr<SessionSocket> socket;
+        std::shared_ptr<SessionCallbackLifetime> callback_lifetime;
 
         ports::IStageBridge* stage = nullptr; // attached on stage load
         bool remote = false;
