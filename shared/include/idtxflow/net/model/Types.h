@@ -20,8 +20,8 @@ namespace model
 {
 /// A 4x4 transform stored row-major, so element (row r, col c) is m[r*4 + c].
 /// This mirrors the wire protocol's Matrix4dTransform (m00..m33) one-to-one;
-/// it is deliberately distinct from USD's column-major basis, which the stage
-/// bridge transposes on its own boundary.
+/// its cells are numerically identical to USD's row-vector matrix, with
+/// translation in m30..m32. Column-vector engines transpose only their basis.
 struct Mat4
 {
     std::array<double, 16> m{{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}};
