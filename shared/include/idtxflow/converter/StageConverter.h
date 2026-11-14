@@ -203,8 +203,9 @@ class UsdStageConverter
 
         // rootEntity == nullptr so the subtree's top prim is returned as a root
         // entity (detached) rather than parented onto a caller-supplied node.
+        // Unloaded payload holders must reach their converter to start nested loading.
         std::vector<typename Types::ConvertedEntity*> convertedEntities =
-            ConvertPrims(stage, pxr::UsdPrimRange(prim), nullptr);
+            ConvertPrims(stage, pxr::UsdPrimRange::AllPrims(prim), nullptr);
         StagePrototypeMap.clear();
 
         if (applyStageBake) return ConvertStagePostProcess(convertedEntities);
