@@ -29,6 +29,7 @@
 #include <pxr/usd/usdGeom/plane.h>
 #include <pxr/usd/usdGeom/tokens.h>
 
+#include <idtxflow/resolver/UsdAssetPath.h>
 #include <idtxflow_godot/nodes/IUsdNode3D.h>
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
 #include <idtxflow/net/model/ConventionMath.h>
@@ -340,6 +341,20 @@ void StageBridge::author_create(const net::model::PrimEdit& edit)
     const pxr::SdfPath path(edit.prim_path);
     if (!path.IsPrimPath()) return;
 
+    // Reject an unusable asset anchor before a partial holder can enter composition.
+    // Anonymous session layers have no asset directory; wire-relative arcs belong to the owning root.
+    const std::string arc_asset = edit.has_ref
+        ? idtxflow::resolver::AnchorAssetIdentifier(edit.reference_path, stage_->GetRootLayer(),
+                                                    stage_->GetPathResolverContext())
+        : std::string();
+    if (edit.has_ref && arc_asset.empty())
+    {
+        IDTX_LOG(IDTX_WARN,
+                 "author_create: cannot anchor asset '{}' for '{}'; open the owning stage from a file/URI or supply an absolute asset identifier",
+                 edit.reference_path, edit.prim_path);
+        return;
+    }
+
     // Author into the same layer inbound transforms use (session by default), so
     // the local copy mirrors the server's state without touching the opened file.
     pxr::SdfLayerHandle target_layer =
@@ -362,9 +377,9 @@ void StageBridge::author_create(const net::model::PrimEdit& edit)
         if (edit.has_ref)
         {
             if (edit.ref_kind == net::model::PrimEdit::RefKind::Payload)
-                spec->GetPayloadList().GetExplicitItems().push_back(pxr::SdfPayload(edit.reference_path));
+                spec->GetPayloadList().GetExplicitItems().push_back(pxr::SdfPayload(arc_asset));
             else
-                spec->GetReferenceList().GetExplicitItems().push_back(pxr::SdfReference(edit.reference_path));
+                spec->GetReferenceList().GetExplicitItems().push_back(pxr::SdfReference(arc_asset));
         }
         else
         {
