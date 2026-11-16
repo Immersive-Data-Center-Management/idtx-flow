@@ -81,7 +81,7 @@ inline godot::Transform3D UsdTypeConverter<idtxflow::types::TargetEngineGodot>::
     if (spine_axis == pxr::UsdGeomTokens->x)
     {
         // rotate around the Z axis
-        godot::Basis rot_z(godot::Vector3(0, 0, 1), static_cast<float>(godot::Math::deg_to_rad(90.0)));
+        godot::Basis rot_z(godot::Vector3(0, 0, 1), static_cast<float>(godot::Math::deg_to_rad(-90.0)));
         basis = basis * rot_z;
     }
     else if (spine_axis == pxr::UsdGeomTokens->y)
