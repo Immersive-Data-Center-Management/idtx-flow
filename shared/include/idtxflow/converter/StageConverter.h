@@ -723,7 +723,7 @@ class UsdStageConverter
                 main_axis = pxr::GfVec3f::ZAxis();
             }
 
-            return ConvertCollision(TypeConverter::toTransform(matrix), shape, types, main_axis, height, radius);
+            return ConvertCollision(TypeConverter::toTransform(matrix, axis), shape, types, main_axis, height, radius);
         }
         // Convert to visual representation
         else if (usdPrim.IsA<pxr::UsdGeomCube>())
