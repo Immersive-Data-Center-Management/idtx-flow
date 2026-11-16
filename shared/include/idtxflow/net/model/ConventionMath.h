@@ -27,19 +27,6 @@ namespace net
 {
 namespace model
 {
-/// Preserve every protocol cell when supplying a USD row-vector matrix.
-inline Mat4 usd_from_wire(const Mat4& wire)
-{
-    return wire;
-}
-
-/// Preserve every USD cell when reporting a protocol row-vector matrix.
-/// Kept as a named function for call-site clarity.
-inline Mat4 wire_from_usd(const Mat4& usd)
-{
-    return usd;
-}
-
 /// Compose a wire matrix from an engine transform's basis rows and origin.
 /// `basis_rows` is 9 values in row order (row0 xyz, row1 xyz, row2 xyz), each
 /// column placed on the matching wire row; `origin` (xyz) goes on the bottom row

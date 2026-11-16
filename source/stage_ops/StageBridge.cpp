@@ -31,7 +31,6 @@
 #include <idtxflow/resolver/UsdAssetPath.h>
 #include <idtxflow_godot/nodes/IUsdNode3D.h>
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
-#include <idtxflow/net/model/ConventionMath.h>
 
 #include "TransformCodec.h"
 
@@ -48,15 +47,14 @@ namespace
 // Godot Transform3D -> USD GfMatrix4d.
 //
 // The engine transform is first laid out as a wire matrix (row-major: Godot
-// Basis row i -> wire row i, translation in the last row) via the shared
-// transform codec, then converted to the USD convention by the single-sourced
-// transpose helper, and finally copied into GfMatrix4d
+// Basis column i -> wire row i, translation in the last row) via the shared
+// transform codec, then copied directly into GfMatrix4d. Protocol cells already
+// use USD row-vector math; the engine adapter owns the transpose.
 pxr::GfMatrix4d transform_to_gfmatrix(const Transform3D& t)
 {
     net::model::PrimEdit e;
     gxform::transform_to_prim_edit(std::string(), t, e);
-    const net::model::Mat4 usd = net::model::usd_from_wire(e.matrix);
-    const auto& u = usd.m;
+    const auto& u = e.matrix.m;
     pxr::GfMatrix4d m(1.0);
     m[0][0] = u[0];
     m[0][1] = u[1];
@@ -77,9 +75,9 @@ pxr::GfMatrix4d transform_to_gfmatrix(const Transform3D& t)
     return m;
 }
 
-// USD GfMatrix4d -> Godot Transform3D (Y-up).
+// USD GfMatrix4d -> Godot Transform3D (raw local transform).
 //
-// USD rows map directly onto the Godot Basis rows (the engine consumes USD's stored orientation as-is on read).
+// USD basis rows become Godot basis columns because Godot and USD use opposite vector conventions.
 Transform3D gfmatrix_to_transform(const pxr::GfMatrix4d& m)
 {
     Basis basis(Vector3((real_t)m[0][0], (real_t)m[0][1], (real_t)m[0][2]),
