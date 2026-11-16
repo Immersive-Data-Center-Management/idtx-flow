@@ -27,6 +27,7 @@
 #include <pxr/usd/usdGeom/cylinder.h>
 #include <pxr/usd/usdGeom/capsule.h>
 #include <pxr/usd/usdGeom/tokens.h>
+#include <pxr/usd/usdGeom/metrics.h>
 
 #include <idtxflow/resolver/UsdAssetPath.h>
 #include <idtxflow_godot/nodes/IUsdNode3D.h>
@@ -34,6 +35,7 @@
 
 #include "TransformCodec.h"
 #include "PayloadPlacement.h"
+#include "StageActivityController.h"
 
 namespace gxform = idtxflow::collab::xform;
 namespace gpayload = idtxflow::collab::payload;
@@ -213,7 +215,7 @@ void StageBridge::_on_objects_changed(const pxr::UsdNotice::ObjectsChanged& noti
     for (const pxr::SdfPath& path : notice.GetChangedInfoOnlyPaths()) observe(path);
     if (state->authoring) return;
 
-    std::vector<net::model::PrimEdit> edits;
+    std::vector<ObservedEdit> edits;
     {
         AuthoringScope scope(state);
         edits = finish_changes();
@@ -227,47 +229,22 @@ void StageBridge::reconcile_structural(const std::set<pxr::SdfPath>& paths)
     if (!stage_node_ || !stage_) return;
     const auto state = dispatch_state_;
 
-    // Build / hide / show Godot nodes to match structural stage changes (prim
-    // creation, active=false soft-delete, active=true restore). Inbound create
-    // and delete must still change the scene tree without being sent back out.
-    // Only prim resync paths change the node tree; property paths trigger
-    // transform checks instead.
+    // Missing active representations are converted; retained content keeps its runtime settings.
     for (const pxr::SdfPath& prim_path : paths)
     {
         if (!prim_path.IsPrimPath()) continue;
         const std::string key = prim_path.GetString();
-        if (is_stage_root(key)) continue;
-
         pxr::UsdPrim prim = stage_->GetPrimAtPath(prim_path);
-        godot::Node3D* node = stage_node_->find_prim_node(String(key.c_str()));
-        if (prim && prim.IsActive())
+        if (prim && prim.IsActive() && !stage_node_->find_prim_node(String(key.c_str())))
         {
-            if (!node)
-            {
-                // Newly created prim (or a reactivated one whose node was freed):
-                // convert its subtree and attach it under its parent node.
-                stage_node_->convert_prim_subtree(String(key.c_str()));
-            }
-            else if (!node->is_visible())
-            {
-                // The hidden subtree is still present,
-                // so just show it again — no re-traversal/conversion needed.
-                node->set_visible(true);
-            }
+            stage_node_->convert_prim_subtree(String(key.c_str()));
+            if (!state->alive) return;
+            // An asynchronous carrier's temporary transform is initialization, not a local placement edit.
+            flush_transform_notifications(key);
         }
-        else if (prim && node)
-        {
-            // Soft-delete (active=false): hide the node and its subtree from
-            // rendering while keeping it alive for a cheap restore.
-            // Retained subtrees preserve instance identity across soft delete and restore.
-            node->set_visible(false);
-        }
-        // A descendant pruned by an inactive ancestor needs no separate hide;
-        // its retained ancestor already hides it from rendering.
-        if (!state->alive) return;
-        flush_transform_notifications(key);
         if (!state->alive) return;
     }
+    stage_node_->get_activity_controller().reconcile();
 }
 
 void StageBridge::flush_transform_notifications(const std::string& prim_path)
@@ -297,7 +274,7 @@ void StageBridge::flush_transform_notifications(const std::string& prim_path)
     }
 }
 
-std::vector<net::model::PrimEdit> StageBridge::finish_changes()
+std::vector<StageBridge::ObservedEdit> StageBridge::finish_changes()
 {
     const auto state = dispatch_state_;
     while (!pending_resyncs_.empty())
@@ -314,7 +291,7 @@ std::vector<net::model::PrimEdit> StageBridge::finish_changes()
     // so repeated notices for the same value do not produce repeated reports.
     std::set<std::string> paths;
     paths.swap(pending_transforms_);
-    std::vector<net::model::PrimEdit> edits;
+    std::vector<ObservedEdit> edits;
     for (const std::string& path : paths)
     {
         net::model::PrimEdit edit;
@@ -325,12 +302,19 @@ std::vector<net::model::PrimEdit> StageBridge::finish_changes()
                              !same_matrix(tracked->second.observed, edit.matrix);
         tracked->second.observed = edit.matrix;
         tracked->second.has_observation = true;
-        if (changed) edits.push_back(std::move(edit));
+        if (stage_node_)
+        {
+            Node3D* node = stage_node_->find_prim_node(String(path.c_str()));
+            if (node && node->get_instance_id() == tracked->second.node_id)
+                stage_node_->get_activity_controller().confirm_node(node, true);
+        }
+        if (changed && stage_node_ && stage_node_->get_activity_controller().allows_local(String(path.c_str())))
+            edits.push_back({std::move(edit), tracked->second.node_id});
     }
     return edits;
 }
 
-void StageBridge::dispatch_changes(const std::vector<net::model::PrimEdit>& edits)
+void StageBridge::dispatch_changes(const std::vector<ObservedEdit>& edits)
 {
     const auto state = dispatch_state_;
     const uint64_t revision = state->sink_revision;
@@ -340,7 +324,13 @@ void StageBridge::dispatch_changes(const std::vector<net::model::PrimEdit>& edit
     for (const auto& edit : edits)
     {
         if (!state->alive || state->sink_revision != revision) return;
-        sink(edit);
+        if (!stage_node_ || !stage_node_->get_activity_controller().allows_local(String(edit.edit.prim_path.c_str())))
+            continue;
+        Node3D* node = stage_node_->find_prim_node(String(edit.edit.prim_path.c_str()));
+        IUsdNode3D* usd = IUsdNode3D::from_node(node);
+        if (!node || node->is_queued_for_deletion() || node->get_instance_id() != edit.node_id ||
+            !usd || usd->get_stage_node() != stage_node_) continue;
+        sink(edit.edit);
     }
 }
 
@@ -363,7 +353,14 @@ void StageBridge::author_edit(const net::model::PrimEdit& edit, net::ports::Edit
     // External updates the recorded values without reporting them. The per-kind
     // helpers below do not control this guard.
     const bool external = (origin == net::ports::EditOrigin::External);
-    std::vector<net::model::PrimEdit> edits;
+    if (!external && edit.kind == net::model::PrimEdit::Kind::Transform &&
+        (!stage_node_ || !stage_node_->get_activity_controller().allows_local(String(edit.prim_path.c_str()))))
+    {
+        if (stage_node_)
+            stage_node_->get_activity_controller().reject_node(stage_node_->find_prim_node(String(edit.prim_path.c_str())));
+        return;
+    }
+    std::vector<ObservedEdit> edits;
     {
         AuthoringScope scope(state);
         switch (edit.kind)
@@ -383,6 +380,40 @@ void StageBridge::author_edit(const net::model::PrimEdit& edit, net::ports::Edit
 void StageBridge::author_transform(const net::model::PrimEdit& edit, bool external)
 {
     const auto state = dispatch_state_;
+    // A pruned descendant has no UsdPrim, but its authoritative state must survive ancestor restoration.
+    if (external && stage_ && stage_node_ && !stage_->GetPrimAtPath(pxr::SdfPath(edit.prim_path)) &&
+        String(stage_node_->get_activity_controller().query(String(edit.prim_path.c_str()), false)["status"]) == "ancestor_blocked")
+    {
+        const auto layer = edit_target_ == EditTarget::RootLayer ? stage_->GetRootLayer() : stage_->GetSessionLayer();
+        const pxr::SdfPath path(edit.prim_path);
+        const Transform3D raw = gxform::prim_edit_to_transform(edit);
+        bool authored = false;
+        {
+            const pxr::SdfChangeBlock block;
+            const auto spec = pxr::SdfCreatePrimInLayer(layer, path);
+            if (!spec) return;
+            auto matrix = layer->GetAttributeAtPath(path.AppendProperty(pxr::TfToken("xformOp:transform")));
+            if (!matrix) matrix = pxr::SdfAttributeSpec::New(spec, "xformOp:transform", pxr::SdfValueTypeNames->Matrix4d);
+            auto order = layer->GetAttributeAtPath(path.AppendProperty(pxr::TfToken("xformOpOrder")));
+            if (!order) order = pxr::SdfAttributeSpec::New(spec, "xformOpOrder", pxr::SdfValueTypeNames->TokenArray,
+                                                       pxr::SdfVariabilityUniform);
+            authored = matrix && order && matrix->GetTypeName() == pxr::SdfValueTypeNames->Matrix4d &&
+                       order->GetTypeName() == pxr::SdfValueTypeNames->TokenArray &&
+                       matrix->SetDefaultValue(pxr::VtValue(transform_to_gfmatrix(raw))) &&
+                       order->SetDefaultValue(pxr::VtValue(pxr::VtTokenArray{pxr::TfToken("xformOp:transform")}));
+        }
+        if (!state->alive || !authored) return;
+        // Pruned prims cannot be read through UsdPrim until restoration, so advance their raw baseline here.
+        if (auto tracked = tracked_.find(edit.prim_path); tracked != tracked_.end())
+        {
+            tracked->second.observed = gxform::transform_to_prim_edit(edit.prim_path, raw).matrix;
+            tracked->second.has_observation = true;
+        }
+        if (auto* carrier = Object::cast_to<UsdStageNode3D>(stage_node_->find_prim_node(String(edit.prim_path.c_str())));
+            carrier && gpayload::is_builtin_payload_carrier(*carrier))
+            gpayload::record_payload_placement(*carrier, raw);
+        return;
+    }
     // The wire/USD value is raw (no spine-axis rotation). For an external edit,
     // re-apply the load-time presentation rotation so both the USD author (which
     // strips it back out) and the live node carry the same node-space transform
@@ -440,6 +471,9 @@ void StageBridge::author_transform(const net::model::PrimEdit& edit, bool extern
             flush_transform_notifications(edit.prim_path);
         }
     }
+    if (external && state->alive && stage_node_)
+        stage_node_->get_activity_controller().confirm_node(
+            stage_node_->find_prim_node(String(edit.prim_path.c_str())), true);
 }
 
 void StageBridge::author_create(const net::model::PrimEdit& edit)
@@ -565,7 +599,7 @@ void StageBridge::author_set_active(const net::model::PrimEdit& edit)
     pxr::SdfLayerHandle target_layer =
         (edit_target_ == EditTarget::RootLayer) ? stage_->GetRootLayer() : stage_->GetSessionLayer();
 
-    // The resulting resync notice drives the Godot hide/show through
+    // The resulting resync notice drives retained runtime suspension/restoration through
     // reconcile_structural.
     pxr::UsdEditContext edit_ctx(stage_, target_layer);
     prim.SetActive(edit.active);
@@ -703,6 +737,47 @@ bool StageBridge::read_prim_transform(const std::string& prim_path, Transform3D&
     bool resets = false;
     if (!xformable.GetLocalTransformation(&local, &resets)) return false;
     out = gfmatrix_to_transform(local);
+    return true;
+}
+
+bool StageBridge::read_display_transform(const std::string& prim_path, Transform3D& out) const
+{
+    if (!stage_node_ || !stage_ || !read_prim_transform(prim_path, out)) return false;
+    Node3D* node = stage_node_->find_prim_node(String(prim_path.c_str()));
+    if (!node) return false;
+    if (auto* carrier = Object::cast_to<UsdStageNode3D>(node);
+        carrier && gpayload::is_builtin_payload_carrier(*carrier))
+    {
+        out = gpayload::payload_to_display(*carrier, out);
+        return true;
+    }
+
+    // A normalized payload root carries fixed presentation; editable placement belongs to its carrier.
+    const Dictionary placement = gpayload::state(stage_node_);
+    if (bool(placement.get("ready", false)) &&
+        String(placement.get("root_path", "")) == String(prim_path.c_str()))
+    {
+        out = Transform3D(static_cast<Basis>(placement["presentation"]), Vector3());
+        return true;
+    }
+    out.basis = gxform::apply_spine_axis(out.basis, spine_axis_for(prim_path));
+    if (node->get_parent() != stage_node_) return true;
+
+    // Stage conversion rotates/scales root bases while retaining their authored local origins.
+    auto up_basis = [](const String& axis) {
+        if (axis == "Z") return Basis(Vector3(1, 0, 0), Math::deg_to_rad(-90.0));
+        if (axis == "X") return Basis(Vector3(0, 0, 1), Math::deg_to_rad(90.0));
+        return Basis();
+    };
+    const Basis source = up_basis(String(pxr::UsdGeomGetStageUpAxis(stage_).GetText()));
+    const Basis parent = up_basis(stage_node_->get_meta("USD_PARENT_UP", "Y"));
+    out.basis = parent.inverse() * source * out.basis;
+    if (!stage_node_->has_meta("USD_PARENT_MPU"))
+    {
+        const double authored_units = pxr::UsdGeomGetStageMetersPerUnit(stage_);
+        const real_t units = static_cast<real_t>(authored_units == 0.0 ? 0.01 : authored_units);
+        out.basis = out.basis.scaled(Vector3(units, units, units));
+    }
     return true;
 }
 

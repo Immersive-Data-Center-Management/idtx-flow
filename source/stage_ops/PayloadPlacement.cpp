@@ -151,13 +151,12 @@ Transform3D payload_from_display(const UsdStageNode3D& node, const Transform3D& 
     return Transform3D(presentation.inverse() * stage_inverse * display.basis * presentation, stage_inverse.xform(display.origin));
 }
 
-void update_payload_placement(UsdStageNode3D& node, const Transform3D& raw, bool author_override)
+void apply_payload_presentation(UsdStageNode3D& node, const Transform3D& raw)
 {
     const Dictionary data = idtxflow::collab::payload::state(&node);
     if (data.is_empty()) return;
     const bool ready = data.get("ready", false);
     const String root_path = data.get("root_path", "");
-    // Scene callbacks may free this carrier while its presentation is being updated.
     const uint64_t identity = node.get_instance_id();
     idtxflow::collab::payload::PresentationScope scope;
     node.set_transform(payload_to_display(node, raw));
@@ -165,6 +164,15 @@ void update_payload_placement(UsdStageNode3D& node, const Transform3D& raw, bool
     if (ready)
         if (Node3D* root = node.find_prim_node(root_path))
             root->set_transform(Transform3D(static_cast<Basis>(data["presentation"]), Vector3()));
+}
+
+void update_payload_placement(UsdStageNode3D& node, const Transform3D& raw, bool author_override)
+{
+    if (idtxflow::collab::payload::state(&node).is_empty()) return;
+    // Scene callbacks may free this carrier while its presentation is being updated.
+    const uint64_t identity = node.get_instance_id();
+    idtxflow::collab::payload::PresentationScope scope;
+    apply_payload_presentation(node, raw);
     if (ObjectDB::get_instance(identity) != &node) return;
     flush_payload_notifications(&node);
     if (ObjectDB::get_instance(identity) != &node) return;

@@ -87,6 +87,9 @@ class StageBridge : public net::ports::IStageBridge, public pxr::TfWeakBase
     /// Read the raw local transform in wire matrix form; marked payload carriers
     /// may supply stored placement when no USD operation exists. Return false if unavailable.
     bool read_prim(const std::string& prim_path, net::model::PrimEdit& out) const override;
+    /// Read current USD as this node's display transform, including its fixed presentation.
+    /// This does not write USD, update placement metadata, or deliver node notifications.
+    bool read_display_transform(const std::string& prim_path, godot::Transform3D& out) const;
     /// Finish USD and Godot updates before reporting changed local transforms;
     /// External edits do not produce those callbacks.
     void author_edit(const net::model::PrimEdit& edit, net::ports::EditOrigin origin) override;
@@ -152,14 +155,20 @@ class StageBridge : public net::ports::IStageBridge, public pxr::TfWeakBase
     void author_create(const net::model::PrimEdit& edit);
     void author_set_active(const net::model::PrimEdit& edit);
 
-    // Create, show or hide Godot nodes to match the USD stage after the write.
+    // Create missing Godot nodes and reconcile retained activity after the USD write.
     // External edits must also update the scene without being sent back out.
     // Only prim resync paths change the node tree; property paths trigger
     // transform checks instead.
     void reconcile_structural(const std::set<pxr::SdfPath>& paths);
     void flush_transform_notifications(const std::string& prim_path);
-    std::vector<net::model::PrimEdit> finish_changes();
-    void dispatch_changes(const std::vector<net::model::PrimEdit>& edits);
+    // A queued value belongs to one observed representation, even if a callback replaces that path.
+    struct ObservedEdit
+    {
+        net::model::PrimEdit edit;
+        uint64_t node_id;
+    };
+    std::vector<ObservedEdit> finish_changes();
+    void dispatch_changes(const std::vector<ObservedEdit>& edits);
 
     bool author_to_usd(const std::string& prim_path, const godot::Transform3D& xform);
     bool read_prim_transform(const std::string& prim_path, godot::Transform3D& out) const;

@@ -17,6 +17,7 @@
 #include "collab/IdtxClient.h"
 #include "stage_ops/StageBridge.h"
 #include "stage_ops/StageEditController.h"
+#include "stage_ops/StageActivityController.h"
 #include "stage_ops/StageSaveController.h"
 #include "stage_ops/PayloadPlacement.h"
 #include <idtxflow/resolver/HttpResolver.h>
@@ -50,7 +51,33 @@ void UsdStageNode3D::author_node_transform(Node3D* child)
         IDTX_LOGF(IDTX_DEBUG, "author_node_transform: no bridge (no live stage)");
         return;
     }
-    idtxflow::collab::StageEditController(bridge).author_from_node(child, local_authoring_, author_placement_root_);
+    idtxflow::collab::StageEditController(*this, bridge).author_from_node(child, local_authoring_, author_placement_root_);
+}
+
+void UsdStageNode3D::_delete_activity_controller(idtxflow::collab::StageActivityController* controller)
+{
+    delete controller;
+}
+
+idtxflow::collab::StageActivityController& UsdStageNode3D::get_activity_controller()
+{
+    if (!activity_) activity_.reset(new idtxflow::collab::StageActivityController(*this));
+    return *activity_;
+}
+
+Dictionary UsdStageNode3D::get_prim_activity(const String& prim_path)
+{
+    return get_activity_controller().query(prim_path);
+}
+
+void UsdStageNode3D::_flush_prim_activity(int64_t generation)
+{
+    if (activity_) activity_->flush(static_cast<uint64_t>(generation));
+}
+
+void UsdStageNode3D::_on_prim_activity_node_added(Node* node)
+{
+    if (activity_) activity_->node_added(node);
 }
 
 Error UsdStageNode3D::save_stage(const String& out_uri)
@@ -116,10 +143,10 @@ void UsdStageNode3D::convert_prim_subtree(const String& prim_path)
 void UsdStageNode3D::_enter_tree()
 {
     Node3D::_enter_tree();
-    // As _enter_tree might be called after _exit_tree has been invoked due to switching tabs in the 3d view or the like
-    // the children has been completely revoked and the stage handle has been released.
-    // Thus we need to reconstruct the childs/nodes and re-open the underlying stage.
-    _reconstruct_node();
+    // Retained stages keep their nodes and runtime settings across ordinary tree re-entry.
+    const uint64_t identity = get_instance_id();
+    get_activity_controller().enter_tree();
+    if (ObjectDB::get_instance(identity) == this) _reconstruct_node();
 }
 
 void UsdStageNode3D::_ready()
@@ -131,6 +158,7 @@ void UsdStageNode3D::_ready()
 void UsdStageNode3D::_exit_tree()
 {
     Node3D::_exit_tree();
+    if (activity_) activity_->exit_tree();
 }
 
 void UsdStageNode3D::_notification(int p_what)
@@ -150,6 +178,7 @@ void UsdStageNode3D::_notification(int p_what)
         // Notify listeners that our stage is going away, so they can detach before the handle is released.
         if (stage_handle_) emit_signal("stage_unloading");
         bridge_.reset(); // before stage_handle_.reset(): ~bridge revokes its TfNotice on a live stage
+        if (activity_) activity_->reset();
         stage_handle_.reset();
     }
     else if (p_what == NOTIFICATION_TRANSFORM_CHANGED)
@@ -181,6 +210,7 @@ void UsdStageNode3D::set_stage_uri(const String& path)
     // Notify listeners that the old stage is going away, so they can detach before the handle is released.
     if (stage_handle_) emit_signal("stage_unloading");
     bridge_.reset(); // before stage_handle_.reset(): ~bridge revokes its TfNotice on a live stage
+    if (activity_) activity_->reset();
     stage_handle_.reset();
     _cleanup_nodes();
 
@@ -230,6 +260,7 @@ void UsdStageNode3D::reload(bool clear_http_cache)
     cached_scene_name_ = "";
     if (stage_handle_) emit_signal("stage_unloading");
     bridge_.reset(); // before stage_handle_.reset(): ~bridge revokes its TfNotice on a live stage
+    if (activity_) activity_->reset();
     stage_handle_.reset();
     _cleanup_nodes();
 
@@ -314,22 +345,9 @@ void UsdStageNode3D::_reconstruct_node()
     {
         if (!stage_uri_.is_empty())
         {
-            // PERSISTENCE GUARD: on a transient tab-switch re-enter, the converted children
-            // are still alive and the stage handle survived (it is only dropped on
-            // PREDELETE or a URI change). In that case do not clean up and reload —
-            // that re-creates node objects the editor still reference. A freshly
-            // deserialized scene that embedded the children has no stage handle yet,
-            // so it must fall through and (re)build. Only skip when both are present.
-            if (stage_handle_)
-            {
-                for (int i = 0; i < get_child_count(); ++i)
-                {
-                    if (get_child(i)->has_meta("USD_NODE"))
-                    {
-                        return;
-                    }
-                }
-            }
+            // A retained live stage keeps its session opinions across tree re-entry, even when all content is inactive.
+            // A deserialized scene has no live handle and still follows the reconstruction path.
+            if (stage_handle_) return;
 
             // coming here is most likely the case, when the scene has been loaded or after an _exit_tree ->
             // _enter_tree cycle. If the node has a cached scene name stored, it has been saved in the converted
@@ -369,14 +387,15 @@ void UsdStageNode3D::_convert_stage()
         std::make_unique<idtxflow::converter::UsdStageConverter<idtxflow::types::TargetEngineGodot>>(this, nullptr);
     idtxflow::converter::StageConversionResult<idtxflow::types::TargetEngineGodot> conversion_result =
         stage_converter->Convert(result.stage);
+    // A stage with no active representations still needs its USD handle to accept restoration.
+    stage_handle_ = std::make_unique<idtxflow::converter::StageHandle>(std::move(conversion_result.Handle));
     if (conversion_result.ConvertedEntities.empty())
     {
+        if (auto* bridge = get_or_create_bridge()) bridge->build_index();
+        get_activity_controller().reconcile();
         emit_signal("stage_loading_finished", true);
         return;
     }
-
-    // store the stage handle
-    stage_handle_ = std::make_unique<idtxflow::converter::StageHandle>(std::move(conversion_result.Handle));
 
     // Attachment and presentation form one initialization boundary for transform routing.
     const uint64_t identity = get_instance_id();
@@ -389,6 +408,9 @@ void UsdStageNode3D::_convert_stage()
         if (ObjectDB::get_instance(identity) != this) return;
         idtxflow::collab::payload::finalize_payload_placement(*this, conversion_result.ConvertedEntities);
     }
+    if (ObjectDB::get_instance(identity) != this) return;
+
+    get_activity_controller().reconcile();
     if (ObjectDB::get_instance(identity) != this) return;
 
     // name our-self after the root layer of the stage we opened
@@ -433,6 +455,12 @@ void UsdStageNode3D::_load_converted_stage()
             if (Node3D* child3d = cast_to<Node3D>(child))
             {
                 _configure_nodes_recursive(child3d, this, true);
+                get_activity_controller().prepare_subtree(child3d, this);
+                if (ObjectDB::get_instance(identity) != this)
+                {
+                    cached_root->queue_free();
+                    return;
+                }
                 add_child(child3d);
                 if (ObjectDB::get_instance(identity) != this)
                 {
@@ -455,6 +483,9 @@ void UsdStageNode3D::_load_converted_stage()
     // Build the authoring bridge over the restored stage + children so transform
     // edits can be authored into it. No-op when no factory is registered.
     if (idtxflow::net::ports::IStageBridge* author_bridge = get_or_create_bridge()) author_bridge->build_index();
+
+    get_activity_controller().reconcile();
+    if (ObjectDB::get_instance(identity) != this) return;
 
     // only after we have transferred the cached scene into the current one we can activate the compute bridge
     // as during stage_handle_ instantiation there is no compute property registered yet
@@ -544,14 +575,21 @@ void UsdStageNode3D::_configure_nodes_recursive(godot::Node3D* node, godot::Node
 void UsdStageNode3D::attach_converted_subtree(const std::vector<godot::Node3D*>& roots, godot::Node* parent)
 {
     if (parent == nullptr) return;
+    const uint64_t identity = get_instance_id();
 
     for (Node3D* node: roots)
     {
         // Set the owner before the node enters the tree: add_child triggers the
         // node's _ready, which expects configuration already run.
         _configure_nodes_recursive(node, this);
+        get_activity_controller().prepare_subtree(node, parent);
+        if (ObjectDB::get_instance(identity) != this) return;
         parent->add_child(node);
+        if (ObjectDB::get_instance(identity) != this) return;
     }
+
+    get_activity_controller().reconcile();
+    if (ObjectDB::get_instance(identity) != this) return;
 
     // Re-index so the authoring bridge tracks the freshly converted node(s).
     if (idtxflow::net::ports::IStageBridge* b = get_or_create_bridge()) b->build_index();
@@ -662,6 +700,11 @@ void UsdStageNode3D::_bind_methods()
     // Internal deferred callbacks invoked after async stage loading (not exposed to user scripts)
     ClassDB::bind_method(D_METHOD("_convert_stage"), &UsdStageNode3D::_convert_stage);
     ClassDB::bind_method(D_METHOD("_load_converted_stage"), &UsdStageNode3D::_load_converted_stage);
+
+    ClassDB::bind_method(D_METHOD("get_prim_activity", "prim_path"), &UsdStageNode3D::get_prim_activity);
+    ClassDB::bind_method(D_METHOD("_flush_prim_activity", "generation"), &UsdStageNode3D::_flush_prim_activity);
+    ClassDB::bind_method(D_METHOD("_on_prim_activity_node_added", "node"), &UsdStageNode3D::_on_prim_activity_node_added);
+    ADD_SIGNAL(MethodInfo("prim_activity_changed"));
 
     // Signals for async loading lifecycle
     ADD_SIGNAL(MethodInfo("stage_loading_started"));

@@ -14,6 +14,8 @@
 #include <idtxflow_godot/nodes/IUsdNode3D.h>
 #include "idtxflow/converter/StageHandle.h"
 
+namespace idtxflow::collab { class StageActivityController; }
+
 /**
  * This node represents an USD Stage or an USD Layer defined by an *.usd[a|c|z] file.
  * All converted prims that belong to the usd layer will be assigned as children to this node. However, the attached
@@ -169,6 +171,13 @@ class UsdStageNode3D : public godot::Node3D, public IUsdNode3D
      */
     void author_node_transform(godot::Node3D* child);
 
+    /// Return effective USD activity and its stage-qualified blocker without loading or authoring.
+    /// Fields are status, blocker_stage_id, blocker_path and reason; invalid paths are unavailable.
+    godot::Dictionary get_prim_activity(const godot::String& prim_path);
+
+    /// Borrow this node's runtime activity controller; it owns no USD or collaboration session.
+    idtxflow::collab::StageActivityController& get_activity_controller();
+
     /**
      * Save a flattened snapshot of this node's live stage to a new USD file at
      * out_uri (res://, user://, or absolute; extension selects the encoding).
@@ -267,6 +276,13 @@ class UsdStageNode3D : public godot::Node3D, public IUsdNode3D
 
     static void _bind_methods();
 
+    // The out-of-line deleter keeps activity implementation out of the public node header.
+    static void _delete_activity_controller(idtxflow::collab::StageActivityController* controller);
+    void _flush_prim_activity(int64_t generation);
+    void _on_prim_activity_node_added(godot::Node* node);
+    std::unique_ptr<idtxflow::collab::StageActivityController,
+                    decltype(&_delete_activity_controller)> activity_{nullptr, &_delete_activity_controller};
+
     bool node_ready_ = false;
     godot::String stage_uri_;
     godot::String cached_scene_name_;
@@ -291,5 +307,5 @@ class UsdStageNode3D : public godot::Node3D, public IUsdNode3D
     std::mutex result_mutex_;
 
     // Whether an async load is currently in progress
-    bool is_loading_;
+    bool is_loading_ = false;
 };

@@ -77,6 +77,9 @@ godot::Transform3D payload_from_display(const UsdStageNode3D& node, const godot:
 /// Record raw metadata and the optional nested USD override without setting or flushing node transforms.
 /// Write the override only when author_override is true and placement is ready; otherwise update metadata only.
 void record_payload_placement(UsdStageNode3D& node, const godot::Transform3D& raw, bool author_override = true);
+/// Apply carrier/root display only, without writing USD, metadata or consuming transform notifications.
+/// The caller consumes affected notifications later under PresentationScope at a safe boundary.
+void apply_payload_presentation(UsdStageNode3D& node, const godot::Transform3D& raw);
 /// Apply guarded presentation and record raw state; author_override=false leaves the nested USD override unchanged.
 /// Use for external updates and initialization; local transform notifications use record_payload_placement.
 void update_payload_placement(UsdStageNode3D& node, const godot::Transform3D& raw, bool author_override = true);
