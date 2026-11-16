@@ -33,8 +33,10 @@
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
 
 #include "TransformCodec.h"
+#include "PayloadPlacement.h"
 
 namespace gxform = idtxflow::collab::xform;
+namespace gpayload = idtxflow::collab::payload;
 
 using namespace godot;
 
@@ -386,20 +388,38 @@ void StageBridge::author_transform(const net::model::PrimEdit& edit, bool extern
     // strips it back out) and the live node carry the same node-space transform
     // the importer produced; a local edit already carries the node-space basis
     // the live node holds, so it is authored as-is. This spine-axis adjustment
-    // requires a marked built-in visual.
+    // requires a marked built-in visual. Payload carriers use their separate
+    // raw/display placement mapping instead of an ordinary visual-axis rotation.
     Transform3D node_xform = gxform::prim_edit_to_transform(edit);
+    auto* carrier = stage_node_ ? Object::cast_to<UsdStageNode3D>(
+        stage_node_->find_prim_node(String(edit.prim_path.c_str()))) : nullptr;
+    const bool payload_carrier = carrier && gpayload::is_builtin_payload_carrier(*carrier);
+    const Transform3D payload_raw = payload_carrier && !external ? gpayload::payload_from_display(*carrier, node_xform) : node_xform;
+    Transform3D observed_payload;
+    if (!external && payload_carrier && gpayload::get_payload_placement(*carrier, observed_payload) &&
+        payload_raw.is_equal_approx(observed_payload)) return;
     if (external)
     {
-        const xform::SpineAxis axis = spine_axis_for(edit.prim_path);
-        node_xform.basis = gxform::apply_spine_axis(node_xform.basis, axis);
+        if (payload_carrier) node_xform = gpayload::payload_to_display(*carrier, node_xform);
+        else node_xform.basis = gxform::apply_spine_axis(node_xform.basis, spine_axis_for(edit.prim_path));
     }
 
     author_to_usd(edit.prim_path, node_xform);
     if (!state->alive) return;
+    if (payload_carrier && stage_node_)
+    {
+        carrier = Object::cast_to<UsdStageNode3D>(stage_node_->find_prim_node(String(edit.prim_path.c_str())));
+        if (carrier && gpayload::is_builtin_payload_carrier(*carrier))
+        {
+            if (external) gpayload::update_payload_placement(*carrier, payload_raw);
+            else gpayload::record_payload_placement(*carrier, payload_raw);
+        }
+        if (!state->alive) return;
+    }
 
     // Mirror the authored transform onto the live node only for external edits;
     // a local edit originates from the node, which already holds this transform.
-    if (external && stage_node_)
+    if (external && stage_node_ && !payload_carrier)
     {
         // USD authoring can rebuild the lookup, so find the current node again after the write.
         Node3D* node = stage_node_->find_prim_node(String(edit.prim_path.c_str()));
@@ -576,10 +596,14 @@ bool StageBridge::author_to_usd(const std::string& prim_path, const Transform3D&
     // A prim that holds a reference/payload can have a local typeless `def` whose
     // local transform (the arc's placement in the referencing layer) still lives
     // on this prim. When the composed prim is not xformable by schema type, it
-    // may still carry a valid xformOpOrder, so author onto it as well; only bail
-    // when there is no transform to drive at all.
+    // may still carry a valid xformOpOrder, so author onto it as well. A marked
+    // payload carrier also permits an initial placement without an existing order;
+    // only bail when there is no transform or supported representation to drive.
     pxr::UsdGeomXformable xformable(prim);
-    if (!xformable && !prim.HasAttribute(pxr::UsdGeomTokens->xformOpOrder))
+    const auto* carrier = stage_node_ ? Object::cast_to<UsdStageNode3D>(
+        stage_node_->find_prim_node(String(prim_path.c_str()))) : nullptr;
+    const bool payload_carrier = carrier && gpayload::is_builtin_payload_carrier(*carrier);
+    if (!xformable && !prim.HasAttribute(pxr::UsdGeomTokens->xformOpOrder) && !payload_carrier)
     {
         IDTX_LOG(IDTX_DEBUG, "author_to_usd bail: no transform to author '{}'", prim_path);
         return false;
@@ -596,8 +620,9 @@ bool StageBridge::author_to_usd(const std::string& prim_path, const Transform3D&
 
     // Strip the load-time spine-axis presentation rotation from marked built-in
     // Cone/Cylinder/Capsule visuals so USD stores the raw orientation. Unmarked
-    // representations receive no built-in spine-axis adjustment.
-    Transform3D raw = xform;
+    // representations receive no built-in spine-axis adjustment. Payload carriers
+    // first remove their separate raw/display placement mapping.
+    Transform3D raw = payload_carrier ? gpayload::payload_from_display(*carrier, xform) : xform;
     raw.basis = gxform::strip_spine_axis(raw.basis, spine_axis_for(prim_path));
     const pxr::GfMatrix4d m = transform_to_gfmatrix(raw);
 
@@ -663,11 +688,17 @@ bool StageBridge::read_prim_transform(const std::string& prim_path, Transform3D&
     pxr::UsdPrim prim = stage_->GetPrimAtPath(pxr::SdfPath(prim_path));
     if (!prim) return false;
     pxr::UsdGeomXformable xformable(prim);
-    // A typeless reference/payload holder carries a valid local transform via its
-    // xformOpOrder even though it is not an xformable by schema type; read it so
+    // A reference/payload holder may carry a valid local transform via its
+    // xformOpOrder even when the composed prim is not xformable by schema type; read it so
     // the holder's placement can be reported. GetLocalTransformation works
-    // regardless of the typed-schema check.
-    if (!xformable && !prim.HasAttribute(pxr::UsdGeomTokens->xformOpOrder)) return false;
+    // regardless of the typed-schema check. Without an order or xformable schema,
+    // a marked payload carrier may supply its stored raw placement.
+    if (!xformable && !prim.HasAttribute(pxr::UsdGeomTokens->xformOpOrder))
+    {
+        const auto* carrier = stage_node_ ? Object::cast_to<UsdStageNode3D>(
+            stage_node_->find_prim_node(String(prim_path.c_str()))) : nullptr;
+        return carrier && gpayload::get_payload_placement(*carrier, out);
+    }
     pxr::GfMatrix4d local(1.0);
     bool resets = false;
     if (!xformable.GetLocalTransformation(&local, &resets)) return false;

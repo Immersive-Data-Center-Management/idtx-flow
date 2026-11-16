@@ -6,6 +6,7 @@
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/classes/resource_saver.hpp>
 #include <godot_cpp/classes/file_access.hpp>
+#include <godot_cpp/core/object.hpp>
 
 #include <idtxflow/converter/StageConverter.h>
 
@@ -17,6 +18,7 @@
 #include "stage_ops/StageBridge.h"
 #include "stage_ops/StageEditController.h"
 #include "stage_ops/StageSaveController.h"
+#include "stage_ops/PayloadPlacement.h"
 #include <idtxflow/resolver/HttpResolver.h>
 
 using namespace godot;
@@ -41,6 +43,7 @@ void UsdStageNode3D::set_local_authoring(bool enabled)
 
 void UsdStageNode3D::author_node_transform(Node3D* child)
 {
+    if (idtxflow::collab::payload::presentation_update_active()) return;
     idtxflow::net::ports::IStageBridge* bridge = get_or_create_bridge();
     if (bridge == nullptr)
     {
@@ -375,10 +378,18 @@ void UsdStageNode3D::_convert_stage()
     // store the stage handle
     stage_handle_ = std::make_unique<idtxflow::converter::StageHandle>(std::move(conversion_result.Handle));
 
-    // once all nodes are converted, attach them under this node: the shared
-    // helper sets each node's owner (deferred so tree insertion happens first),
-    // adds it as a child, and rebuilds the authoring bridge index.
-    attach_converted_subtree(conversion_result.ConvertedEntities, this);
+    // Attachment and presentation form one initialization boundary for transform routing.
+    const uint64_t identity = get_instance_id();
+    {
+        idtxflow::collab::payload::PresentationScope scope;
+        // once all nodes are converted, attach them under this node: the shared
+        // helper sets each node's owner (deferred so tree insertion happens first),
+        // adds it as a child, and rebuilds the authoring bridge index.
+        attach_converted_subtree(conversion_result.ConvertedEntities, this);
+        if (ObjectDB::get_instance(identity) != this) return;
+        idtxflow::collab::payload::finalize_payload_placement(*this, conversion_result.ConvertedEntities);
+    }
+    if (ObjectDB::get_instance(identity) != this) return;
 
     // name our-self after the root layer of the stage we opened
     set_name(stage_handle_->Stage()->GetRootLayer()->GetDisplayName().c_str());
@@ -407,27 +418,39 @@ void UsdStageNode3D::_load_converted_stage()
 
     Ref<PackedScene> packed_scene = ResourceLoader::get_singleton()->load(cached_scene_name_);
     Node3D* cached_root = cast_to<Node3D>(packed_scene->instantiate());
-    // the instantiated node would be the cached "UsdStageNode3D". Thus, just adding this to the tree
-    // would create a recursion. The intention anyway was to use this node as a root only for caching. And "copy"
-    // it's children after instantiation to this node would re-create the original structure anyway.
-    while (cached_root->get_child_count() > 0)
+    std::vector<Node3D*> restored_roots;
+    const uint64_t identity = get_instance_id();
     {
-        Node* child = cached_root->get_child(0);
-        cached_root->remove_child(child);
-        child->set_owner(nullptr);
-        if (Node3D* child3d = cast_to<Node3D>(child))
+        idtxflow::collab::payload::PresentationScope scope;
+        // the instantiated node would be the cached "UsdStageNode3D". Thus, just adding this to the tree
+        // would create a recursion. The intention is to use this node as a root only for caching. Transferring
+        // its children after instantiation to this node re-creates the original structure.
+        while (cached_root->get_child_count() > 0)
         {
-            _configure_nodes_recursive(child3d, this, true);
-            add_child(child3d);
+            Node* child = cached_root->get_child(0);
+            cached_root->remove_child(child);
+            child->set_owner(nullptr);
+            if (Node3D* child3d = cast_to<Node3D>(child))
+            {
+                _configure_nodes_recursive(child3d, this, true);
+                add_child(child3d);
+                if (ObjectDB::get_instance(identity) != this)
+                {
+                    cached_root->queue_free();
+                    return;
+                }
+                restored_roots.push_back(child3d);
+            }
+            else
+            {
+                child->queue_free();
+            }
         }
-        else
-        {
-            child->queue_free();
-        }
+        // release the instantiated packed scene, all supported children have been transferred to the actual scene tree
+        cached_root->queue_free();
+        idtxflow::collab::payload::finalize_payload_placement(*this, restored_roots);
     }
-
-    // release the instantiated packed scene, all children have been copied over to the actual scene tree
-    cached_root->queue_free();
+    if (ObjectDB::get_instance(identity) != this) return;
 
     // Build the authoring bridge over the restored stage + children so transform
     // edits can be authored into it. No-op when no factory is registered.

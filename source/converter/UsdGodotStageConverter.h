@@ -31,6 +31,7 @@
 #include "nodes/UsdXFormNode3D.h"
 #include "nodes/UsdMultiMeshInstanceNode3D.h"
 #include "nodes/UsdRestDatasourceNode3D.h"
+#include "stage_ops/PayloadPlacement.h"
 
 /**
  * Implement Godot engine specialization of the UsdStageConverter
@@ -834,7 +835,9 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertPrimWi
 
     // a Prim with an authored payload that is not yet loaded will be treated as "standalone" stage node that
     // takes the payloadURI and runs the conversion of the referred stage on its own.
+    // A payload owns a nested conversion but its editable placement belongs to the containing stage.
     UsdStageNode3D* stage_node = memnew(UsdStageNode3D);
+    idtxflow::collab::payload::mark_carrier(stage_node);
     stage_node->set_meta("USD_PARENT_MPU", static_cast<float>(StageMetersPerUnit));
     stage_node->set_meta("USD_PARENT_UP", StageUpAxis.GetString().c_str());
 
@@ -850,8 +853,9 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertPrimWi
     // on `_ready()` of the node
     stage_node->set_stage_uri(payload_uri.c_str());
 
-    // we do not the transform on the node itself as it will be set from the payload contents composed with the
-    // override layer!
+    // we do not set the transform on the node itself as it will be set after conversion from the payload contents
+    // composed with the override layer. For supported payload roots, a current containing-stage holder transform
+    // takes precedence.
 
     return stage_node;
 }
@@ -965,6 +969,7 @@ inline std::vector<godot::Node3D*> UsdStageConverter<types::TargetEngineGodot>::
             godot::Vector3 scale = node->get_scale() * mpu;
             node->set_scale(scale);
         }
+        idtxflow::collab::payload::record_stage_basis(node);
     }
 
     return converted_entities;

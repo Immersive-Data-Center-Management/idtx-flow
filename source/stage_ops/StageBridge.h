@@ -84,7 +84,8 @@ class StageBridge : public net::ports::IStageBridge, public pxr::TfWeakBase
     /// Rebuild the prim-to-node lookup, keeping the last recorded transforms
     /// for nodes that still have the same ObjectID.
     void build_index() override;
-    /// Read the raw local transform in wire matrix form. Return false if unavailable.
+    /// Read the raw local transform in wire matrix form; marked payload carriers
+    /// may supply stored placement when no USD operation exists. Return false if unavailable.
     bool read_prim(const std::string& prim_path, net::model::PrimEdit& out) const override;
     /// Finish USD and Godot updates before reporting changed local transforms;
     /// External edits do not produce those callbacks.
@@ -142,8 +143,8 @@ class StageBridge : public net::ports::IStageBridge, public pxr::TfWeakBase
     void _on_objects_changed(const pxr::UsdNotice::ObjectsChanged& notice, const pxr::UsdStageWeakPtr& sender);
 
     // author_edit dispatches on edit.kind to one of these. `external` is true for
-    // peer-originated edits (transform re-applies marked built-in spine-axis
-    // presentation). author_edit prevents external changes from being reported
+    // peer-originated edits (transform re-applies marked visual presentation or
+    // payload placement). author_edit prevents external changes from being reported
     // back as local edits; the per-kind helpers do not control this guard.
     // Collect notices until the write finishes so node updates and transform
     // reads use the completed USD state.
