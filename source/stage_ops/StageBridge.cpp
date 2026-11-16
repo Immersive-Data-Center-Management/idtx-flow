@@ -26,7 +26,7 @@
 #include <pxr/usd/usdGeom/xformable.h>
 #include <pxr/usd/usdGeom/cone.h>
 #include <pxr/usd/usdGeom/cylinder.h>
-#include <pxr/usd/usdGeom/plane.h>
+#include <pxr/usd/usdGeom/capsule.h>
 #include <pxr/usd/usdGeom/tokens.h>
 
 #include <idtxflow/resolver/UsdAssetPath.h>
@@ -302,8 +302,8 @@ void StageBridge::author_transform(const net::model::PrimEdit& edit, bool extern
     // re-apply the load-time presentation rotation so both the USD author (which
     // strips it back out) and the live node carry the same node-space transform
     // the importer produced; a local edit already carries the node-space basis
-    // the live node holds, so it is authored as-is. No-op for prim types without
-    // a baked spine axis.
+    // the live node holds, so it is authored as-is. This spine-axis adjustment
+    // requires a marked built-in visual.
     Transform3D node_xform = gxform::prim_edit_to_transform(edit);
     if (external)
     {
@@ -410,8 +410,8 @@ void StageBridge::author_create(const net::model::PrimEdit& edit)
         // Optional create-time LOCAL transform, authored verbatim as a single
         // matrix xformOp:transform. The server authored it with no spine-axis
         // presentation bake, so it is written as-is (no strip_spine_axis) —
-        // unlike an inbound transform edit, whose raw value needs the bake
-        // re-applied. Resolved to a matrix here; a separate branch composes via
+        // unlike an inbound transform edit for a marked built-in visual, whose
+        // raw value needs the bake re-applied. Resolved to a matrix here; a separate branch composes via
         // the shared transform codec.
         if (edit.has_create_transform)
         {
@@ -498,8 +498,9 @@ bool StageBridge::author_to_usd(const std::string& prim_path, const Transform3D&
     bool reset_stack = false;
     std::vector<pxr::UsdGeomXformOp> ops = xformable.GetOrderedXformOps(&reset_stack);
 
-    // Strip the load-time spine-axis presentation rotation (Cone/Cylinder) so USD
-    // stores the raw orientation. No-op for every other prim type.
+    // Strip the load-time spine-axis presentation rotation from marked built-in
+    // Cone/Cylinder/Capsule visuals so USD stores the raw orientation. Unmarked
+    // representations receive no built-in spine-axis adjustment.
     Transform3D raw = xform;
     raw.basis = gxform::strip_spine_axis(raw.basis, spine_axis_for(prim_path));
     const pxr::GfMatrix4d m = transform_to_gfmatrix(raw);
@@ -578,25 +579,26 @@ bool StageBridge::read_prim_transform(const std::string& prim_path, Transform3D&
 
 xform::SpineAxis StageBridge::spine_axis_for(const std::string& prim_path) const
 {
-    // Only Cone, Cylinder and Plane are imported via toTransform(matrix, axis),
-    // with a baked spine-axis presentation rotation; every other prim type bakes
-    // none. Keep this in sync with StageConverter's Cone/Cylinder/Plane branches
-    // and with UsdGodotTypeConverter::toTransform.
+    // Built-in Cone, Cylinder and Capsule visuals are imported via toTransform(matrix, axis),
+    // with a baked spine-axis presentation rotation. Keep this in sync with
+    // StageConverter's Cone/Cylinder/Capsule branches and UsdGodotTypeConverter::toTransform.
     //
-    // Why the bake exists: USD's Cone/Cylinder/Plane store their axis direction in
+    // Why the bake exists: USD's Cone/Cylinder/Capsule store their axis direction in
     // an `axis` attribute (x/y/z) with no matrix rotation, but Godot's CylinderMesh
-    // and PlaneMesh are fixed to the Y axis, so the loader rotates the node basis to
+    // and CapsuleMesh have a fixed Y spine, so the loader rotates the node basis to
     // compensate. This strip/re-apply is the exact inverse of that, so the two MUST
-    // be enabled as a matched pair, gated on the same prim types.
+    // be enabled as a matched pair, gated on the same marked visual representations.
+    // Plane uses resource orientation and does not carry this node-axis presentation.
     //
-    // Capsule is intentionally not handled here: no UsdGeomCapsule converter
-    // (StageConverter has no Cone/Cylinder-style branch for it) With no loader bake there is nothing
-    // to invert, so adding a branch now would be dead code that becomes a latent +/-90 deg
-    // bug the moment a real UsdGeomCapsule node exists without a matching bake.
-    // TODO: add `IsA<pxr::UsdGeomCapsule>()` here only once StageConverter
-    // converts Capsule via toTransform(matrix, axis) (Godot's CapsuleMesh is Y-fixed too,
-    // so it will need the same rot_z(+90)/rot_x(+90) bake)
-    if (!stage_) return xform::SpineAxis::None;
+    // Schema identity also covers colliders, payload carriers and custom representations.
+    // Only a marked built-in visual permits inversion of a node-axis rotation.
+    if (!stage_ || !stage_node_) return xform::SpineAxis::None;
+    const Node3D* node = stage_node_->find_prim_node(String(prim_path.c_str()));
+    if (!node) return xform::SpineAxis::None;
+    const Variant presentation = node->get_meta(IUsdNode3D::BUILTIN_SPINE_AXIS_META, false);
+    if (presentation.get_type() != Variant::BOOL || !static_cast<bool>(presentation))
+        return xform::SpineAxis::None;
+
     pxr::UsdPrim prim = stage_->GetPrimAtPath(pxr::SdfPath(prim_path));
     if (!prim) return xform::SpineAxis::None;
 
@@ -605,16 +607,16 @@ xform::SpineAxis StageBridge::spine_axis_for(const std::string& prim_path) const
         pxr::UsdGeomCone(prim).GetAxisAttr().Get(&axis);
     else if (prim.IsA<pxr::UsdGeomCylinder>())
         pxr::UsdGeomCylinder(prim).GetAxisAttr().Get(&axis);
-    else if (prim.IsA<pxr::UsdGeomPlane>())
-        pxr::UsdGeomPlane(prim).GetAxisAttr().Get(&axis);
+    else if (prim.IsA<pxr::UsdGeomCapsule>())
+        pxr::UsdGeomCapsule(prim).GetAxisAttr().Get(&axis);
     else
         return xform::SpineAxis::None;
 
     if (axis == pxr::UsdGeomTokens->x) return xform::SpineAxis::X;
     if (axis == pxr::UsdGeomTokens->z) return xform::SpineAxis::Z;
     if (axis == pxr::UsdGeomTokens->y) return xform::SpineAxis::Y;
-    // GetAxisAttr().Get() returns the schema fallback (Z) when unauthored, so for a
-    // Cone/Cylinder axis is always x/y/z; this is only reached if that ever changes.
+    // GetAxisAttr().Get() returns the schema fallback (Z) when unauthored.
+    // Invalid authored axis tokens cannot establish a supported presentation convention.
     return xform::SpineAxis::None;
 }
 

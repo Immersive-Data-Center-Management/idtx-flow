@@ -789,11 +789,13 @@ class UsdStageConverter
             if (!usdPlane.GetWidthAttr().Get(&planeWidth)) planeWidth = 1.0;
             if (!usdPlane.GetLengthAttr().Get(&planeLength)) planeLength = 1.0;
 
-            class pxr::TfToken axis;
+            // Keep the Plane schema's Z default if the attribute cannot be read.
+            pxr::TfToken axis = pxr::UsdGeomTokens->z;
             usdPlane.GetAxisAttr().Get(&axis);
 
-            return ConvertPlane(TypeConverter::toTransform(matrix, axis), gPrimAnimation, material, planeWidth,
-                                planeLength, displayColors, colorInterpolation);
+            // The geometry axis is independent of the authored transform.
+            return ConvertPlane(TypeConverter::toTransform(matrix), gPrimAnimation, material, planeWidth,
+                                planeLength, axis, displayColors, colorInterpolation);
         }
         else if (usdPrim.IsA<pxr::UsdGeomCapsule>())
         {
@@ -908,19 +910,22 @@ class UsdStageConverter
 
     /**
      * Convert a Plane
-     * @param transform The transform of the plane (axis orientation baked in)
+     * The mesh geometry represents the plane's axis.
+     * @param transform The transform of the plane (without baked axis orientation)
      * @param animation The animation of the plane's transform, if any
      * @param material The material of the plane
-     * @param planeWidth The width (local X extent)
-     * @param planeLength The length (local Z extent)
+     * @param planeWidth The width along Z for axis X, or along X otherwise
+     * @param planeLength The length along Z for axis Y, or along Y otherwise
+     * @param axis The USD plane normal (X, Y or Z), with the schema default Z
      * @param displayColors The authored display colors
      * @param colorInterpolation The authored color interpolation
-     * @return
+     * @return The converted plane with its authored local transform
      */
     typename Types::ConvertedEntity* ConvertPlane(const typename Types::Transform& transform,
                                                   const std::optional<AnimationDescription<TargetEngine>>& animation,
                                                   const std::optional<typename Types::Material>& material,
                                                   float planeWidth, float planeLength,
+                                                  const class pxr::TfToken& axis,
                                                   const pxr::VtArray<class pxr::GfVec4f>& displayColors,
                                                   const class pxr::TfToken& colorInterpolation);
     /**

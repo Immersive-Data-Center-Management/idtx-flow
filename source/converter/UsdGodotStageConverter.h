@@ -232,6 +232,7 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCylind
 
     UsdMeshInstanceNode3D* converted_node = memnew(UsdMeshInstanceNode3D);
     converted_node->set_mesh(cylinder);
+    converted_node->set_meta(IUsdNode3D::BUILTIN_SPINE_AXIS_META, true);
     converted_node->set_transform(transform);
 
     if (animation.has_value())
@@ -281,6 +282,7 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCone(
 
     UsdMeshInstanceNode3D* converted_node = memnew(UsdMeshInstanceNode3D);
     converted_node->set_mesh(cylinder);
+    converted_node->set_meta(IUsdNode3D::BUILTIN_SPINE_AXIS_META, true);
     converted_node->set_transform(transform);
 
     if (animation.has_value())
@@ -345,14 +347,22 @@ template <>
 inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertPlane(
     const godot::Transform3D& transform, const std::optional<AnimationDescription<types::TargetEngineGodot>>& animation,
     const std::optional<godot::Ref<godot::StandardMaterial3D>>& material, float plane_width, float plane_length,
-    const pxr::VtArray<class pxr::GfVec4f>& display_colors, const class pxr::TfToken& color_interpolation)
+    const pxr::TfToken& axis, const pxr::VtArray<class pxr::GfVec4f>& display_colors,
+    const class pxr::TfToken& color_interpolation)
 {
     godot::Ref<godot::PlaneMesh> plane;
     plane.instantiate();
-    // USD's plane lies in the plane normal to its axis (Z by default); the axis
-    // rotation is baked into `transform`, so the mesh is the unrotated XZ quad
-    // sized width x length.
+    // USD's plane lies in the plane normal to its axis (Z by default); the mesh
+    // orientation preserves USD width/length axes without rotating the authored node transform.
+    // For axis X, USD width spans Z and length spans Y; the spine-axis
+    // rotation around Z would swap those dimensions.
     plane->set_size(godot::Vector2(plane_width, plane_length));
+    if (axis == pxr::UsdGeomTokens->x)
+        plane->set_orientation(godot::PlaneMesh::FACE_X);
+    else if (axis == pxr::UsdGeomTokens->y)
+        plane->set_orientation(godot::PlaneMesh::FACE_Y);
+    else
+        plane->set_orientation(godot::PlaneMesh::FACE_Z);
 
     godot::Ref<godot::StandardMaterial3D> standard_material;
     if (material.has_value())
@@ -399,8 +409,7 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCapsul
     godot::Ref<godot::CapsuleMesh> capsule;
     capsule.instantiate();
 
-    // ensure that the capsule radius never get 0.0 as this would cause the following error downstream
-    // servers/rendering/renderer_scene_cull.cpp:991 - Condition "!v.is_finite()" is true.
+    // ensure that the capsule radius never get 0.0 as this would produce non-finite geometry downstream
     capsule->set_radius(std::max(capsuleRadius, MIN_SPHERE_RADIUS));
 
     // set the correct total height of the capsule mesh
@@ -434,6 +443,7 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCapsul
 
     UsdMeshInstanceNode3D* converted_node = memnew(UsdMeshInstanceNode3D);
     converted_node->set_mesh(capsule);
+    converted_node->set_meta(IUsdNode3D::BUILTIN_SPINE_AXIS_META, true);
     converted_node->set_transform(transform);
 
     if (animation.has_value())

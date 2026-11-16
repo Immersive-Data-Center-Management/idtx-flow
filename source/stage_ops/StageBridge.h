@@ -98,8 +98,8 @@ class StageBridge : public net::ports::IStageBridge, public pxr::TfWeakBase
     void _on_objects_changed(const pxr::UsdNotice::ObjectsChanged& notice, const pxr::UsdStageWeakPtr& sender);
 
     // author_edit dispatches on edit.kind to one of these. `external` is true for
-    // peer-originated edits (transform re-applies the spine-axis presentation
-    // rotation); loopback suppression is owned by author_edit, not these helpers.
+    // peer-originated edits (transform re-applies marked built-in spine-axis
+    // presentation); loopback suppression is owned by author_edit, not these helpers.
     void author_transform(const net::model::PrimEdit& edit, bool external);
     void author_create(const net::model::PrimEdit& edit);
     void author_set_active(const net::model::PrimEdit& edit);
@@ -114,10 +114,10 @@ class StageBridge : public net::ports::IStageBridge, public pxr::TfWeakBase
     bool author_to_usd(const std::string& prim_path, const godot::Transform3D& xform);
     bool read_prim_transform(const std::string& prim_path, godot::Transform3D& out) const;
 
-    // The spine axis baked into the Godot basis at load time for this prim, or
-    // SpineAxis::None when the prim type bakes none
-    // Only UsdGeomCylinder / UsdGeomCone are loaded via toTransform(matrix, axis).
-    // Keep the type set in sync with StageConverter's Cylinder/Cone branches.
+    // The spine axis baked into the Godot basis at load time for this prim's
+    // marked built-in Cone/Cylinder/Capsule visual, or SpineAxis::None when no
+    // built-in spine-axis presentation is established (Plane, unmarked or missing nodes).
+    // Keep the type set in sync with StageConverter's Cylinder/Cone/Capsule branches.
     xform::SpineAxis spine_axis_for(const std::string& prim_path) const;
 
     UsdStageNode3D* stage_node_ = nullptr; // non-owning
