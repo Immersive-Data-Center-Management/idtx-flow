@@ -1,7 +1,6 @@
 #include "StageBridge.h"
 
 #include <cmath>
-#include <unordered_set>
 #include <vector>
 
 #include <godot_cpp/classes/node.hpp>
@@ -89,6 +88,15 @@ Transform3D gfmatrix_to_transform(const pxr::GfMatrix4d& m)
     Vector3 origin((real_t)m[3][0], (real_t)m[3][1], (real_t)m[3][2]);
     return Transform3D(basis, origin);
 }
+
+// Readback uses the wire convention on both sides, without primitive presentation rotations.
+bool same_matrix(const net::model::Mat4& left, const net::model::Mat4& right)
+{
+    for (size_t index = 0; index < left.m.size(); ++index)
+        if (!(std::abs(left.m[index] - right.m[index]) <= 1e-9)) return false;
+    return true;
+}
+
 } // namespace
 
 StageBridge::StageBridge(UsdStageNode3D* stage_node, pxr::UsdStageRefPtr stage, EditTarget edit_target)
@@ -100,11 +108,14 @@ StageBridge::StageBridge(UsdStageNode3D* stage_node, pxr::UsdStageRefPtr stage, 
 
 StageBridge::~StageBridge()
 {
+    dispatch_state_->alive = false;
+    ++dispatch_state_->sink_revision;
     revoke_listener();
 }
 
 void StageBridge::build_index()
 {
+    auto previous = std::move(tracked_);
     tracked_.clear();
     if (!stage_node_)
     {
@@ -122,9 +133,9 @@ void StageBridge::build_index()
         {
             Node* child = n->get_child(i);
 
-            // A nested UsdStageNode3D is a referenced sub-stage with its own stage
-            // and child-relative paths. Track the sub-stage node itself (it is a
-            // reference prim in THIS stage, so moving it as a whole syncs), but do
+            // A nested UsdStageNode3D is a reference/payload sub-stage with its own stage
+            // and child-relative paths. Track the sub-stage node itself (it is an
+            // asset holder in THIS stage, so moving it as a whole syncs), but do
             // not descend into its subtree.
             const bool is_sub_stage = (Object::cast_to<UsdStageNode3D>(child) != nullptr);
             if (!is_sub_stage) stack.push_back(child);
@@ -137,12 +148,25 @@ void StageBridge::build_index()
             if (prim_path.is_empty()) continue;
 
             // Skip the stage's placement root (its defaultPrim, e.g. "/World"):
-            // display-only transform, never synced.
+            // excluded from the broadcast index; explicit local authoring has its own policy.
             if (is_stage_root(std::string(prim_path.utf8().get_data()))) continue;
 
             Tracked t;
             t.node_id = n3d->get_instance_id();
-            tracked_[std::string(prim_path.utf8().get_data())] = t;
+            const std::string key(prim_path.utf8().get_data());
+            const auto old = previous.find(key);
+            if (old != previous.end() && old->second.node_id == t.node_id && old->second.has_observation)
+            {
+                t.observed = old->second.observed;
+                t.has_observation = old->second.has_observation;
+            }
+            else
+            {
+                net::model::PrimEdit initial;
+                t.has_observation = read_prim(key, initial);
+                if (t.has_observation) t.observed = initial.matrix;
+            }
+            tracked_[key] = t;
         }
     }
 
@@ -169,71 +193,53 @@ void StageBridge::revoke_listener()
 void StageBridge::_on_objects_changed(const pxr::UsdNotice::ObjectsChanged& notice,
                                       const pxr::UsdStageWeakPtr& /*sender*/)
 {
-    // Ignore changes we are authoring ourselves (loopback suppression). The
-    // engine owns the remote/armed gating; this bridge only reports genuine,
-    // externally-triggered stage changes for tracked prims.
-    IDTX_LOG(IDTX_DEBUG, "[trace] C _on_objects_changed fired: suppress={} has_on_changed={}", suppress_broadcast_,
-             on_changed_ != nullptr);
     // Ignore notices arriving while the stage is being released.
     if (!stage_ || !stage_->GetRootLayer()) return;
-
-    // Build / hide / show Godot nodes to match structural stage changes (prim
-    // creation, active=false soft-delete, active=true restore). This runs for
-    // EVERY notice, including our own suppressed authoring: inbound create and
-    // delete are applied with suppress_broadcast_ set so the outbound echo stays
-    // gated, yet they must still change the scene tree. Transform edits resync
-    // no prims, so this is a no-op for them.
-    reconcile_structural(notice);
-
-    // Outbound change reporting stays loopback-suppressed for self-authored edits.
-    if (suppress_broadcast_) return;
-    if (!on_changed_) return;
-
-    // One authored Set emits several paths within a single notice (the attribute
-    // path and its prim path) and USD may follow with a second info-only notice;
-    // without coalescing, the same prim would be reported — and broadcast —
-    // multiple times for one edit. De-dupe by prim key for this dispatch.
-    std::unordered_set<std::string> reported;
-    auto consider = [&](const pxr::SdfPath& path) {
+    // CollabEngine decides whether a change can be sent. Collect notices during
+    // our own writes so Godot node updates and raw transform reads use the
+    // completed USD state.
+    const auto state = dispatch_state_;
+    auto observe = [&](const pxr::SdfPath& path) {
         const pxr::SdfPath prim_path = path.IsPropertyPath() ? path.GetPrimPath() : path;
-        const std::string key = prim_path.GetString();
-        const bool is_tracked = tracked_.find(key) != tracked_.end();
-        IDTX_LOG(IDTX_DEBUG, "[trace] C consider path='{}' key='{}' tracked={}", path.GetString(), key, is_tracked);
-        if (tracked_.find(key) == tracked_.end()) return;
-        if (!reported.insert(key).second) return;
-
-        net::model::PrimEdit edit;
-        if (!read_prim(key, edit)) return;
-        on_changed_(edit);
+        if (prim_path.IsPrimPath()) pending_transforms_.insert(prim_path.GetString());
     };
+    // Copy notice paths because the notice is temporary and can arrive
+    // before a transform write has finished.
+    for (const pxr::SdfPath& path : notice.GetResyncedPaths())
+    {
+        if (path.IsPrimPath()) pending_resyncs_.insert(path);
+        observe(path);
+    }
+    for (const pxr::SdfPath& path : notice.GetChangedInfoOnlyPaths()) observe(path);
+    if (state->authoring) return;
 
-    for (const pxr::SdfPath& p: notice.GetResyncedPaths())
-        consider(p);
-    for (const pxr::SdfPath& p: notice.GetChangedInfoOnlyPaths())
-        consider(p);
+    std::vector<net::model::PrimEdit> edits;
+    {
+        AuthoringScope scope(state);
+        edits = finish_changes();
+        if (!state->alive) return;
+    }
+    dispatch_changes(edits);
 }
 
-void StageBridge::reconcile_structural(const pxr::UsdNotice::ObjectsChanged& notice)
+void StageBridge::reconcile_structural(const std::set<pxr::SdfPath>& paths)
 {
     if (!stage_node_ || !stage_) return;
+    const auto state = dispatch_state_;
 
-    // Only structural (resync) paths carry prim creation and active-toggle
-    // changes; value-only edits (transforms) arrive as changed-info-only and are
-    // ignored here. De-dupe by prim key so one subtree change is handled once.
-    std::unordered_set<std::string> seen;
-    for (const pxr::SdfPath& p: notice.GetResyncedPaths())
+    // Build / hide / show Godot nodes to match structural stage changes (prim
+    // creation, active=false soft-delete, active=true restore). Inbound create
+    // and delete must still change the scene tree without being sent back out.
+    // Only prim resync paths change the node tree; property paths trigger
+    // transform checks instead.
+    for (const pxr::SdfPath& prim_path : paths)
     {
-        const pxr::SdfPath prim_path = p.IsPropertyPath() ? p.GetPrimPath() : p;
         if (!prim_path.IsPrimPath()) continue;
         const std::string key = prim_path.GetString();
-        if (!seen.insert(key).second) continue;
-
-        // The placement root (defaultPrim) is display-only and never synced.
         if (is_stage_root(key)) continue;
 
         pxr::UsdPrim prim = stage_->GetPrimAtPath(prim_path);
         godot::Node3D* node = stage_node_->find_prim_node(String(key.c_str()));
-
         if (prim && prim.IsActive())
         {
             if (!node)
@@ -244,20 +250,97 @@ void StageBridge::reconcile_structural(const pxr::UsdNotice::ObjectsChanged& not
             }
             else if (!node->is_visible())
             {
-                // Reactivated (active=true): the hidden subtree is still present,
+                // The hidden subtree is still present,
                 // so just show it again — no re-traversal/conversion needed.
                 node->set_visible(true);
             }
-            // else: already present and visible (e.g. a transform-driven resync).
         }
         else if (prim && node)
         {
             // Soft-delete (active=false): hide the node and its subtree from
             // rendering while keeping it alive for a cheap restore.
+            // Retained subtrees preserve instance identity across soft delete and restore.
             node->set_visible(false);
         }
-        // prim invalid (a pruned descendant of a deactivated ancestor): its
-        // ancestor's hide already removed it from rendering, so nothing to do.
+        // A descendant pruned by an inactive ancestor needs no separate hide;
+        // its retained ancestor already hides it from rendering.
+        if (!state->alive) return;
+        flush_transform_notifications(key);
+        if (!state->alive) return;
+    }
+}
+
+void StageBridge::flush_transform_notifications(const std::string& prim_path)
+{
+    if (!stage_node_) return;
+    const auto state = dispatch_state_;
+    std::vector<uint64_t> node_ids;
+    const pxr::SdfPath root(prim_path);
+    for (const auto& item : tracked_)
+        if (pxr::SdfPath(item.first).HasPrefix(root)) node_ids.push_back(item.second.node_id);
+    // A placement root is deliberately absent from the broadcast index.
+    if (Node3D* node = stage_node_->find_prim_node(String(prim_path.c_str())))
+        node_ids.push_back(node->get_instance_id());
+    for (uint64_t id : node_ids)
+    {
+        Node3D* node = Object::cast_to<Node3D>(ObjectDB::get_instance(id));
+        if (!node || !node->is_inside_tree()) continue;
+        UsdStageNode3D* owner = nullptr;
+        for (Node* parent = node->get_parent(); parent; parent = parent->get_parent())
+        {
+            owner = Object::cast_to<UsdStageNode3D>(parent);
+            if (owner) break;
+        }
+        if (owner != stage_node_) continue;
+        node->force_update_transform();
+        if (!state->alive) return;
+    }
+}
+
+std::vector<net::model::PrimEdit> StageBridge::finish_changes()
+{
+    const auto state = dispatch_state_;
+    while (!pending_resyncs_.empty())
+    {
+        std::set<pxr::SdfPath> paths;
+        paths.swap(pending_resyncs_);
+        reconcile_structural(paths);
+        if (!state->alive) return {};
+    }
+
+    // One authored Set can emit several paths within a single notice (the attribute
+    // path and its prim path) and USD may follow with a second info-only notice.
+    // Group those paths by prim and compare with its last recorded transform
+    // so repeated notices for the same value do not produce repeated reports.
+    std::set<std::string> paths;
+    paths.swap(pending_transforms_);
+    std::vector<net::model::PrimEdit> edits;
+    for (const std::string& path : paths)
+    {
+        net::model::PrimEdit edit;
+        if (!read_prim(path, edit)) continue;
+        auto tracked = tracked_.find(path);
+        if (tracked == tracked_.end()) continue;
+        const bool changed = tracked->second.has_observation &&
+                             !same_matrix(tracked->second.observed, edit.matrix);
+        tracked->second.observed = edit.matrix;
+        tracked->second.has_observation = true;
+        if (changed) edits.push_back(std::move(edit));
+    }
+    return edits;
+}
+
+void StageBridge::dispatch_changes(const std::vector<net::model::PrimEdit>& edits)
+{
+    const auto state = dispatch_state_;
+    const uint64_t revision = state->sink_revision;
+    const OnChanged sink = on_changed_;
+    if (!sink) return;
+    // A callback can destroy this bridge or install a different callback.
+    for (const auto& edit : edits)
+    {
+        if (!state->alive || state->sink_revision != revision) return;
+        sink(edit);
     }
 }
 
@@ -271,33 +354,35 @@ bool StageBridge::read_prim(const std::string& prim_path, net::model::PrimEdit& 
 
 void StageBridge::author_edit(const net::model::PrimEdit& edit, net::ports::EditOrigin origin)
 {
-    // Re-entrancy guard: an authoring call that arrives while we are mid-author
-    // (suppress already raised) would be our own suppressed notice looping back;
-    // ignore it rather than author on top of an in-flight edit.
-    if (suppress_broadcast_) return;
-
-    // Loopback suppression is owned here, once, for the whole edit. A Local edit
-    // leaves the flag down so the resulting TfNotice reports back through
-    // on_changed_ (the change we want to broadcast); an External (peer) edit
-    // raises it so the applied change is not echoed straight back out. The
-    // per-kind helpers below never touch the flag.
+    const auto state = dispatch_state_;
+    // Node notifications can call back into authoring while an edit is still
+    // running. Ignore those nested calls until the current edit finishes.
+    if (state->authoring) return;
+    // Keep our own USD and Godot updates from starting another edit. Both origins
+    // collect notices until the write finishes. Local reports changed transforms;
+    // External updates the recorded values without reporting them. The per-kind
+    // helpers below do not control this guard.
     const bool external = (origin == net::ports::EditOrigin::External);
-    suppress_broadcast_ = external;
-
-    switch (edit.kind)
+    std::vector<net::model::PrimEdit> edits;
     {
-    case net::model::PrimEdit::Kind::Transform:  author_transform(edit, external); break;
-    case net::model::PrimEdit::Kind::CreatePrim: author_create(edit);              break;
-    case net::model::PrimEdit::Kind::SetActive:  author_set_active(edit);          break;
+        AuthoringScope scope(state);
+        switch (edit.kind)
+        {
+        case net::model::PrimEdit::Kind::Transform:  author_transform(edit, external); break;
+        case net::model::PrimEdit::Kind::CreatePrim: author_create(edit);              break;
+        case net::model::PrimEdit::Kind::SetActive:  author_set_active(edit);          break;
+        }
+        if (!state->alive) return;
+        edits = finish_changes();
+        if (!state->alive) return;
     }
-
-    suppress_broadcast_ = false;
+    // Remember external values for later comparisons without reporting them as local changes.
+    if (!external) dispatch_changes(edits);
 }
 
 void StageBridge::author_transform(const net::model::PrimEdit& edit, bool external)
 {
-    auto it = tracked_.find(edit.prim_path);
-
+    const auto state = dispatch_state_;
     // The wire/USD value is raw (no spine-axis rotation). For an external edit,
     // re-apply the load-time presentation rotation so both the USD author (which
     // strips it back out) and the live node carry the same node-space transform
@@ -312,19 +397,29 @@ void StageBridge::author_transform(const net::model::PrimEdit& edit, bool extern
     }
 
     author_to_usd(edit.prim_path, node_xform);
+    if (!state->alive) return;
 
     // Mirror the authored transform onto the live node only for external edits;
     // a local edit originates from the node, which already holds this transform.
-    if (external && it != tracked_.end())
+    if (external && stage_node_)
     {
-        // Resolve the stored ObjectID to a live node. ObjectDB::get_instance()
-        // returns null if the node has been freed. Prevents dangling pointer issues.
-        Node3D* node = Object::cast_to<Node3D>(ObjectDB::get_instance(it->second.node_id));
+        // USD authoring can rebuild the lookup, so find the current node again after the write.
+        Node3D* node = stage_node_->find_prim_node(String(edit.prim_path.c_str()));
         if (node)
         {
+            const uint64_t id = node->get_instance_id();
+            const bool blocked = node->is_blocking_signals();
             node->set_block_signals(true);
             node->set_transform(node_xform);
-            node->set_block_signals(false);
+            if (!state->alive) return;
+            // Transform callbacks may free this node before its signal state is restored.
+            // Resolve the captured ObjectID to a live node. ObjectDB::get_instance()
+            // returns null if the node has been freed. Prevents dangling pointer issues.
+            node = Object::cast_to<Node3D>(ObjectDB::get_instance(id));
+            if (node) node->set_block_signals(blocked);
+            // Deliver pending transform notifications while our own node updates
+            // are still prevented from starting another edit.
+            flush_transform_notifications(edit.prim_path);
         }
     }
 }
@@ -356,22 +451,22 @@ void StageBridge::author_create(const net::model::PrimEdit& edit)
     }
 
     // Author into the same layer inbound transforms use (session by default), so
-    // the local copy mirrors the server's state without touching the opened file.
+    // the local copy mirrors the server's state without touching the opened root
+    // layer unless RootLayer was requested.
     pxr::SdfLayerHandle target_layer =
         (edit_target_ == EditTarget::RootLayer) ? stage_->GetRootLayer() : stage_->GetSessionLayer();
 
-    // reconcile_structural runs on the resulting notice to build the Godot node.
-    // One SdfChangeBlock so the def, its attributes, any reference/payload arc and
-    // the local transform land atomically and a single coalesced resync notice
-    // fires with the fully-authored prim — the conversion then reads the final
-    // state. Authoring at the Sdf level avoids the Usd-DefinePrim-inside-a-change-
-    // block pattern USD advises against.
+    // One SdfChangeBlock makes the def, its attributes, any reference/payload arc
+    // and the local transform visible to USD composition together. Update Godot
+    // nodes after the full authoring call finishes so conversion reads the
+    // complete prim. Authoring at the Sdf level avoids the
+    // Usd-DefinePrim-inside-a-change-block pattern USD advises against.
     pxr::SdfChangeBlock block;
     if (pxr::SdfPrimSpecHandle spec = pxr::SdfCreatePrimInLayer(target_layer, path))
     {
         spec->SetSpecifier(pxr::SdfSpecifierDef);
 
-        // A reference holder is typeless and carries a reference or payload arc to
+        // The local reference-holder spec is typeless and carries a reference or payload arc to
         // the target asset; a built-in prim carries its schema type and the shape
         // defaults the server sent.
         if (edit.has_ref)
@@ -461,27 +556,30 @@ void StageBridge::author_set_active(const net::model::PrimEdit& edit)
 
 bool StageBridge::author_to_usd(const std::string& prim_path, const Transform3D& xform)
 {
+    const auto state = dispatch_state_;
+    const pxr::UsdStageRefPtr stage = stage_;
+    const EditTarget edit_target = edit_target_;
     // The stage may have been released (node left the tree) between an inbound
     // edit being queued and applied; bail rather than touch a dead stage.
-    if (!stage_ || !stage_->GetRootLayer())
+    if (!stage || !stage->GetRootLayer())
     {
         IDTX_LOG(IDTX_DEBUG, "author_to_usd bail: stage released");
         return false;
     }
 
     const pxr::SdfPath sdf_path(prim_path);
-    pxr::UsdPrim prim = stage_->GetPrimAtPath(sdf_path);
+    pxr::UsdPrim prim = stage->GetPrimAtPath(sdf_path);
     if (!prim)
     {
         IDTX_LOG(IDTX_DEBUG, "author_to_usd bail: prim not found '{}'", prim_path);
         return false;
     }
 
-    // A prim that holds a reference/payload is authored as a typeless `def` whose
+    // A prim that holds a reference/payload can have a local typeless `def` whose
     // local transform (the arc's placement in the referencing layer) still lives
-    // on this prim. Such a prim is not an xformable by schema type, yet carries a
-    // valid xformOpOrder, so author onto it as well; only bail when there is no
-    // transform to drive at all.
+    // on this prim. When the composed prim is not xformable by schema type, it
+    // may still carry a valid xformOpOrder, so author onto it as well; only bail
+    // when there is no transform to drive at all.
     pxr::UsdGeomXformable xformable(prim);
     if (!xformable && !prim.HasAttribute(pxr::UsdGeomTokens->xformOpOrder))
     {
@@ -490,10 +588,10 @@ bool StageBridge::author_to_usd(const std::string& prim_path, const Transform3D&
     }
 
     // Non-destructive by default: overrides go to the session layer, leaving the
-    // opened file untouched unless RootLayer was requested.
+    // opened root layer untouched unless RootLayer was requested.
     pxr::SdfLayerHandle target_layer =
-        (edit_target_ == EditTarget::RootLayer) ? stage_->GetRootLayer() : stage_->GetSessionLayer();
-    pxr::UsdEditContext edit_ctx(stage_, target_layer);
+        (edit_target == EditTarget::RootLayer) ? stage->GetRootLayer() : stage->GetSessionLayer();
+    pxr::UsdEditContext edit_ctx(stage, target_layer);
 
     bool reset_stack = false;
     std::vector<pxr::UsdGeomXformOp> ops = xformable.GetOrderedXformOps(&reset_stack);
@@ -517,7 +615,9 @@ bool StageBridge::author_to_usd(const std::string& prim_path, const Transform3D&
     if (!matrix_op)
     {
         xformable.ClearXformOpOrder();
+        if (!state->alive) return false;
         matrix_op = xformable.AddTransformOp();
+        if (!state->alive) return false;
     }
     else
     {
@@ -547,7 +647,7 @@ bool StageBridge::author_to_usd(const std::string& prim_path, const Transform3D&
     }
     matrix_op.Set(m);
     IDTX_LOG(IDTX_DEBUG, "authored xform on '{}' (target={})", prim_path,
-             edit_target_ == EditTarget::RootLayer ? "root" : "session");
+             edit_target == EditTarget::RootLayer ? "root" : "session");
     return true;
 }
 
