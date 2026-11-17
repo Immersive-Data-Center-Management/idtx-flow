@@ -926,11 +926,38 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertPrimPo
         // if the prim is of kind `guide` it is not visually rendered and instead only used as a collider
         // at this stage if the usd_prim is of kind `guide` it is assumed to be converted already and should
         // not require this step
-        if (!usdGprim.GetPurposeAttr().Get(&purpose) || purpose == pxr::UsdGeomTokens->guide)
+        if (!usdGprim.GetPurposeAttr().Get(&purpose) || purpose != pxr::UsdGeomTokens->guide)
         {
-            if (usd_prim.IsA<pxr::UsdGeomPlane>())
+            pxr::TfToken shape = pxr::TfToken("NONE");
+
+            // set the shape according to the currently supported collision shapes
+            if (usd_prim.IsA<pxr::UsdGeomCube>())
             {
-                pxr::TfToken shape = pxr::UsdGeomTokens->Plane;
+                shape = pxr::UsdGeomTokens->Cube;
+            }
+            else if (usd_prim.IsA<pxr::UsdGeomCylinder>())
+            {
+                shape = pxr::UsdGeomTokens->Cylinder;
+            }
+            else if (usd_prim.IsA<pxr::UsdGeomSphere>())
+            {
+                shape = pxr::UsdGeomTokens->Sphere;
+            }
+            else if (usd_prim.IsA<pxr::UsdGeomCapsule>())
+            {
+                shape = pxr::UsdGeomTokens->Capsule;
+            }
+            else if (usd_prim.IsA<pxr::UsdGeomPlane>())
+            {
+                shape = pxr::UsdGeomTokens->Plane;
+            }
+
+            if (shape == "NONE")
+            {
+                IDTX_LOG(IDTX_WARN, "Prim {} has unsupported collision shape", usd_prim.GetPath().GetText());
+            }
+            else
+            {
                 pxr::VtTokenArray interaction_types = pxr::VtArray{pxr::IDTXTokens->Collide};
 
                 double height;

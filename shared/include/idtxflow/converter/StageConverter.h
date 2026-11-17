@@ -653,12 +653,9 @@ class UsdStageConverter
 
         pxr::TfToken purpose;
 
-        if (usdGprim.GetPurposeAttr().Get(&purpose))
-        {
-            IDTX_LOG(IDTX_INFO, "Prim has purpose {}", purpose.GetString().c_str());
-        }
-        // Handle colliders for prims with purpose `guide`, which are not rendered visually
-        // only UsdGeomImageable and those inheriting from it, like UsdGeomGprim, have GetPurposeAttr()
+        // Handle colliders for prims with purpose `guide`, which are not rendered visually.
+        // only UsdGeomImageable and those inheriting from it, like UsdGeomGprim, have GetPurposeAttr(),
+        // so the usdGprim variable hast to be used
         if (usdPrim.HasAPI<pxr::UsdPhysicsCollisionAPI>() && usdGprim.GetPurposeAttr().Get(&purpose) &&
             purpose == pxr::UsdGeomTokens->guide)
         {
@@ -675,10 +672,6 @@ class UsdStageConverter
             if (usdPrim.IsA<pxr::UsdGeomCube>())
             {
                 shape = pxr::UsdGeomTokens->Cube;
-            }
-            else if (usdPrim.IsA<pxr::UsdGeomCone>())
-            {
-                shape = pxr::UsdGeomTokens->Cone;
             }
             else if (usdPrim.IsA<pxr::UsdGeomCylinder>())
             {
