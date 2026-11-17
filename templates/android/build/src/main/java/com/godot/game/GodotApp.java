@@ -52,9 +52,9 @@ import java.io.OutputStream;
 public class GodotApp extends GodotActivity {
 	private static final String TAG = "IDTXFlow";
 	// Platform-specific USD plugin registry (ar, sdf, usd, usdGeom, etc.)
-	private static final String USD_ANDROID_ASSET_PATH = "addons/IDTXFlow/bin/android/usd";
+	private static final String USD_ANDROID_ASSET_PATH = "addons/IDTXFlow/bin/android/arm64/usd";
 	// Cross-platform USD plugin data (godot integration, usdShaders, etc.)
-	private static final String USD_PLUGIN_ASSET_PATH = "addons/IDTXFlow/bin/plugin/usd";
+	private static final String USD_PLUGIN_ASSET_PATH = "addons/IDTXFlow/bin/android/plugin/usd";
 
 	static {
 		// .NET libraries.

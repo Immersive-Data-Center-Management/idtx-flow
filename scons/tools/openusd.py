@@ -135,6 +135,9 @@ def _build_for_desktop(env, source_path, install_path, platform, with_python_sup
         "--no-vulkan",
         "--no-materialx",
         "--onetbb",
+        # build_usd.py defaults to one job per core; the Boost.Python wrappers need
+        # ~3 GB each, so 32 parallel jobs exhaust 32 GB RAM (C1060 out of heap space).
+        "--jobs", os.environ.get("USD_BUILD_JOBS", str(min(os.cpu_count() or 1, 8))),
         "--cmake-build-args",
         "-DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_CXX_STANDARD=17",
     ]
@@ -166,7 +169,7 @@ def _do_build_android(env, source_path, install_path):
     tbb_root = _build_tbb_android(env)
 
     ndk_root  = env.get("android_ndk_root", os.environ.get("ANDROID_NDK_ROOT", ""))
-    api_level = env.get("android_api_level", 24)
+    api_level = env.get("android_api_level", android_platform.DEFAULT_API_LEVEL)
 
     cmake_build_dir = f"{install_path}-build"
     os.makedirs(install_path, exist_ok=True)
@@ -264,7 +267,7 @@ def _build_tbb_android(env):
             os.remove(zip_path)
 
     ndk_root  = env.get("android_ndk_root", os.environ.get("ANDROID_NDK_ROOT", ""))
-    api_level = env.get("android_api_level", 24)
+    api_level = env.get("android_api_level", android_platform.DEFAULT_API_LEVEL)
 
     tbb_build_dir = os.path.abspath(f"{paths.thirdparty}/onetbb-{ONETBB_VERSION}-android-build")
     os.makedirs(tbb_install_prefix, exist_ok=True)

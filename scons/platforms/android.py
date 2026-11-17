@@ -20,6 +20,12 @@ import platform
 from SCons.Script import Exit
 
 
+# Single default for `scons platform=android android_api_level=NN`. Every
+# Android library must use the same level: the NDK switches from emulated to
+# native thread-local storage at API 29, and mixed objects fail at dlopen.
+DEFAULT_API_LEVEL = 30
+
+
 # ---------------------------------------------------------------------------
 # NDK location
 # ---------------------------------------------------------------------------
