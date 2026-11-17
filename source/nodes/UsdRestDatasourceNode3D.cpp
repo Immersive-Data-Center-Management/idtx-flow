@@ -140,11 +140,8 @@ void UsdRestDatasourceNode3D::_process(double delta)
 
             if (!response || response->statusCode < 200 || response->statusCode >= 300)
             {
-                IDTX_LOG(IDTX_WARN, "REST request failed for '{}' (HTTP {}) - response '{}'",
-                    url,
-                    response ? response->statusCode : 0,
-                    response ? response->body : "empty"
-                );
+                IDTX_LOG(IDTX_WARN, "REST request failed for '{}' (HTTP {}) - response '{}'", url,
+                         response ? response->statusCode : 0, response ? response->body : "empty");
                 return;
             }
             auto bridge = state->bridge.lock();
@@ -174,12 +171,12 @@ void UsdRestDatasourceNode3D::OnComputeComplete(const std::vector<ExecComputeRes
     {
         if (result.primAttribute == "authorization" && result.value.IsHolding<std::string>())
         {
-            //IDTX_LOG(IDTX_DEBUG, "New authorization token");
+            // IDTX_LOG(IDTX_DEBUG, "New authorization token");
             authorization_header_ = result.value.Get<std::string>();
         }
         if (result.primAttribute == "jsonBody" && result.value.IsHolding<std::string>())
         {
-            //IDTX_LOG(IDTX_DEBUG, "New request nody");
+            // IDTX_LOG(IDTX_DEBUG, "New request nody");
             json_body_ = result.value.Get<std::string>();
         }
     }

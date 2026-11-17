@@ -128,7 +128,8 @@ class IxHttpClientPool
     }
 
   private:
-    IxHttpClientPool() : pool_(std::make_unique<utils::ThreadPool>(kDefaultPoolSize))
+    IxHttpClientPool()
+        : pool_(std::make_unique<utils::ThreadPool>(kDefaultPoolSize))
     {
         // Platform-aware CA selection (see IxTlsDefaults.h): OS trust store on desktop,
         // verification disabled on Android where MbedTLS cannot resolve "SYSTEM".
