@@ -39,6 +39,10 @@ def _build_extension(env):
     paths    = profile.paths
 
     extension_env = env.Clone()
+    # godot-cpp only suffixes OBJSUFFIX (which MSVC also uses for shared objects);
+    # without this, clang's .os files are shared across targets and rebuilt on every switch.
+    if not platform.is_windows:
+        extension_env["SHOBJSUFFIX"] = f".{platform.name}.{platform.target}.{platform.arch}.os"
 
     # Protobuf: runtime include dir + the generated idtxcore.* sources directory.
     # BuildProtobuf() publishes the env keys; GenerateProtoSources() writes the

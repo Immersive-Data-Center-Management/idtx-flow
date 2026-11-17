@@ -75,6 +75,9 @@ def _build_extension(env):
 
     openusd_root = os.path.abspath(paths.openusd_install)
     extension_env = env.Clone()
+    # Same as gdextension.py: give clang's .os files a per-platform/target name.
+    if not platform.is_windows:
+        extension_env["SHOBJSUFFIX"] = f".{platform.name}.{platform.target}.{platform.arch}.os"
 
     # Android needs my_spawn from godot-cpp/tools to bypass cmd.exe length limits
     if platform.is_android and (sys.platform == "win32" or sys.platform == "msys"):

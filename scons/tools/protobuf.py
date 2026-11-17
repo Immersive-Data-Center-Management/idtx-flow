@@ -227,7 +227,7 @@ def _build_android_lib(env, platform, src_dir, target_build_dir):
         return
 
     ndk_root  = env.get("android_ndk_root", os.environ.get("ANDROID_NDK_ROOT", ""))
-    api_level = env.get("android_api_level", 24)
+    api_level = env.get("android_api_level", android_platform.DEFAULT_API_LEVEL)
     toolchain_args = android_platform.cmake_toolchain_args(ndk_root, api_level)
 
     print("Cross-compiling protobuf for android (arm64, static) ...")

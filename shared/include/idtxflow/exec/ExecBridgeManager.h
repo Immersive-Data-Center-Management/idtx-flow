@@ -115,10 +115,9 @@ class ExecBridge
         if (GetLifecycle() != ExecBridgeLifecycle::Active || update.prim_path.IsEmpty() ||
             update.attribute_name.IsEmpty() || update.value.IsEmpty())
         {
-            /*IDTX_LOG(IDTX_DEBUG, "EnqueueAttributeUpdate rejected (lifecycle={}, pathEmpty={}, attrEmpty={}, valEmpty={}) for '{}.{}'",
-                (int)GetLifecycle(),
-                update.prim_path.IsEmpty(), update.attribute_name.IsEmpty(), update.value.IsEmpty(),
-                update.prim_path.GetText(), update.attribute_name.GetText()
+            /*IDTX_LOG(IDTX_DEBUG, "EnqueueAttributeUpdate rejected (lifecycle={}, pathEmpty={}, attrEmpty={},
+            valEmpty={}) for '{}.{}'", (int)GetLifecycle(), update.prim_path.IsEmpty(), update.attribute_name.IsEmpty(),
+            update.value.IsEmpty(), update.prim_path.GetText(), update.attribute_name.GetText()
             );*/
             rejected_updates_.fetch_add(1);
             return false;
@@ -145,7 +144,7 @@ class ExecBridge
         pending_update_order_.push_back(key);
         pending_updates_.emplace(key, std::move(update));
         accepted_updates_.fetch_add(1);
-        
+
         /*IDTX_LOG(IDTX_DEBUG, "EnqueueAttributeUpdate accepted for '{}.{}'",
             update.prim_path.GetText(), update.attribute_name.GetText());*/
         return true;
@@ -277,12 +276,13 @@ class ExecBridge
         {
             exec_timestamp_ = std::chrono::steady_clock::now();
             exec_time_frame_ += 1.0;
-        } else if (std::chrono::steady_clock::now() - exec_timestamp_ >= std::chrono::seconds(1))
+        }
+        else if (std::chrono::steady_clock::now() - exec_timestamp_ >= std::chrono::seconds(1))
         {
             exec_timestamp_ = std::chrono::steady_clock::now();
             exec_time_frame_ += 1.0;
         }
-        
+
         exec_system_->ChangeTime(pxr::UsdTimeCode(exec_time_frame_));
 
         // Run the Exec computation.
@@ -341,7 +341,7 @@ class ExecBridge
         std::vector<StageAttributeUpdate> updates;
         {
             std::lock_guard<std::mutex> lock(queue_mutex_);
-            //IDTX_LOG(IDTX_INFO, "ApplyPendingUpdates - applying {} updates.", pending_update_order_.size());
+            // IDTX_LOG(IDTX_INFO, "ApplyPendingUpdates - applying {} updates.", pending_update_order_.size());
             for (const auto& key: pending_update_order_)
             {
                 auto it = pending_updates_.find(key);
@@ -369,14 +369,14 @@ class ExecBridge
                 pxr::UsdEditContext edit_ctx(stage_, stage_->GetSessionLayer());
                 if (!compatible || !attribute.Set(update.value))
                 {
-                    /*IDTX_LOG(IDTX_WARN, "ApplyPendingUpdates -  Incompatible attribute type '{}' or update failed for prim '{}' and attribute '{}'.",
-                        type.GetText(),
-                        update.prim_path.GetText(),
+                    /*IDTX_LOG(IDTX_WARN, "ApplyPendingUpdates -  Incompatible attribute type '{}' or update failed for
+                    prim '{}' and attribute '{}'.", type.GetText(), update.prim_path.GetText(),
                         update.attribute_name.GetText()
                     );*/
                     failed_updates_.fetch_add(1);
                     continue;
-                } else
+                }
+                else
                 {
                     /*IDTX_LOG(IDTX_DEBUG, "ApplyPendingUpdates: OK wrote '{}.{}'",
                         update.prim_path.GetText(), update.attribute_name.GetText()
@@ -513,7 +513,8 @@ class ExecBridgeManager
      */
     void ActivateBridge(std::shared_ptr<ExecBridge> bridge)
     {
-        if (!bridge || bridge->GetLifecycle() != ExecBridgeLifecycle::Created){
+        if (!bridge || bridge->GetLifecycle() != ExecBridgeLifecycle::Created)
+        {
             return;
         }
         bridge->BuildRequest();

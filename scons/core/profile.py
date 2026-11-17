@@ -142,7 +142,7 @@ def build_profile(args, openusd_version: str = OPENUSD_VERSION_DEFAULT) -> Build
             # individually using profile.shared_lib_filename(base).
         elif platform.is_android:
             ndk_root  = android_platform.resolve_ndk_root(args)
-            api_level = int(args.get("android_api_level", "30"))
+            api_level = int(args.get("android_api_level", android_platform.DEFAULT_API_LEVEL))
 
             triple = f"aarch64-linux-android{api_level}"
             cxx["CCFLAGS"]   = list(cxx["CCFLAGS"]) + [f"--target={triple}", "-march=armv8-a"]
