@@ -14,7 +14,10 @@
 #include <idtxflow_godot/nodes/IUsdNode3D.h>
 #include "idtxflow/converter/StageHandle.h"
 
-namespace idtxflow::collab { class StageActivityController; }
+namespace idtxflow::collab
+{
+class StageActivityController;
+}
 
 /**
  * This node represents an USD Stage or an USD Layer defined by an *.usd[a|c|z] file.
@@ -280,8 +283,8 @@ class UsdStageNode3D : public godot::Node3D, public IUsdNode3D
     static void _delete_activity_controller(idtxflow::collab::StageActivityController* controller);
     void _flush_prim_activity(int64_t generation);
     void _on_prim_activity_node_added(godot::Node* node);
-    std::unique_ptr<idtxflow::collab::StageActivityController,
-                    decltype(&_delete_activity_controller)> activity_{nullptr, &_delete_activity_controller};
+    std::unique_ptr<idtxflow::collab::StageActivityController, decltype(&_delete_activity_controller)> activity_{
+        nullptr, &_delete_activity_controller};
 
     bool node_ready_ = false;
     godot::String stage_uri_;

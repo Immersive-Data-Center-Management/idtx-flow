@@ -51,13 +51,12 @@ inline bool IsAnchoredAssetIdentifier(const std::string& path)
  * @return The anchored identifier, or an empty string for empty input, an unusable
  *         anchor, or a result that remains unanchored.
  */
-inline std::string AnchorAssetIdentifier(const std::string& asset_path,
-                                         const pxr::SdfLayerHandle& anchor_layer,
+inline std::string AnchorAssetIdentifier(const std::string& asset_path, const pxr::SdfLayerHandle& anchor_layer,
                                          const pxr::ArResolverContext& resolver_context)
 {
     if (detail::IsAnchoredAssetIdentifier(asset_path)) return asset_path;
-    if (asset_path.empty() || !anchor_layer || anchor_layer->IsAnonymous() ||
-        anchor_layer->GetResolvedPath().IsEmpty()) return {};
+    if (asset_path.empty() || !anchor_layer || anchor_layer->IsAnonymous() || anchor_layer->GetResolvedPath().IsEmpty())
+        return {};
 
     const pxr::ArResolverContextBinder context(resolver_context);
     const std::string anchored = pxr::SdfComputeAssetPathRelativeToLayer(anchor_layer, asset_path);

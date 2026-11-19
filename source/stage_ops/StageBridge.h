@@ -131,11 +131,15 @@ class StageBridge : public net::ports::IStageBridge, public pxr::TfWeakBase
     // the current USD write and Godot node updates finish.
     struct AuthoringScope
     {
-        explicit AuthoringScope(std::shared_ptr<DispatchState> state) : state(std::move(state))
+        explicit AuthoringScope(std::shared_ptr<DispatchState> state)
+            : state(std::move(state))
         {
             this->state->authoring = true;
         }
-        ~AuthoringScope() { state->authoring = false; }
+        ~AuthoringScope()
+        {
+            state->authoring = false;
+        }
         AuthoringScope(const AuthoringScope&) = delete;
         AuthoringScope& operator=(const AuthoringScope&) = delete;
         std::shared_ptr<DispatchState> state;

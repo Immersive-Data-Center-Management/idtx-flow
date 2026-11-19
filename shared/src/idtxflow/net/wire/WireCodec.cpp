@@ -20,15 +20,23 @@ const char* usd_type_token(idtxcore::PrimType type)
 {
     switch (type)
     {
-    case idtxcore::PRIM_TYPE_CUBE:     return "Cube";
-    case idtxcore::PRIM_TYPE_SPHERE:   return "Sphere";
-    case idtxcore::PRIM_TYPE_CONE:     return "Cone";
-    case idtxcore::PRIM_TYPE_CYLINDER: return "Cylinder";
-    case idtxcore::PRIM_TYPE_CAPSULE:  return "Capsule";
-    case idtxcore::PRIM_TYPE_PLANE:    return "Plane";
-    case idtxcore::PRIM_TYPE_XFORM:    return "Xform";
+    case idtxcore::PRIM_TYPE_CUBE:
+        return "Cube";
+    case idtxcore::PRIM_TYPE_SPHERE:
+        return "Sphere";
+    case idtxcore::PRIM_TYPE_CONE:
+        return "Cone";
+    case idtxcore::PRIM_TYPE_CYLINDER:
+        return "Cylinder";
+    case idtxcore::PRIM_TYPE_CAPSULE:
+        return "Capsule";
+    case idtxcore::PRIM_TYPE_PLANE:
+        return "Plane";
+    case idtxcore::PRIM_TYPE_XFORM:
+        return "Xform";
     case idtxcore::PRIM_TYPE_UNSPECIFIED:
-    default:                           return "";
+    default:
+        return "";
     }
 }
 
@@ -37,13 +45,13 @@ const char* usd_type_token(idtxcore::PrimType type)
 // is encoded as PRIM_TYPE_REF by the caller, not through this map.
 idtxcore::PrimType prim_type_from_token(const std::string& token)
 {
-    if (token == "Cube")     return idtxcore::PRIM_TYPE_CUBE;
-    if (token == "Sphere")   return idtxcore::PRIM_TYPE_SPHERE;
-    if (token == "Cone")     return idtxcore::PRIM_TYPE_CONE;
+    if (token == "Cube") return idtxcore::PRIM_TYPE_CUBE;
+    if (token == "Sphere") return idtxcore::PRIM_TYPE_SPHERE;
+    if (token == "Cone") return idtxcore::PRIM_TYPE_CONE;
     if (token == "Cylinder") return idtxcore::PRIM_TYPE_CYLINDER;
-    if (token == "Capsule")  return idtxcore::PRIM_TYPE_CAPSULE;
-    if (token == "Plane")    return idtxcore::PRIM_TYPE_PLANE;
-    if (token == "Xform")    return idtxcore::PRIM_TYPE_XFORM;
+    if (token == "Capsule") return idtxcore::PRIM_TYPE_CAPSULE;
+    if (token == "Plane") return idtxcore::PRIM_TYPE_PLANE;
+    if (token == "Xform") return idtxcore::PRIM_TYPE_XFORM;
     return idtxcore::PRIM_TYPE_UNSPECIFIED;
 }
 } // namespace
@@ -190,9 +198,8 @@ bool decode(const std::string& bytes, DecodedMessage& out)
         {
             edit.has_ref = true;
             edit.reference_path = b.reference_path();
-            edit.ref_kind = (b.ref_type() == idtxcore::PRIM_REF_PAYLOAD)
-                                ? model::PrimEdit::RefKind::Payload
-                                : model::PrimEdit::RefKind::Reference;
+            edit.ref_kind = (b.ref_type() == idtxcore::PRIM_REF_PAYLOAD) ? model::PrimEdit::RefKind::Payload
+                                                                         : model::PrimEdit::RefKind::Reference;
         }
 
         // Optional create-time LOCAL transform, copied into the dedicated create
@@ -306,18 +313,29 @@ namespace
 // Fill a request's transform oneof from the edit's create-transform members. The
 // matrix branch writes the 16 row-major elements; the separate branch writes
 // T/R/S. Keeps the oneof name local to this file.
-template <typename RequestT>
-void fill_create_transform(RequestT* req, const model::PrimEdit& edit)
+template <typename RequestT> void fill_create_transform(RequestT* req, const model::PrimEdit& edit)
 {
     if (!edit.has_create_transform) return;
     if (edit.create_is_matrix)
     {
         idtxcore::Matrix4dTransform* m = req->mutable_matrix();
         const auto& a = edit.create_matrix.m;
-        m->set_m00(a[0]);  m->set_m01(a[1]);  m->set_m02(a[2]);  m->set_m03(a[3]);
-        m->set_m10(a[4]);  m->set_m11(a[5]);  m->set_m12(a[6]);  m->set_m13(a[7]);
-        m->set_m20(a[8]);  m->set_m21(a[9]);  m->set_m22(a[10]); m->set_m23(a[11]);
-        m->set_m30(a[12]); m->set_m31(a[13]); m->set_m32(a[14]); m->set_m33(a[15]);
+        m->set_m00(a[0]);
+        m->set_m01(a[1]);
+        m->set_m02(a[2]);
+        m->set_m03(a[3]);
+        m->set_m10(a[4]);
+        m->set_m11(a[5]);
+        m->set_m12(a[6]);
+        m->set_m13(a[7]);
+        m->set_m20(a[8]);
+        m->set_m21(a[9]);
+        m->set_m22(a[10]);
+        m->set_m23(a[11]);
+        m->set_m30(a[12]);
+        m->set_m31(a[13]);
+        m->set_m32(a[14]);
+        m->set_m33(a[15]);
     }
     else
     {

@@ -207,12 +207,13 @@ void StageBridge::_on_objects_changed(const pxr::UsdNotice::ObjectsChanged& noti
     };
     // Copy notice paths because the notice is temporary and can arrive
     // before a transform write has finished.
-    for (const pxr::SdfPath& path : notice.GetResyncedPaths())
+    for (const pxr::SdfPath& path: notice.GetResyncedPaths())
     {
         if (path.IsPrimPath()) pending_resyncs_.insert(path);
         observe(path);
     }
-    for (const pxr::SdfPath& path : notice.GetChangedInfoOnlyPaths()) observe(path);
+    for (const pxr::SdfPath& path: notice.GetChangedInfoOnlyPaths())
+        observe(path);
     if (state->authoring) return;
 
     std::vector<ObservedEdit> edits;
@@ -230,7 +231,7 @@ void StageBridge::reconcile_structural(const std::set<pxr::SdfPath>& paths)
     const auto state = dispatch_state_;
 
     // Missing active representations are converted; retained content keeps its runtime settings.
-    for (const pxr::SdfPath& prim_path : paths)
+    for (const pxr::SdfPath& prim_path: paths)
     {
         if (!prim_path.IsPrimPath()) continue;
         const std::string key = prim_path.GetString();
@@ -253,12 +254,12 @@ void StageBridge::flush_transform_notifications(const std::string& prim_path)
     const auto state = dispatch_state_;
     std::vector<uint64_t> node_ids;
     const pxr::SdfPath root(prim_path);
-    for (const auto& item : tracked_)
+    for (const auto& item: tracked_)
         if (pxr::SdfPath(item.first).HasPrefix(root)) node_ids.push_back(item.second.node_id);
     // A placement root is deliberately absent from the broadcast index.
     if (Node3D* node = stage_node_->find_prim_node(String(prim_path.c_str())))
         node_ids.push_back(node->get_instance_id());
-    for (uint64_t id : node_ids)
+    for (uint64_t id: node_ids)
     {
         Node3D* node = Object::cast_to<Node3D>(ObjectDB::get_instance(id));
         if (!node || !node->is_inside_tree()) continue;
@@ -292,14 +293,13 @@ std::vector<StageBridge::ObservedEdit> StageBridge::finish_changes()
     std::set<std::string> paths;
     paths.swap(pending_transforms_);
     std::vector<ObservedEdit> edits;
-    for (const std::string& path : paths)
+    for (const std::string& path: paths)
     {
         net::model::PrimEdit edit;
         if (!read_prim(path, edit)) continue;
         auto tracked = tracked_.find(path);
         if (tracked == tracked_.end()) continue;
-        const bool changed = tracked->second.has_observation &&
-                             !same_matrix(tracked->second.observed, edit.matrix);
+        const bool changed = tracked->second.has_observation && !same_matrix(tracked->second.observed, edit.matrix);
         tracked->second.observed = edit.matrix;
         tracked->second.has_observation = true;
         if (stage_node_)
@@ -321,15 +321,16 @@ void StageBridge::dispatch_changes(const std::vector<ObservedEdit>& edits)
     const OnChanged sink = on_changed_;
     if (!sink) return;
     // A callback can destroy this bridge or install a different callback.
-    for (const auto& edit : edits)
+    for (const auto& edit: edits)
     {
         if (!state->alive || state->sink_revision != revision) return;
         if (!stage_node_ || !stage_node_->get_activity_controller().allows_local(String(edit.edit.prim_path.c_str())))
             continue;
         Node3D* node = stage_node_->find_prim_node(String(edit.edit.prim_path.c_str()));
         IUsdNode3D* usd = IUsdNode3D::from_node(node);
-        if (!node || node->is_queued_for_deletion() || node->get_instance_id() != edit.node_id ||
-            !usd || usd->get_stage_node() != stage_node_) continue;
+        if (!node || node->is_queued_for_deletion() || node->get_instance_id() != edit.node_id || !usd ||
+            usd->get_stage_node() != stage_node_)
+            continue;
         sink(edit.edit);
     }
 }
@@ -357,7 +358,8 @@ void StageBridge::author_edit(const net::model::PrimEdit& edit, net::ports::Edit
         (!stage_node_ || !stage_node_->get_activity_controller().allows_local(String(edit.prim_path.c_str()))))
     {
         if (stage_node_)
-            stage_node_->get_activity_controller().reject_node(stage_node_->find_prim_node(String(edit.prim_path.c_str())));
+            stage_node_->get_activity_controller().reject_node(
+                stage_node_->find_prim_node(String(edit.prim_path.c_str())));
         return;
     }
     std::vector<ObservedEdit> edits;
@@ -365,9 +367,15 @@ void StageBridge::author_edit(const net::model::PrimEdit& edit, net::ports::Edit
         AuthoringScope scope(state);
         switch (edit.kind)
         {
-        case net::model::PrimEdit::Kind::Transform:  author_transform(edit, external); break;
-        case net::model::PrimEdit::Kind::CreatePrim: author_create(edit);              break;
-        case net::model::PrimEdit::Kind::SetActive:  author_set_active(edit);          break;
+        case net::model::PrimEdit::Kind::Transform:
+            author_transform(edit, external);
+            break;
+        case net::model::PrimEdit::Kind::CreatePrim:
+            author_create(edit);
+            break;
+        case net::model::PrimEdit::Kind::SetActive:
+            author_set_active(edit);
+            break;
         }
         if (!state->alive) return;
         edits = finish_changes();
@@ -382,7 +390,8 @@ void StageBridge::author_transform(const net::model::PrimEdit& edit, bool extern
     const auto state = dispatch_state_;
     // A pruned descendant has no UsdPrim, but its authoritative state must survive ancestor restoration.
     if (external && stage_ && stage_node_ && !stage_->GetPrimAtPath(pxr::SdfPath(edit.prim_path)) &&
-        String(stage_node_->get_activity_controller().query(String(edit.prim_path.c_str()), false)["status"]) == "ancestor_blocked")
+        String(stage_node_->get_activity_controller().query(String(edit.prim_path.c_str()), false)["status"]) ==
+            "ancestor_blocked")
     {
         const auto layer = edit_target_ == EditTarget::RootLayer ? stage_->GetRootLayer() : stage_->GetSessionLayer();
         const pxr::SdfPath path(edit.prim_path);
@@ -393,10 +402,12 @@ void StageBridge::author_transform(const net::model::PrimEdit& edit, bool extern
             const auto spec = pxr::SdfCreatePrimInLayer(layer, path);
             if (!spec) return;
             auto matrix = layer->GetAttributeAtPath(path.AppendProperty(pxr::TfToken("xformOp:transform")));
-            if (!matrix) matrix = pxr::SdfAttributeSpec::New(spec, "xformOp:transform", pxr::SdfValueTypeNames->Matrix4d);
+            if (!matrix)
+                matrix = pxr::SdfAttributeSpec::New(spec, "xformOp:transform", pxr::SdfValueTypeNames->Matrix4d);
             auto order = layer->GetAttributeAtPath(path.AppendProperty(pxr::TfToken("xformOpOrder")));
-            if (!order) order = pxr::SdfAttributeSpec::New(spec, "xformOpOrder", pxr::SdfValueTypeNames->TokenArray,
-                                                       pxr::SdfVariabilityUniform);
+            if (!order)
+                order = pxr::SdfAttributeSpec::New(spec, "xformOpOrder", pxr::SdfValueTypeNames->TokenArray,
+                                                   pxr::SdfVariabilityUniform);
             authored = matrix && order && matrix->GetTypeName() == pxr::SdfValueTypeNames->Matrix4d &&
                        order->GetTypeName() == pxr::SdfValueTypeNames->TokenArray &&
                        matrix->SetDefaultValue(pxr::VtValue(transform_to_gfmatrix(raw))) &&
@@ -409,7 +420,8 @@ void StageBridge::author_transform(const net::model::PrimEdit& edit, bool extern
             tracked->second.observed = gxform::transform_to_prim_edit(edit.prim_path, raw).matrix;
             tracked->second.has_observation = true;
         }
-        if (auto* carrier = Object::cast_to<UsdStageNode3D>(stage_node_->find_prim_node(String(edit.prim_path.c_str())));
+        if (auto* carrier =
+                Object::cast_to<UsdStageNode3D>(stage_node_->find_prim_node(String(edit.prim_path.c_str())));
             carrier && gpayload::is_builtin_payload_carrier(*carrier))
             gpayload::record_payload_placement(*carrier, raw);
         return;
@@ -422,17 +434,22 @@ void StageBridge::author_transform(const net::model::PrimEdit& edit, bool extern
     // requires a marked built-in visual. Payload carriers use their separate
     // raw/display placement mapping instead of an ordinary visual-axis rotation.
     Transform3D node_xform = gxform::prim_edit_to_transform(edit);
-    auto* carrier = stage_node_ ? Object::cast_to<UsdStageNode3D>(
-        stage_node_->find_prim_node(String(edit.prim_path.c_str()))) : nullptr;
+    auto* carrier = stage_node_
+                        ? Object::cast_to<UsdStageNode3D>(stage_node_->find_prim_node(String(edit.prim_path.c_str())))
+                        : nullptr;
     const bool payload_carrier = carrier && gpayload::is_builtin_payload_carrier(*carrier);
-    const Transform3D payload_raw = payload_carrier && !external ? gpayload::payload_from_display(*carrier, node_xform) : node_xform;
+    const Transform3D payload_raw =
+        payload_carrier && !external ? gpayload::payload_from_display(*carrier, node_xform) : node_xform;
     Transform3D observed_payload;
     if (!external && payload_carrier && gpayload::get_payload_placement(*carrier, observed_payload) &&
-        payload_raw.is_equal_approx(observed_payload)) return;
+        payload_raw.is_equal_approx(observed_payload))
+        return;
     if (external)
     {
-        if (payload_carrier) node_xform = gpayload::payload_to_display(*carrier, node_xform);
-        else node_xform.basis = gxform::apply_spine_axis(node_xform.basis, spine_axis_for(edit.prim_path));
+        if (payload_carrier)
+            node_xform = gpayload::payload_to_display(*carrier, node_xform);
+        else
+            node_xform.basis = gxform::apply_spine_axis(node_xform.basis, spine_axis_for(edit.prim_path));
     }
 
     author_to_usd(edit.prim_path, node_xform);
@@ -442,8 +459,10 @@ void StageBridge::author_transform(const net::model::PrimEdit& edit, bool extern
         carrier = Object::cast_to<UsdStageNode3D>(stage_node_->find_prim_node(String(edit.prim_path.c_str())));
         if (carrier && gpayload::is_builtin_payload_carrier(*carrier))
         {
-            if (external) gpayload::update_payload_placement(*carrier, payload_raw);
-            else gpayload::record_payload_placement(*carrier, payload_raw);
+            if (external)
+                gpayload::update_payload_placement(*carrier, payload_raw);
+            else
+                gpayload::record_payload_placement(*carrier, payload_raw);
         }
         if (!state->alive) return;
     }
@@ -472,8 +491,8 @@ void StageBridge::author_transform(const net::model::PrimEdit& edit, bool extern
         }
     }
     if (external && state->alive && stage_node_)
-        stage_node_->get_activity_controller().confirm_node(
-            stage_node_->find_prim_node(String(edit.prim_path.c_str())), true);
+        stage_node_->get_activity_controller().confirm_node(stage_node_->find_prim_node(String(edit.prim_path.c_str())),
+                                                            true);
 }
 
 void StageBridge::author_create(const net::model::PrimEdit& edit)
@@ -490,14 +509,15 @@ void StageBridge::author_create(const net::model::PrimEdit& edit)
 
     // Reject an unusable asset anchor before a partial holder can enter composition.
     // Anonymous session layers have no asset directory; wire-relative arcs belong to the owning root.
-    const std::string arc_asset = edit.has_ref
-        ? idtxflow::resolver::AnchorAssetIdentifier(edit.reference_path, stage_->GetRootLayer(),
-                                                    stage_->GetPathResolverContext())
-        : std::string();
+    const std::string arc_asset =
+        edit.has_ref ? idtxflow::resolver::AnchorAssetIdentifier(edit.reference_path, stage_->GetRootLayer(),
+                                                                 stage_->GetPathResolverContext())
+                     : std::string();
     if (edit.has_ref && arc_asset.empty())
     {
         IDTX_LOG(IDTX_WARN,
-                 "author_create: cannot anchor asset '{}' for '{}'; open the owning stage from a file/URI or supply an absolute asset identifier",
+                 "author_create: cannot anchor asset '{}' for '{}'; open the owning stage from a file/URI or supply an "
+                 "absolute asset identifier",
                  edit.reference_path, edit.prim_path);
         return;
     }
@@ -634,8 +654,8 @@ bool StageBridge::author_to_usd(const std::string& prim_path, const Transform3D&
     // payload carrier also permits an initial placement without an existing order;
     // only bail when there is no transform or supported representation to drive.
     pxr::UsdGeomXformable xformable(prim);
-    const auto* carrier = stage_node_ ? Object::cast_to<UsdStageNode3D>(
-        stage_node_->find_prim_node(String(prim_path.c_str()))) : nullptr;
+    const auto* carrier =
+        stage_node_ ? Object::cast_to<UsdStageNode3D>(stage_node_->find_prim_node(String(prim_path.c_str()))) : nullptr;
     const bool payload_carrier = carrier && gpayload::is_builtin_payload_carrier(*carrier);
     if (!xformable && !prim.HasAttribute(pxr::UsdGeomTokens->xformOpOrder) && !payload_carrier)
     {
@@ -729,8 +749,9 @@ bool StageBridge::read_prim_transform(const std::string& prim_path, Transform3D&
     // a marked payload carrier may supply its stored raw placement.
     if (!xformable && !prim.HasAttribute(pxr::UsdGeomTokens->xformOpOrder))
     {
-        const auto* carrier = stage_node_ ? Object::cast_to<UsdStageNode3D>(
-            stage_node_->find_prim_node(String(prim_path.c_str()))) : nullptr;
+        const auto* carrier =
+            stage_node_ ? Object::cast_to<UsdStageNode3D>(stage_node_->find_prim_node(String(prim_path.c_str())))
+                        : nullptr;
         return carrier && gpayload::get_payload_placement(*carrier, out);
     }
     pxr::GfMatrix4d local(1.0);
@@ -754,8 +775,7 @@ bool StageBridge::read_display_transform(const std::string& prim_path, Transform
 
     // A normalized payload root carries fixed presentation; editable placement belongs to its carrier.
     const Dictionary placement = gpayload::state(stage_node_);
-    if (bool(placement.get("ready", false)) &&
-        String(placement.get("root_path", "")) == String(prim_path.c_str()))
+    if (bool(placement.get("ready", false)) && String(placement.get("root_path", "")) == String(prim_path.c_str()))
     {
         out = Transform3D(static_cast<Basis>(placement["presentation"]), Vector3());
         return true;
@@ -800,8 +820,7 @@ xform::SpineAxis StageBridge::spine_axis_for(const std::string& prim_path) const
     const Node3D* node = stage_node_->find_prim_node(String(prim_path.c_str()));
     if (!node) return xform::SpineAxis::None;
     const Variant presentation = node->get_meta(IUsdNode3D::BUILTIN_SPINE_AXIS_META, false);
-    if (presentation.get_type() != Variant::BOOL || !static_cast<bool>(presentation))
-        return xform::SpineAxis::None;
+    if (presentation.get_type() != Variant::BOOL || !static_cast<bool>(presentation)) return xform::SpineAxis::None;
 
     pxr::UsdPrim prim = stage_->GetPrimAtPath(pxr::SdfPath(prim_path));
     if (!prim) return xform::SpineAxis::None;

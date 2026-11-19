@@ -315,8 +315,7 @@ void IdtxClient::request_create_prim(const String& session_id, const String& par
     idtxflow::net::model::Mat4 transform;
     if (has_transform)
     {
-        transform =
-            gxform::transform_to_prim_edit(std::string(), static_cast<Transform3D>(spec["transform"])).matrix;
+        transform = gxform::transform_to_prim_edit(std::string(), static_cast<Transform3D>(spec["transform"])).matrix;
     }
 
     engine_.request_create_prim(session_id.utf8().get_data(), parent_path.utf8().get_data(), prim_type, is_reference,
@@ -682,7 +681,8 @@ void IdtxClient::_bind_methods()
     ClassDB::bind_method(D_METHOD("request_create_prim", "session_id", "parent_path", "spec"),
                          &IdtxClient::request_create_prim);
     ClassDB::bind_method(D_METHOD("request_delete_prim", "session_id", "prim_path"), &IdtxClient::request_delete_prim);
-    ClassDB::bind_method(D_METHOD("request_restore_prim", "session_id", "prim_path"), &IdtxClient::request_restore_prim);
+    ClassDB::bind_method(D_METHOD("request_restore_prim", "session_id", "prim_path"),
+                         &IdtxClient::request_restore_prim);
 
     // Internal trampolines: dispatcher drain, per-frame tick, and the deferred
     // ticker bootstrap (all call_deferred / signal targets).

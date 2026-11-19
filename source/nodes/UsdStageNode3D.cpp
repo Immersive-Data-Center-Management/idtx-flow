@@ -51,7 +51,8 @@ void UsdStageNode3D::author_node_transform(Node3D* child)
         IDTX_LOGF(IDTX_DEBUG, "author_node_transform: no bridge (no live stage)");
         return;
     }
-    idtxflow::collab::StageEditController(*this, bridge).author_from_node(child, local_authoring_, author_placement_root_);
+    idtxflow::collab::StageEditController(*this, bridge)
+        .author_from_node(child, local_authoring_, author_placement_root_);
 }
 
 void UsdStageNode3D::_delete_activity_controller(idtxflow::collab::StageActivityController* controller)
@@ -90,7 +91,8 @@ godot::Node3D* UsdStageNode3D::find_prim_node(const String& prim_path) const
     if (prim_path.is_empty()) return nullptr;
 
     std::vector<Node*> stack;
-    for (int i = 0; i < get_child_count(); ++i) stack.push_back(get_child(i));
+    for (int i = 0; i < get_child_count(); ++i)
+        stack.push_back(get_child(i));
 
     while (!stack.empty())
     {
@@ -104,7 +106,8 @@ godot::Node3D* UsdStageNode3D::find_prim_node(const String& prim_path) const
         // not descend into its subtree.
         if (Object::cast_to<UsdStageNode3D>(n) != nullptr) continue;
 
-        for (int i = 0; i < n->get_child_count(); ++i) stack.push_back(n->get_child(i));
+        for (int i = 0; i < n->get_child_count(); ++i)
+            stack.push_back(n->get_child(i));
     }
     return nullptr;
 }
@@ -416,7 +419,6 @@ void UsdStageNode3D::_convert_stage()
     // name our-self after the root layer of the stage we opened
     set_name(stage_handle_->Stage()->GetRootLayer()->GetDisplayName().c_str());
 
-
     // generate and store a unique cached scene name for this converted stage
     cached_scene_name_ = _generate_cached_scene_name(stage_uri_);
 
@@ -703,7 +705,8 @@ void UsdStageNode3D::_bind_methods()
 
     ClassDB::bind_method(D_METHOD("get_prim_activity", "prim_path"), &UsdStageNode3D::get_prim_activity);
     ClassDB::bind_method(D_METHOD("_flush_prim_activity", "generation"), &UsdStageNode3D::_flush_prim_activity);
-    ClassDB::bind_method(D_METHOD("_on_prim_activity_node_added", "node"), &UsdStageNode3D::_on_prim_activity_node_added);
+    ClassDB::bind_method(D_METHOD("_on_prim_activity_node_added", "node"),
+                         &UsdStageNode3D::_on_prim_activity_node_added);
     ADD_SIGNAL(MethodInfo("prim_activity_changed"));
 
     // Signals for async loading lifecycle

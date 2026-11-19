@@ -31,7 +31,11 @@
 #include <godot_cpp/variant/string.hpp>
 
 class UsdStageNode3D;
-namespace godot { class Node; class Node3D; }
+namespace godot
+{
+class Node;
+class Node3D;
+} // namespace godot
 
 namespace idtxflow::collab
 {

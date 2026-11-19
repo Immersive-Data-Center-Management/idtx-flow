@@ -70,19 +70,29 @@ void flush_payload_notifications(Node* root)
         Node* node = pending.back();
         pending.pop_back();
         identities.push_back(node->get_instance_id());
-        for (int index = 0; index < node->get_child_count(); ++index) pending.push_back(node->get_child(index));
+        for (int index = 0; index < node->get_child_count(); ++index)
+            pending.push_back(node->get_child(index));
     }
     // Notification callbacks may free nodes, so each captured ObjectID is resolved again before delivery.
-    for (uint64_t identity : identities)
+    for (uint64_t identity: identities)
         if (auto* node = Object::cast_to<Node3D>(ObjectDB::get_instance(identity)); node && node->is_inside_tree())
             node->force_update_transform();
 }
 } // namespace
 
-PresentationScope::PresentationScope() { ++notification_depth; }
-PresentationScope::~PresentationScope() { --notification_depth; }
+PresentationScope::PresentationScope()
+{
+    ++notification_depth;
+}
+PresentationScope::~PresentationScope()
+{
+    --notification_depth;
+}
 
-bool presentation_update_active() { return notification_depth != 0; }
+bool presentation_update_active()
+{
+    return notification_depth != 0;
+}
 
 /// Return carrier metadata with the supported version, or an empty dictionary when absent or incompatible.
 /// The version check does not establish conversion readiness.
@@ -94,7 +104,8 @@ godot::Dictionary state(const godot::Node3D* node)
     const godot::Dictionary result = value;
     const godot::Variant version = result.get("version", 0);
     return version.get_type() == godot::Variant::INT && static_cast<int>(version) == representation_version
-               ? result : godot::Dictionary();
+               ? result
+               : godot::Dictionary();
 }
 
 /// Mark a built-in payload candidate with identity stage basis before source conversion.
@@ -126,7 +137,8 @@ bool get_payload_placement(const UsdStageNode3D& node, Transform3D& raw)
     const Dictionary data = idtxflow::collab::payload::state(&node);
     const Variant ready = data.get("ready", false);
     const Variant value = data.get("raw", Variant());
-    if (ready.get_type() != Variant::BOOL || !static_cast<bool>(ready) || value.get_type() != Variant::TRANSFORM3D) return false;
+    if (ready.get_type() != Variant::BOOL || !static_cast<bool>(ready) || value.get_type() != Variant::TRANSFORM3D)
+        return false;
     raw = value;
     return true;
 }
@@ -148,7 +160,8 @@ Transform3D payload_from_display(const UsdStageNode3D& node, const Transform3D& 
     const Dictionary data = idtxflow::collab::payload::state(&node);
     const Basis presentation = data["presentation"];
     const Basis stage_inverse = static_cast<Basis>(data["stage_basis"]).inverse();
-    return Transform3D(presentation.inverse() * stage_inverse * display.basis * presentation, stage_inverse.xform(display.origin));
+    return Transform3D(presentation.inverse() * stage_inverse * display.basis * presentation,
+                       stage_inverse.xform(display.origin));
 }
 
 void apply_payload_presentation(UsdStageNode3D& node, const Transform3D& raw)
@@ -216,7 +229,8 @@ void record_payload_placement(UsdStageNode3D& node, const Transform3D& raw, bool
         return;
     }
     auto order = layer->GetAttributeAtPath(path.AppendProperty(TfToken("xformOpOrder")));
-    if (!order) order = SdfAttributeSpec::New(spec, "xformOpOrder", SdfValueTypeNames->TokenArray, SdfVariabilityUniform);
+    if (!order)
+        order = SdfAttributeSpec::New(spec, "xformOpOrder", SdfValueTypeNames->TokenArray, SdfVariabilityUniform);
     if (!order || order->GetTypeName() != SdfValueTypeNames->TokenArray)
     {
         IDTX_LOGF(IDTX_ERROR, "Cannot author payload operation-order attribute for '{}'", path.GetString());
@@ -255,9 +269,8 @@ void finalize_payload_placement(UsdStageNode3D& node, const std::vector<Node3D*>
     }
     // Tree-entry observers can retire a converted root before finalization.
     auto* root = Object::cast_to<UsdXformNode3D>(node.find_prim_node(String(default_prim.GetPath().GetText())));
-    if (!root || root->get_parent() != &node ||
-        root->get_class() != StringName("UsdXformNode3D") || root->get_prim_path() != String(default_prim.GetPath().GetText()) ||
-        root->get_animation().is_valid())
+    if (!root || root->get_parent() != &node || root->get_class() != StringName("UsdXformNode3D") ||
+        root->get_prim_path() != String(default_prim.GetPath().GetText()) || root->get_animation().is_valid())
     {
         // Unsupported root representations retain their ordinary converter behavior.
         node.remove_meta(idtxflow::collab::payload::metadata_key);

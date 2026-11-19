@@ -50,7 +50,8 @@ Transform3D separate_to_transform(const net::model::SeparateXform& s)
     // USD rotateXYZ corresponds to Rz * Ry * Rx in Godot's column-vector basis.
     Basis b =
         Basis::from_euler(Vector3(Math::deg_to_rad((real_t)s.rotation[0]), Math::deg_to_rad((real_t)s.rotation[1]),
-                                  Math::deg_to_rad((real_t)s.rotation[2])), EulerOrder::EULER_ORDER_ZYX);
+                                  Math::deg_to_rad((real_t)s.rotation[2])),
+                          EulerOrder::EULER_ORDER_ZYX);
     // Scale follows the rotated local axes, so the column-vector basis is R * S.
     t.basis = b.scaled_local(Vector3((real_t)s.scale[0], (real_t)s.scale[1], (real_t)s.scale[2]));
     return t;

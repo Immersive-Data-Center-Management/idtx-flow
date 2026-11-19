@@ -86,8 +86,8 @@ Dictionary activity(const std::shared_ptr<Lifetime>& lifetime, const String& req
         // An ordinary nested scene has no implicit mapping into a containing USD namespace.
         const String holder = nested->get_prim_path();
         if (holder.is_empty()) break;
-        if (!valid_path(holder) || nested->get_stage_node() != outer ||
-            outer->find_prim_node(holder) != nested || !outer->get_stage() || (require_tree && !outer->is_inside_tree()))
+        if (!valid_path(holder) || nested->get_stage_node() != outer || outer->find_prim_node(holder) != nested ||
+            !outer->get_stage() || (require_tree && !outer->is_inside_tree()))
             return result("unavailable", 0, {}, "The containing payload representation is unavailable.");
         targets.push_back({outer, holder});
     }
@@ -97,15 +97,15 @@ Dictionary activity(const std::shared_ptr<Lifetime>& lifetime, const String& req
     {
         const auto stage = item->stage->get_stage();
         const SdfPath target(item->path.utf8().get_data());
-        for (const SdfPath& prefix : target.GetPrefixes())
+        for (const SdfPath& prefix: target.GetPrefixes())
         {
             const UsdPrim prim = stage->GetPrimAtPath(prefix);
             if (prim && !prim.IsActive())
             {
                 const bool own_target = item->stage == owner && prefix == target;
                 return result(own_target ? "inactive" : "ancestor_blocked", item->stage->get_instance_id(),
-                              String(prefix.GetText()), own_target ? "This USD prim is inactive."
-                                                                  : "An inactive USD ancestor blocks this prim.");
+                              String(prefix.GetText()),
+                              own_target ? "This USD prim is inactive." : "An inactive USD ancestor blocks this prim.");
             }
         }
         if (!stage->GetPrimAtPath(target))
@@ -152,9 +152,14 @@ String inherited_path(Node* parent, UsdStageNode3D& owner)
 
 std::vector<ContentNode> collect(UsdStageNode3D& owner, Node* root = nullptr, Node* parent = nullptr)
 {
-    struct Pending { Node* node; String inherited; };
+    struct Pending
+    {
+        Node* node;
+        String inherited;
+    };
     std::vector<Pending> pending;
-    if (root) pending.push_back({root, inherited_path(parent, owner)});
+    if (root)
+        pending.push_back({root, inherited_path(parent, owner)});
     else
         for (int index = owner.get_child_count() - 1; index >= 0; --index)
             pending.push_back({owner.get_child(index), {}});
@@ -168,8 +173,7 @@ std::vector<ContentNode> collect(UsdStageNode3D& owner, Node* root = nullptr, No
         const bool is_prim = usd && usd->get_stage_node() == &owner && valid_path(usd->get_prim_path());
         if (is_prim) next.inherited = usd->get_prim_path();
         const bool nested = Object::cast_to<UsdStageNode3D>(node) != nullptr;
-        if (!next.inherited.is_empty())
-            nodes.push_back({node->get_instance_id(), next.inherited, is_prim, nested});
+        if (!next.inherited.is_empty()) nodes.push_back({node->get_instance_id(), next.inherited, is_prim, nested});
         // The containing controller owns a carrier, while its controller owns the nested content.
         if (nested) continue;
         for (int index = node->get_child_count() - 1; index >= 0; --index)
@@ -181,13 +185,17 @@ std::vector<ContentNode> collect(UsdStageNode3D& owner, Node* root = nullptr, No
 
 struct StageActivityController::State
 {
-    explicit State(UsdStageNode3D& owner) : lifetime(std::make_shared<Lifetime>())
+    explicit State(UsdStageNode3D& owner)
+        : lifetime(std::make_shared<Lifetime>())
     {
         lifetime->owner_id = owner.get_instance_id();
         lifetime->in_tree = owner.is_inside_tree();
         connect_tree();
     }
-    ~State() { lifetime->alive = false; }
+    ~State()
+    {
+        lifetime->alive = false;
+    }
 
     std::shared_ptr<Lifetime> lifetime;
     std::unordered_map<uint64_t, Retained> retained;
@@ -311,7 +319,7 @@ struct StageActivityController::State
     {
         const auto guard = lifetime;
         const uint64_t expected_generation = guard->generation;
-        for (const auto& content : nodes)
+        for (const auto& content: nodes)
         {
             Node* node = node_of(guard, content.identity);
             if (!node || (!preparation && !owns_current(content))) continue;
@@ -369,7 +377,8 @@ struct StageActivityController::State
         }
         if (!found->second.has_confirmed) return true;
         display = found->second.confirmed;
-        if (auto* carrier = Object::cast_to<UsdStageNode3D>(node); carrier && payload::is_builtin_payload_carrier(*carrier))
+        if (auto* carrier = Object::cast_to<UsdStageNode3D>(node);
+            carrier && payload::is_builtin_payload_carrier(*carrier))
             payload::apply_payload_presentation(*carrier, payload::payload_from_display(*carrier, display));
         else
             node->set_transform(display);
@@ -385,7 +394,8 @@ struct StageActivityController::State
         const auto nodes = collect(*owner);
         if (!refresh(nodes, false)) return;
         std::unordered_set<uint64_t> present;
-        for (const auto& content : nodes) present.insert(content.identity);
+        for (const auto& content: nodes)
+            present.insert(content.identity);
         for (auto it = retained.begin(); it != retained.end();)
         {
             if (!present.count(it->first))
@@ -393,7 +403,8 @@ struct StageActivityController::State
                 corrections.erase(it->first);
                 it = retained.erase(it);
             }
-            else ++it;
+            else
+                ++it;
         }
         schedule();
     }
@@ -410,7 +421,7 @@ struct StageActivityController::State
         {
             payload::PresentationScope scope;
             std::unordered_set<uint64_t> notifications;
-            for (const auto& content : nodes)
+            for (const auto& content: nodes)
             {
                 if (!corrections.count(content.identity) || !owns_current(content)) continue;
                 std::vector<Node*> pending;
@@ -420,21 +431,23 @@ struct StageActivityController::State
                     Node* node = pending.back();
                     pending.pop_back();
                     if (!notifications.insert(node->get_instance_id()).second) continue;
-                    for (int index = 0; index < node->get_child_count(); ++index) pending.push_back(node->get_child(index));
+                    for (int index = 0; index < node->get_child_count(); ++index)
+                        pending.push_back(node->get_child(index));
                 }
                 if (!apply_display(content)) return;
             }
             // Corrected ancestors change descendant world transforms, including nested payload content.
             // Consume only those notifications at this safe deferred boundary, preserving unrelated local edits.
-            for (uint64_t identity : notifications)
+            for (uint64_t identity: notifications)
             {
                 if (auto* node = Object::cast_to<Node3D>(node_of(guard, identity)); node && node->is_inside_tree())
                     node->force_update_transform();
                 if (!owner_of(guard, expected_generation)) return;
             }
-            for (const auto& content : nodes)
+            for (const auto& content: nodes)
                 if (owns_current(content) && String(activity(guard, content.path)["status"]) == "active" &&
-                    !restore(content.identity)) return;
+                    !restore(content.identity))
+                    return;
         }
         corrections.clear();
         owner = owner_of(guard, expected_generation);
@@ -443,13 +456,19 @@ struct StageActivityController::State
     }
 };
 
-StageActivityController::StageActivityController(UsdStageNode3D& owner) : state_(std::make_unique<State>(owner)) {}
+StageActivityController::StageActivityController(UsdStageNode3D& owner)
+    : state_(std::make_unique<State>(owner))
+{
+}
 StageActivityController::~StageActivityController() = default;
 Dictionary StageActivityController::query(const String& prim_path, bool require_tree) const
 {
     return activity(state_->lifetime, prim_path, require_tree);
 }
-bool StageActivityController::allows_local(const String& prim_path) const { return String(query(prim_path)["status"]) == "active"; }
+bool StageActivityController::allows_local(const String& prim_path) const
+{
+    return String(query(prim_path)["status"]) == "active";
+}
 
 void StageActivityController::reject_node(Node3D* node)
 {
@@ -474,13 +493,15 @@ void StageActivityController::confirm_node(Node3D* node, bool authoritative)
     auto* owner = owner_of(state_->lifetime);
     auto* usd = IUsdNode3D::from_node(node);
     if (!owner || !usd || usd->get_stage_node() != owner || owner->find_prim_node(usd->get_prim_path()) != node ||
-        (!authoritative && !allows_local(usd->get_prim_path()))) return;
+        (!authoritative && !allows_local(usd->get_prim_path())))
+        return;
     const uint64_t identity = node->get_instance_id();
     auto& saved = state_->retained[identity];
     saved.path = usd->get_prim_path();
     Transform3D display;
     if (authoritative) saved.preserve_display_placement = false;
-    if (state_->read_display({identity, saved.path, true, false}, display)) state_->remember_authoritative(saved, display);
+    if (state_->read_display({identity, saved.path, true, false}, display))
+        state_->remember_authoritative(saved, display);
     if (!authoritative)
     {
         saved.confirmed = node->get_transform();
@@ -489,7 +510,10 @@ void StageActivityController::confirm_node(Node3D* node, bool authoritative)
     }
 }
 
-void StageActivityController::reconcile() { state_->reconcile(); }
+void StageActivityController::reconcile()
+{
+    state_->reconcile();
+}
 void StageActivityController::prepare_subtree(Node* root, Node* parent)
 {
     auto* owner = owner_of(state_->lifetime);
@@ -524,5 +548,8 @@ void StageActivityController::reset()
     state_->queued = false;
     state_->schedule();
 }
-void StageActivityController::flush(uint64_t generation) { state_->flush(generation); }
+void StageActivityController::flush(uint64_t generation)
+{
+    state_->flush(generation);
+}
 } // namespace idtxflow::collab

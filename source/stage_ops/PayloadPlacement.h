@@ -29,7 +29,10 @@
 #include <godot_cpp/variant/transform3d.hpp>
 
 class UsdStageNode3D;
-namespace godot { class Node3D; }
+namespace godot
+{
+class Node3D;
+}
 
 namespace idtxflow::collab::payload
 {

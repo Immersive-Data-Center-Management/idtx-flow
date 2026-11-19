@@ -482,19 +482,19 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
             if (observer_) observer_->on_snapshot_complete(session_id);
         });
     });
-    s.socket->on_ack([this, post, session_id](bool ok, const std::string& error, uint64_t request_id,
-                                           uint64_t server_seq) {
-        post([this, session_id, ok, error, request_id, server_seq](Session& session, const auto&) {
-            IDTX_LOG(IDTX_DEBUG, "[trace] H on_ack session='{}' ok={} error='{}' req_id={} server_seq={}", session_id,
-                     ok, error, request_id, server_seq);
-            // The ack also carries server progress: adopt its server_seq so this author's base
-            // advances past its own applied edit (otherwise the next local edit on
-            // the same prim would fail the server's stale check), log it, and
-            // notify. The server resolves ordering — this handler does not retry rejected requests.
-            advance_server_seq(session, server_seq);
-            if (observer_) observer_->on_ack(session_id, ok, error);
+    s.socket->on_ack(
+        [this, post, session_id](bool ok, const std::string& error, uint64_t request_id, uint64_t server_seq) {
+            post([this, session_id, ok, error, request_id, server_seq](Session& session, const auto&) {
+                IDTX_LOG(IDTX_DEBUG, "[trace] H on_ack session='{}' ok={} error='{}' req_id={} server_seq={}",
+                         session_id, ok, error, request_id, server_seq);
+                // The ack also carries server progress: adopt its server_seq so this author's base
+                // advances past its own applied edit (otherwise the next local edit on
+                // the same prim would fail the server's stale check), log it, and
+                // notify. The server resolves ordering — this handler does not retry rejected requests.
+                advance_server_seq(session, server_seq);
+                if (observer_) observer_->on_ack(session_id, ok, error);
+            });
         });
-    });
     s.socket->on_error([this, post, session_id](const std::string& code, const std::string& message) {
         post([this, session_id, code, message](Session&, const auto&) {
             IDTX_LOG(IDTX_ERROR, "session '{}' socket error code='{}' msg='{}'", session_id, code, message);

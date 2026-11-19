@@ -794,8 +794,8 @@ class UsdStageConverter
             usdPlane.GetAxisAttr().Get(&axis);
 
             // The geometry axis is independent of the authored transform.
-            return ConvertPlane(TypeConverter::toTransform(matrix), gPrimAnimation, material, planeWidth,
-                                planeLength, axis, displayColors, colorInterpolation);
+            return ConvertPlane(TypeConverter::toTransform(matrix), gPrimAnimation, material, planeWidth, planeLength,
+                                axis, displayColors, colorInterpolation);
         }
         else if (usdPrim.IsA<pxr::UsdGeomCapsule>())
         {
@@ -924,8 +924,7 @@ class UsdStageConverter
     typename Types::ConvertedEntity* ConvertPlane(const typename Types::Transform& transform,
                                                   const std::optional<AnimationDescription<TargetEngine>>& animation,
                                                   const std::optional<typename Types::Material>& material,
-                                                  float planeWidth, float planeLength,
-                                                  const class pxr::TfToken& axis,
+                                                  float planeWidth, float planeLength, const class pxr::TfToken& axis,
                                                   const pxr::VtArray<class pxr::GfVec4f>& displayColors,
                                                   const class pxr::TfToken& colorInterpolation);
     /**

@@ -156,9 +156,9 @@ class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
 
     // --- structural edits (per session) ---
     //
-    // Results are async: a request returns immediately, the prim appears via the normal 
+    // Results are async: a request returns immediately, the prim appears via the normal
     // sync path, and accept/reject arrives on the `ack_received` signal.
-    
+
     // Create a prim under `parent_path`. `spec`:
     //   { "type": String }                            built-in (e.g. "Cube"/"Plane")
     //   { "reference_path": String, "payload": bool }  reference/payload holder

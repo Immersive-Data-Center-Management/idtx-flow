@@ -25,7 +25,8 @@ namespace idtxflow
 namespace collab
 {
 StageEditController::StageEditController(UsdStageNode3D& owner, net::ports::IStageBridge* bridge)
-    : owner_(owner), bridge_(bridge)
+    : owner_(owner),
+      bridge_(bridge)
 {
 }
 
@@ -40,8 +41,7 @@ void StageEditController::author_from_node(Node3D* child, bool authoring_enabled
              authoring_enabled, has_sink);
 
     // Preserve the originating representation before the request becomes only a USD path.
-    if (!usd || usd->get_stage_node() != &owner_ || owner_.find_prim_node(usd->get_prim_path()) != child)
-        return;
+    if (!usd || usd->get_stage_node() != &owner_ || owner_.find_prim_node(usd->get_prim_path()) != child) return;
     auto& activity = owner_.get_activity_controller();
     if (!activity.allows_local(usd->get_prim_path()))
     {
