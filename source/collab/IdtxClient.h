@@ -228,6 +228,10 @@ class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
     // server for the session's edits again (CollabEngine::reload_complete).
     void start_node_reload(const std::string& session_id, godot::Node* node);
     void _on_node_reload_finished(bool success, const godot::String& session_id, int64_t node_id);
+    // Per frame: stop waiting for stage nodes freed (or queued for deletion)
+    // before their rebuild finished, completing a reload left with none. A
+    // stopgap until UsdStageNode3D signals cancelled loads (TODO at the definition).
+    void sweep_abandoned_reloads();
 
     // Per-request completion queues (FIFO). A request enqueues its Callable (only
     // if valid) when issued; the matching observer result pops the front and
