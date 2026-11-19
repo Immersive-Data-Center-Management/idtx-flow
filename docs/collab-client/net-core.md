@@ -146,7 +146,9 @@ Its public surface, by area:
   (`idtxflow::resolver::CanonicalUrl`, which the resolver also gives every HTTP layer
   identifier and cache key), so a reference that spells the file differently
   (`./a.usda`, `my%20a.usda`) is still matched. It releases those nodes (nested ones
-  first), reloads them, and calls `reload_complete` once all have finished. The engine
+  first), reloads them, and calls `reload_complete` once all have finished. A node
+  freed before its rebuild finished (it, or an ancestor, is queued for deletion) is
+  no longer waited for, so it cannot keep the session disarmed. The engine
   then sends a
   `SnapshotRequest` and re-arms only on the `SnapshotComplete` that echoes that
   request's id: the re-fetched file plus that snapshot supersede every frame it

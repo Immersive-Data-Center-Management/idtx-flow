@@ -60,6 +60,17 @@ bool is_below_any(const Node* node, const std::vector<UsdStageNode3D*>& ancestor
     }
     return false;
 }
+
+// Whether @p node is queued for deletion, itself or through an ancestor (a
+// node removed with its subtree, as _cleanup_nodes does, is freed with it).
+bool is_going_away(const Node* node)
+{
+    for (const Node* p = node; p != nullptr; p = p->get_parent())
+    {
+        if (p->is_queued_for_deletion()) return true;
+    }
+    return false;
+}
 } // namespace
 
 IdtxClient* IdtxClient::singleton_ = nullptr;
@@ -151,6 +162,7 @@ void IdtxClient::_on_process_frame()
     // via the ticker: advances the auto-arm settle countdown. Outbound edits are
     // sent immediately in on_stage_changed, so there is no per-frame flush.
     if (ticker_) ticker_->fire();
+    sweep_abandoned_reloads();
 }
 
 void IdtxClient::_bootstrap_ticker()
@@ -786,6 +798,53 @@ void IdtxClient::_on_node_reload_finished(bool success, const String& session_id
     if (state != reloads_.end() && state->second.loading.empty())
     {
         reloads_.erase(state);
+        engine_.reload_complete(sid);
+    }
+}
+
+void IdtxClient::sweep_abandoned_reloads()
+{
+    if (reloads_.empty()) return;
+
+    // A node freed before its rebuild finished never emits stage_loading_finished:
+    // NOTIFICATION_PREDELETE cancels its load silently. Waiting for it would keep
+    // the session from ever calling reload_complete, leaving it disarmed until a
+    // reconnect. This happens when an outer stage reloads over a nested one still
+    // rebuilding for an earlier file (_cleanup_nodes queues it via an ancestor),
+    // or when the node is freed otherwise (its scene closes, free()). A node that
+    // only left the tree is still counted: its load goes on and finishes outside
+    // the tree (the editor's "delete" keeps the node alive for undo).
+    //
+    // TODO: Not covered: a load cancelled without freeing the node and without a new
+    // load starting (set_stage_uri("") or a new URI while out of the tree, or a
+    // script calling unload_stage() mid-rebuild); the session stays disarmed then.
+    // Proper fix, in UsdStageNode3D: every started load must end with a signal.
+    // Track "load started, not finished" (is_loading_ is cleared on the worker
+    // thread before the deferred _convert_stage), and emit a distinct
+    // stage_loading_cancelled from set_stage_uri, unload_stage and PREDELETE when
+    // a load is cut off. Its handler here must only forget the node, never reload
+    // it again: during PREDELETE the derived class runs before Node leaves the
+    // tree, so reload() would start a load on a dying node. Then drop this sweep.
+    std::vector<std::string> done;
+    for (auto& [sid, state]: reloads_)
+    {
+        for (auto it = state.loading.begin(); it != state.loading.end();)
+        {
+            const Node* node = Object::cast_to<Node>(ObjectDB::get_instance(*it));
+            if (node != nullptr && !is_going_away(node))
+            {
+                ++it;
+                continue;
+            }
+            IDTX_LOG(IDTX_WARN, "layer reload: a stage node of session '{}' was freed before it finished", sid);
+            state.again.erase(*it);
+            it = state.loading.erase(it);
+        }
+        if (state.loading.empty()) done.push_back(sid);
+    }
+    for (const std::string& sid: done)
+    {
+        reloads_.erase(sid);
         engine_.reload_complete(sid);
     }
 }
