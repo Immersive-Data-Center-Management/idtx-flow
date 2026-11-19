@@ -2,13 +2,14 @@
 
 How a Godot transform edit becomes a USD edit on the live stage, for **both**
 local (session-less) editing and collaboration, through a single path owned by the
-stage node.
+stage node. The same bridge applies server-created prims and active-state changes.
 
 This is the authoring half of the client. The collaboration *wire journey* (how an
 authored edit reaches peers and how a peer edit is applied) is in
 [transform-sync-flow.md](transform-sync-flow.md); the engine-agnostic core and its
 ports are in [net-core.md](net-core.md); the Godot adapters in
-[godot-binding.md](godot-binding.md).
+[godot-binding.md](godot-binding.md). Create/Delete/Restore requests and server
+policy are described in [structural-edits.md](structural-edits.md).
 
 ---
 
@@ -18,7 +19,7 @@ Each `UsdStageNode3D` **owns** its authoring bridge:
 
 - `UsdStageNode3D::get_or_create_bridge()` lazily creates one `StageBridge` over
   the node's live stage and returns it on every later call. One bridge → one USD
-  `TfNotice` listener → one loopback-suppression flag per stage.
+  `TfNotice` listener → one guarded authoring path per stage.
 - The bridge's lifetime equals the stage's: it is reset **before**
   `stage_handle_.reset()` at every teardown site, so `~StageBridge` can revoke its
   TfNotice on a still-live stage.
@@ -28,29 +29,31 @@ Each `UsdStageNode3D` **owns** its authoring bridge:
   therefore has exactly one bridge and one TfNotice listener, whether or not a
   session is attached.
 
-The bridge, the edit controller, and the transform codec live in
-`source/stage_ops/`, an edit-agnostic home because authoring serves local editing
-as well as collaboration.
+The bridge, edit and activity controllers, transform codec and payload placement
+helper live in `source/stage_ops/`, an edit-agnostic home because authoring serves
+local editing as well as collaboration.
 
 ---
 
 ## The unified gate — local OR session, one path
 
 A converted prim node whose transform changes (gizmo drag or Inspector edit) calls
-`UsdStageNode3D::author_node_transform(child)`, which routes through a stateless
-`StageEditController::author_from_node(child, authoring_enabled, author_root)`:
+`UsdStageNode3D::author_node_transform(child)`, which uses a `StageEditController`
+borrowing the owning stage and bridge to call
+`author_from_node(child, authoring_enabled, author_root)`:
 
 ```
 NOTIFICATION_TRANSFORM_CHANGED
         ▼
 UsdStageNode3D::author_node_transform(child)
         ▼
-StageEditController::author_from_node(child, local_authoring_, author_placement_root_)
+StageEditController(owner, bridge).author_from_node(child, local_authoring_, author_placement_root_)
+        │   require an active, available prim owned by this stage
         │   skip if  !bridge->has_on_changed()  AND  !authoring_enabled
         │   skip if  node has no prim path
         │   skip if  bridge->is_stage_root(prim_path)  AND  !author_root
         ▼
-bridge->author_local_edit( transform_to_prim_edit(prim_path, child->get_transform()) )
+bridge->author_edit(transform_to_prim_edit(prim_path, child->get_transform()), EditOrigin::Local)
 ```
 
 - **Inclusive gate.** The edit is authored when **either** a session drives the
@@ -60,13 +63,16 @@ bridge->author_local_edit( transform_to_prim_edit(prim_path, child->get_transfor
   write still lands in the stage.
 - **Mutual exclusion** is preserved: a session installs the sink, so the local
   branch stands down (it only acts when there is no sink). One move → one author.
-- The controller holds the bridge as a non-owning pointer; the node owns it.
+- The controller borrows the stage and bridge. It rejects edits to foreign or
+  inactive prims; programmatic presentation updates do not start another edit.
 
 ---
 
 ## What the bridge authors
 
-`StageBridge::author_local_edit` → `author_to_usd(prim_path, Transform3D)`:
+`StageBridge::author_edit(edit, origin)` dispatches `Transform`, `CreatePrim` and
+`SetActive` edits. For transforms it calls `author_transform`, then
+`author_to_usd(prim_path, Transform3D)`:
 
 - **Edit target.** `EditTarget{SessionLayer, RootLayer, OverrideLayer}` selects the
   composed layer written. Default `SessionLayer` is the in-memory, non-destructive
@@ -82,10 +88,11 @@ bridge->author_local_edit( transform_to_prim_edit(prim_path, child->get_transfor
   conversion-time writes re-set the imported value; re-authoring the same value is
   a redundant USD write that would still trip a `TfNotice` (and, in a session, a
   broadcast), so it bails.
-- **Spine-axis strip.** Cone/Cylinder carry a load-time presentation rotation; the
-  author path strips it so USD stores the raw orientation (byte-identical to the
-  loader's bake). No-op for every other prim type. See
-  [transform-sync-flow.md](transform-sync-flow.md).
+- **Presentation strip.** Built-in Cone/Cylinder/Capsule visuals carry a
+  load-time spine-axis rotation; the author path strips it so USD stores the raw
+  orientation. Plane orientation is part of its mesh resource. Payload carriers
+  use their separate raw/display mapping. See
+  [matrix and presentation conventions](transform-sync-flow.md#matrix-and-presentation-conventions).
 
 ---
 
@@ -101,6 +108,7 @@ reload.
 
 This skip is a **transform-authoring policy**, scoped to transform edits - it is
 not a universal "the root is untouchable" rule.
+Core protects its `defaultPrim` from deletion as a separate structural policy.
 
 ---
 
@@ -129,25 +137,65 @@ also be read back; the outbound path reports a change by *reading* the prim. The
 (`AddTransformOp`/`GetOrderedXformOps`/`GetLocalTransformation`) works on a typeless
 prim regardless of the typed-schema check.
 
+### Payload placement and its support boundary
+
+`PayloadPlacement` separates the carrier's editable placement from the converted
+asset root so placement is applied once. It keeps up-axis and unit adjustments
+out of authored USD transforms. This supports **one nonanimated built-in Xform
+root matching the source stage's Xform defaultPrim**, with any number of descendants,
+for initial loading and later creation in local or live stages. See
+[Behavior, limitations & gaps](usage.md#behavior-limitations--gaps) for other
+asset-root representations and nested-descendant synchronization.
+
 ---
 
 ## Reporting a change back (and de-duping it)
 
-Authoring trips a USD `TfNotice`; `StageBridge::_on_objects_changed` reports each
-tracked, changed prim to the engine's sink (`on_changed_`), which gates and
-broadcasts (collab) — see [transform-sync-flow.md](transform-sync-flow.md). Two
-details matter here:
-
-- **Loopback suppression.** `apply_remote_edit` (and any programmatic author) sets
-  `suppress_broadcast_` so the resulting notice is not echoed back out.
-- **Within-notice de-dupe.** One authored `Set` surfaces a prim via both its
-  property path (`…​.xformOp:transform`) and its prim path in a single notice;
-  `_on_objects_changed` coalesces by prim key per dispatch so each prim is reported
-  once. (USD may follow with a second info-only notice in a separate dispatch; the
-  outbound socket drops an edit identical to the last one it sent for that prim, so
-  the wire still carries one edit per gesture.)
+Authoring trips a USD `TfNotice`. The bridge finishes USD and node updates before
+reporting final local transforms through `on_changed_`; unchanged transforms are
+not reported again. `External` edits update USD and Godot without being echoed as
+local changes. Pending reports stop if the bridge or its callback is removed.
+See [transform-sync-flow.md](transform-sync-flow.md) for the broadcast path.
 
 ---
+
+## Structural broadcasts and asset paths
+
+Create/Delete/Restore requests enter through `IdtxClient`. Server broadcasts apply
+them through `author_edit(edit, External)`, creating missing nodes or updating
+activity. Incremental conversion includes unloaded payload holders without
+forcing their contents into the outer stage.
+
+Created reference/payload paths are anchored against the owning root layer through
+`AnchorAssetIdentifier`: the anonymous session layer has no asset directory.
+
+See [structural-edits.md](structural-edits.md) for request fields, path forms,
+server defaults and restrictions.
+
+## Inactive prims and retained runtime state
+
+`StageActivityController` runs automatically for each stage. Inactive content keeps
+its Godot nodes but is hidden, stops processing (including `PROCESS_MODE_ALWAYS`)
+and cannot participate in physics or ray picking. Local transform attempts are
+corrected without authoring USD or sending updates; external updates remain accepted.
+
+Restore uses **current live USD** and restores saved runtime settings, without a
+file reload or another snapshot. Inactive ancestors or containing payloads can
+still keep the content blocked.
+
+```mermaid
+flowchart TD
+    Active[Active prim] -->|Delete broadcast|Blocked[Retain nodes, disable interaction]
+    Blocked -->|Reject local edits, accept external updates|Blocked
+    Blocked -->|Restore broadcast, no remaining blockers|Restore[Read current USD and restore settings]
+    Restore --> Active
+```
+
+Scripts can query `get_prim_activity(path)` and observe `prim_activity_changed`
+for UI status.
+
+For the scope of this protection in the editor, see
+[Behavior, limitations & gaps](usage.md#behavior-limitations--gaps).
 
 ## Saving / exporting a stage (experimental)
 
@@ -178,17 +226,9 @@ download-cache copy).
 
 | Piece | Location |
 |---|---|
-| `StageBridge` (`IStageBridge`), `StageEditController`, `StageSaveController`, `TransformCodec` | `source/stage_ops/` |
+| `StageBridge` (`IStageBridge`), `StageEditController`, `StageActivityController`, `PayloadPlacement`, `StageSaveController`, `TransformCodec` | `source/stage_ops/` |
 | `StagePersistence` (flatten/export, engine-agnostic) | `shared/include/idtxflow/stage_ops/`, `shared/src/idtxflow/stage_ops/` |
+| `UsdAssetPath` (OpenUSD asset-identifier anchoring, engine-agnostic) | `shared/include/idtxflow/resolver/UsdAssetPath.h` |
 | `UsdStageNode3D` (owns the bridge, `local_authoring` / `author_placement_root`, `save_stage`) | `source/nodes/`, `shared/include/idtxflow_godot/nodes/` |
 | Authoring **port** (`IStageBridge`) | `shared/include/idtxflow/net/ports/` |
-
-> Namespace note: `StageBridge`, `StageEditController`, and `TransformCodec`
-> currently sit in `namespace idtxflow::collab` while living under
-> `source/stage_ops/`. `StagePersistence` and `StageSaveController` are
-> save-oriented and use `namespace idtxflow::stage_ops`. Realigning the `collab`
-> trio to the folder (`idtxflow::stage_ops` / `::authoring`) is a deferred cohesion
-> pass.
-
-
 

@@ -12,6 +12,7 @@ focuses on how a single transform edit travels **outbound** (a local gizmo drag 
 peers) and **inbound** (a peer edit -> my stage + UI). How an edit is *authored*
 onto the stage (the node-owned bridge, the local-or-session gate, placement-root
 and nested-stage handling) is in [stage-authoring.md](stage-authoring.md).
+Create/Delete/Restore use the request flow in [structural-edits.md](structural-edits.md).
 
 ---
 
@@ -33,30 +34,34 @@ sequenceDiagram
     Note over Node: NOTIFICATION_TRANSFORM_CHANGED (gizmo drag)
     Node->>StageNode: author_node_transform(this)
     StageNode->>Ctl: author_from_node(child, local_authoring, author_root)
-    Note over Ctl: gate - session sink installed OR local authoring, skip placement root
-    Ctl->>Bridge: author_local_edit(transform_to_prim_edit(xform))
-    Bridge->>Stage: author_to_usd, set xform op (free local save)
-    Stage-->>Bridge: TfNotice _on_objects_changed (de-duped per prim)
-    Bridge-->>Engine: on_changed(read_prim yields PrimEdit)
-    Note over Engine: gate remote AND armed AND snapshot_complete AND socket open AND NOT applying_remote
+    Note over Ctl: Require an active prim owned by this stage
+    Note over Ctl: Session sink OR local authoring<br/>plus placement-root gate
+    Ctl->>Bridge: author_edit(edit, Local)
+    Bridge->>Stage: author_to_usd: set raw local transform
+    Stage-->>Bridge: TfNotice: stage changed
+    Bridge-->>Engine: on_changed(final changed PrimEdit)
+    Note over Engine: remote AND armed AND snapshot_complete<br/>AND socket open AND NOT applying_remote
     Engine->>Socket: send(edit) [immediate]
     Note over Socket: drop if identical to last sent for this prim
     Socket->>Wire: encode_transform_update then send_binary
 ```
 
 **Key points**
+
 - **Author into USD first.** The stage node routes the edit through
-  `StageEditController` to `author_local_edit`, which writes the live stage — that
+  `StageEditController` to `author_edit(edit, EditOrigin::Local)`, which writes the live stage — that
   write *is* the free local save. The USD `TfNotice` is the single "stage changed"
   source, so editor gizmo edits and script edits broadcast through the exact same
   gate. The authoring decision (local vs. session, placement-root/sub-stage rules)
   lives in [stage-authoring.md](stage-authoring.md).
+  Inactive prims cannot author outgoing transforms.
 - **One path, local or session.** With no session the same author runs but no sink
   is installed, so nothing broadcasts (local-only save). A session installs the
   sink via `attach_stage`, and the identical author now also feeds the broadcast.
 - **The broadcast gate** (CollabEngine::on_stage_changed) sends only when
   remote_ AND armed_ AND snapshot_complete_ AND the socket is open AND NOT
   applying_remote_; otherwise the edit is dropped.
+  Structural requests do not use this transform arming gate.
 - **Arming (two gates).** A remote session arms only when **both** hold: the
   post-attach settle elapsed (`arm_countdown_` = kArmAfterTicks, 3 frames, so USD
   load-time writes settle and do not phantom-broadcast) **and** the join snapshot
@@ -64,11 +69,10 @@ sequenceDiagram
   snapshot. A reconnect re-gates on the snapshot only (`snapshot_complete_` is
   cleared and the session disarmed); the settle latch stays set, since a reconnect
   does not reconvert the stage.
-- **Immediate send + duplicate suppression.** The bridge de-dupes per prim within a
-  notice; `SessionSocket::send` additionally drops an edit identical (payload only,
-  ignoring the timestamp) to the last one it sent for that prim. There is no
-  per-frame flush — the edit goes out the moment it is authored (Godot already
-  delivers one transform notice per node per frame).
+- **Immediate send + duplicate suppression.** The bridge reports final changed
+  transforms. `SessionSocket::send` additionally drops an edit identical (payload
+  only, ignoring the timestamp) to the last one it sent for that prim. Accepted
+  changes are sent immediately; a drag can produce multiple distinct updates.
 - **Ordering & acks.** Each outbound frame carries the latest applied `server_seq`
   as its base, captured at send time (the server rejects a stale base), and a client
   `request_id` echoed in the matching Ack. Acks are **diagnostic only** — the client
@@ -95,35 +99,45 @@ sequenceDiagram
 
     Wire->>Socket: on_binary (network thread)
     Socket->>Engine: decode, RemoteEdit, on_remote_edit
-    Note over Engine: dispatcher.post to main thread, applying_remote = true
-    Engine->>Bridge: apply_remote_edit(edit)
-    Note over Bridge: suppress_broadcast = true (kills TfNotice echo)
-    Bridge->>Stage: author_to_usd(prim_edit_to_transform)
-    Stage-->>Bridge: TfNotice (suppressed, no re-broadcast)
-    Bridge->>GNode: set_transform (block_signals)
-    Bridge-->>Engine: applied, applying_remote = false
+    Note over Engine: Main thread, current session<br/>applying_remote = true
+    Engine->>Bridge: author_edit(edit, External)
+    Bridge->>Stage: author_to_usd: store raw transform
+    Stage-->>Bridge: TfNotice: no outbound report for External
+    Bridge->>GNode: Apply display transform without echo
+    Bridge-->>Engine: Applied, clear applying_remote
     Engine->>Client: on_remote_edit(edit, from)
     Client->>UI: emit transform_broadcast_received
 ```
 
 **Key points**
+
 - **Thread hop.** Socket callbacks arrive on the transport network thread;
   CollabEngine::open_session_socket's on_remote_edit lambda does
   ports_.dispatcher->post(...) so the apply + observer notification run on the
-  Godot main thread.
-- **Triple echo prevention** (all three are needed):
-  1. applying_remote_ (engine) — on_stage_changed refuses to broadcast while
-     a remote edit is being applied.
-  2. suppress_broadcast_ (bridge) — the author_to_usd trips a TfNotice, but
-     the listener is suppressed so it does not re-send the peer edit.
-  3. set_block_signals(true/false) around set_transform — moving the node
-     does not fire its NOTIFICATION_TRANSFORM_CHANGED (the outbound path).
+  Godot main thread. Callbacks from retired sessions are discarded.
+- **Echo prevention.** The engine's `applying_remote` gate blocks outbound sends
+  while it applies the edit. The bridge applies `External` edits under a guard so
+  its USD and node updates do not generate a local change report.
 - **Stage stays authoritative.** The edit is authored into USD, then the Godot
   Node3D is set to match. The transform_broadcast_received signal is
   informational for UI only — the stage and node already moved in
-  apply_remote_edit.
+  `author_edit(edit, EditOrigin::External)`.
+- **Inactive content.** External updates remain accepted while local editing is
+  blocked. See [inactive prims](stage-authoring.md#inactive-prims-and-retained-runtime-state).
 
 ---
+
+## Matrix and presentation conventions
+
+Wire and USD matrices share **row-vector** cells and bottom-row translation.
+`TransformCodec` converts Godot's **column-vector** basis at that boundary;
+separate TRS applies scale on the rotated local axes.
+
+Built-in Cone/Cylinder/Capsule visuals have an axis adjustment that is stripped
+before authoring and reapplied for display. Plane orientation is carried by its
+mesh. Payloads similarly keep up-axis/unit presentation separate from authored
+placement and avoid applying placement twice; see
+[payload placement](stage-authoring.md#payload-placement-and-its-support-boundary).
 
 ## Detailed step-by-step (annotated)
 
@@ -137,24 +151,22 @@ User drags gizmo on a UsdXformNode3D (or UsdMeshInstanceNode3D)
         │   stage node (nearest UsdStageNode3D) ->author_node_transform(this)
         ▼
 [2] source/nodes/UsdStageNode3D.cpp :: author_node_transform()   (adapter)
-        │   • StageEditController(get_or_create_bridge()).author_from_node(child, local_authoring_, author_placement_root_)
-        │   • gate: skip unless a session sink is installed OR local_authoring is on; skip the placement root
-        │   • child->get_transform()  → PrimEdit via
-        │     gxform::transform_to_prim_edit()   ── TransformCodec ──▶ ConventionMath::wire_from_basis_origin
+        │   • StageEditController(*this, get_or_create_bridge())
+        │       .author_from_node(child, local_authoring_, author_placement_root_)
         ▼
 [3] source/stage_ops/StageEditController.cpp :: author_from_node()   (adapter)
-        │   bridge_->author_local_edit(edit)          ← writes the LOCAL SAVE first
+        │   • require an active prim owned by this stage
+        │   • require a session sink OR local_authoring; apply placement-root policy
+        │   • child->get_transform() → transform_to_prim_edit(path, display_transform)
+        │   • bridge_->author_edit(edit, EditOrigin::Local)
         ▼
-[4] source/stage_ops/StageBridge.cpp :: author_local_edit()   (adapter, Godot+pxr)
-        │   (not suppressed) → author_to_usd(prim_path,
-        │        gxform::prim_edit_to_transform(edit))
-        │        └─ transform_to_gfmatrix → ConventionMath::usd_from_wire → pxr::GfMatrix4d
-        │   Sets the USD xform op on the live stage  →  trips a USD TfNotice
+[4] source/stage_ops/StageBridge.cpp :: author_edit()   (adapter, Godot+pxr)
+        │   • convert display transform to raw USD placement
+        │   • author_transform → author_to_usd, guarded against nested edits
         ▼
 [5] StageBridge :: _on_objects_changed()  (TfNotice listener)
-        │   suppress_broadcast_? no.  For a tracked prim → read_prim()
-        │        └─ read_prim_transform + gxform::transform_to_prim_edit → PrimEdit
-        │   on_changed_(edit)   ← the sink CollabEngine installed in attach_stage
+        │   • finish USD/node updates; report only changed final transforms
+        │   • on_changed_(raw_edit) ← the sink CollabEngine installed in attach_stage
         ▼
 [6] CollabEngine.cpp :: on_stage_changed()      (THE GATE)
         │   send only if  remote_ && armed_ && snapshot_complete_ && socket open && !applying_remote_
@@ -185,24 +197,16 @@ Server pushes a binary frame on the WebSocket
         ▼
 [4] CollabEngine.cpp :: open_session_socket() lambda  (socket_->on_remote_edit)
         │   ports_.dispatcher->post(...)   ← HOP TO MAIN THREAD (Dispatcher)
-        │     on main thread:
-        │       applying_remote_ = true;               ← LOOPBACK SUPPRESSION (engine side)
-        │       ports_.stage->apply_remote_edit(edit);
+        │     on main thread, validate the current callback lifetime:
+        │       applying_remote_ = true;
+        │       ports_.stage->author_edit(edit, EditOrigin::External);
+        │       revalidate lifetime and session after the bridge call
         │       applying_remote_ = false;
         │       observer_->on_remote_edit(edit, from)   ← notify UI
         ▼
-[5a] source/stage_ops/StageBridge.cpp :: apply_remote_edit()   (adapter, Godot+pxr)
-        │   suppress_broadcast_ = true;                ← LOOPBACK SUPPRESSION (bridge/TfNotice side)
-        │   xform = gxform::prim_edit_to_transform(edit)   ── TransformCodec
-        │   author_to_usd(prim_path, xform)            ← write into USD (keeps stage authoritative)
-        │   resolve ObjectID → live Node3D:
-        │       node->set_block_signals(true);
-        │       node->set_transform(xform);            ← move the actual Godot node
-        │       node->set_block_signals(false);
-        │   suppress_broadcast_ = false;
-        │
-        │   (the author_to_usd here fires a TfNotice → _on_objects_changed,
-        │    but suppress_broadcast_==true so it does NOT re-broadcast — the echo is killed)
+[5a] source/stage_ops/StageBridge.cpp :: author_edit(External)   (adapter, Godot+pxr)
+        │   • author raw USD placement and update Godot presentation
+        │   • guard the application so External produces no local change callback
         ▼
 [5b] source/collab/IdtxClient.cpp :: on_remote_edit()   (adapter — CollabObserver)
         │   prim_edit_to_transform(edit) via gxform  → Godot Transform3D
@@ -213,15 +217,4 @@ Server pushes a binary frame on the WebSocket
 
 ---
 
-**Spine-axis rotation.** For Cone/Cylinder the loader (UsdGodotTypeConverter::toTransform)
-bakes a presentation rotation into the Godot node basis for a non-default axis (X or Z),
-because Godot's primitive meshes are Y-spined. The authoring path inverts that bake so USD
-stays raw: StageBridge::spine_axis_for(prim_path) reads the axis from the live stage
-(IsA<UsdGeomCone|UsdGeomCylinder> then GetAxisAttr, else None), author_to_usd strips it via
-xform::strip_spine_axis before writing (so both the outbound author and the inbound apply store
-the raw orientation), and apply_remote_edit re-applies it via xform::apply_spine_axis for
-the node set_transform. read_prim_transform (the broadcast read) stays raw. The apply/strip
-convention is byte-identical to toTransform (X->rot_z(+90), Z->rot_x(+90), Y/None->identity). Scope
-is Cone/Cylinder only, because those are the only prim types the converter bakes a rotation for;
-the mechanism is a no-op (None) for every other type, and Capsule has no visual converter in either
-direction yet.
+Structural broadcasts do not emit `transform_broadcast_received`.
