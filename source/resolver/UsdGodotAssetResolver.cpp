@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 
 #include <pxr/base/tf/pathUtils.h>
@@ -19,6 +20,44 @@ using namespace godot;
 using namespace pxr;
 
 AR_DEFINE_RESOLVER(UsdGodotAssetResolver, ArResolver);
+
+#ifdef __ANDROID__
+// In-memory asset for res:// files packed inside the APK/PCK, which OpenUSD cannot open from the filesystem
+class GodotBufferedAsset : public ArAsset
+{
+    std::shared_ptr<const char> _buffer;
+    size_t _size;
+
+  public:
+    GodotBufferedAsset(std::shared_ptr<const char> buffer, size_t size)
+        : _buffer(std::move(buffer)),
+          _size(size)
+    {
+    }
+
+    size_t GetSize() const override
+    {
+        return _size;
+    }
+
+    std::shared_ptr<const char> GetBuffer() const override
+    {
+        return _buffer;
+    }
+
+    size_t Read(void* buffer, size_t count, size_t offset) const override
+    {
+        size_t bytesToRead = std::min(count, _size - std::min(offset, _size));
+        memcpy(buffer, _buffer.get() + offset, bytesToRead);
+        return bytesToRead;
+    }
+
+    std::pair<FILE*, size_t> GetFileUnsafe() const override
+    {
+        return {nullptr, 0};
+    }
+};
+#endif
 
 std::string UsdGodotAssetResolver::_GetExtension(const std::string& path) const
 {
@@ -102,6 +141,28 @@ std::shared_ptr<ArAsset> UsdGodotAssetResolver::_OpenAsset(const ArResolvedPath&
     // we retrieve the resolved path of the asset to open the same
     // this is essentially a "res://path/to/file.usd". So calculate a real local path openUSD is capable of finding
     // and open the file from there
+
+#ifdef __ANDROID__
+    // res:// lives inside the APK/PCK on Android: read it through Godot's FileAccess instead
+    const std::string assetPath = resolvedPath.GetPathString();
+    if (TfStringStartsWith(assetPath, GodotResolverTokens->resScheme.GetString() + "://"))
+    {
+        Ref<FileAccess> file = FileAccess::open(String(assetPath.c_str()), FileAccess::READ);
+        if (!file.is_valid())
+        {
+            return nullptr;
+        }
+        const size_t size = file->get_length();
+        if (size == 0)
+        {
+            return nullptr;
+        }
+        PackedByteArray data = file->get_buffer(size);
+        std::shared_ptr<char> buffer(new char[size], std::default_delete<char[]>());
+        memcpy(buffer.get(), data.ptr(), size);
+        return std::make_shared<GodotBufferedAsset>(std::move(buffer), size);
+    }
+#endif
 
     if (ProjectSettings* project_settings = ProjectSettings::get_singleton())
     {

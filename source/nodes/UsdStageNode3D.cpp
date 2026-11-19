@@ -348,6 +348,19 @@ void UsdStageNode3D::_convert_stage()
 
 void UsdStageNode3D::_load_converted_stage()
 {
+    // cache unloadable on this platform/build or empty: convert the already opened stage instead
+    Ref<PackedScene> packed_scene = ResourceLoader::get_singleton()->load(cached_scene_name_);
+    Node3D* cached_root = packed_scene.is_valid() ? cast_to<Node3D>(packed_scene->instantiate()) : nullptr;
+    if (!cached_root || cached_root->get_child_count() == 0)
+    {
+        if (cached_root)
+        {
+            cached_root->queue_free();
+        }
+        _convert_stage();
+        return;
+    }
+
     // Retrieve the result (written by the worker thread)
     idtxflow::async::StageLoadResult result;
     {
@@ -359,8 +372,6 @@ void UsdStageNode3D::_load_converted_stage()
     // store the stage handle
     stage_handle_ = std::make_unique<idtxflow::converter::StageHandle>(std::move(result.stage));
 
-    Ref<PackedScene> packed_scene = ResourceLoader::get_singleton()->load(cached_scene_name_);
-    Node3D* cached_root = cast_to<Node3D>(packed_scene->instantiate());
     // the instantiated node would be the cached "UsdStageNode3D". Thus, just adding this to the tree
     // would create a recursion. The intention anyway was to use this node as a root only for caching. And "copy"
     // it's children after instantiation to this node would re-create the original structure anyway.
