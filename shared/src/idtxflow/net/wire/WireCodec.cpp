@@ -3,6 +3,7 @@
 #include "base.pb.h"
 #include "transform.pb.h"
 #include "session.pb.h"
+#include "prim.pb.h"
 
 namespace idtxflow
 {
@@ -10,6 +11,50 @@ namespace net
 {
 namespace wire
 {
+namespace
+{
+// Map the wire PrimType enum onto the USD schema type token the converter and
+// stage bridge understand. Mirrors idtx-core's PrimDispatcher type mapping.
+// Returns empty for UNSPECIFIED / unknown, which the caller treats as "ignore".
+const char* usd_type_token(idtxcore::PrimType type)
+{
+    switch (type)
+    {
+    case idtxcore::PRIM_TYPE_CUBE:
+        return "Cube";
+    case idtxcore::PRIM_TYPE_SPHERE:
+        return "Sphere";
+    case idtxcore::PRIM_TYPE_CONE:
+        return "Cone";
+    case idtxcore::PRIM_TYPE_CYLINDER:
+        return "Cylinder";
+    case idtxcore::PRIM_TYPE_CAPSULE:
+        return "Capsule";
+    case idtxcore::PRIM_TYPE_PLANE:
+        return "Plane";
+    case idtxcore::PRIM_TYPE_XFORM:
+        return "Xform";
+    case idtxcore::PRIM_TYPE_UNSPECIFIED:
+    default:
+        return "";
+    }
+}
+
+// Inverse of usd_type_token: the wire PrimType for a USD schema token. Returns
+// PRIM_TYPE_UNSPECIFIED for an unknown token. A reference holder is typeless and
+// is encoded as PRIM_TYPE_REF by the caller, not through this map.
+idtxcore::PrimType prim_type_from_token(const std::string& token)
+{
+    if (token == "Cube") return idtxcore::PRIM_TYPE_CUBE;
+    if (token == "Sphere") return idtxcore::PRIM_TYPE_SPHERE;
+    if (token == "Cone") return idtxcore::PRIM_TYPE_CONE;
+    if (token == "Cylinder") return idtxcore::PRIM_TYPE_CYLINDER;
+    if (token == "Capsule") return idtxcore::PRIM_TYPE_CAPSULE;
+    if (token == "Plane") return idtxcore::PRIM_TYPE_PLANE;
+    if (token == "Xform") return idtxcore::PRIM_TYPE_XFORM;
+    return idtxcore::PRIM_TYPE_UNSPECIFIED;
+}
+} // namespace
 
 bool decode(const std::string& bytes, DecodedMessage& out)
 {
@@ -89,6 +134,114 @@ bool decode(const std::string& bytes, DecodedMessage& out)
         out.kind = DecodedMessage::Kind::SnapshotComplete;
         return true;
     }
+    case idtxcore::BaseMessage::kCreatePrimBroadcast: {
+        const auto& b = msg.create_prim_broadcast();
+
+        // A REF prim is a typeless reference/payload holder, so it has no schema
+        // type token; every other type must resolve to one or the frame is
+        // ignored (unknown/unspecified type we cannot author).
+        const bool is_ref = (b.type() == idtxcore::PRIM_TYPE_REF);
+        const char* type_token = is_ref ? "" : usd_type_token(b.type());
+        if (!is_ref && type_token[0] == '\0')
+        {
+            // Unknown/unspecified prim type: nothing we can author. Leave kind
+            // None so the frame is ignored rather than mishandled.
+            return true;
+        }
+
+        out.kind = DecodedMessage::Kind::RemoteEdit;
+        out.remote_edit.from_client_id.clear(); // broadcast carries no originator id
+
+        model::PrimEdit& edit = out.remote_edit.edit;
+        edit.kind = model::PrimEdit::Kind::CreatePrim;
+        edit.prim_type = type_token; // empty for a reference holder
+
+        // Full child path = parent + "/" + name. The root "/" has no trailing
+        // slash to double up, every other prim path does.
+        const std::string& parent = b.parent_path();
+        edit.prim_path = (parent == "/") ? ("/" + b.prim_name()) : (parent + "/" + b.prim_name());
+
+        if (b.has_size())
+        {
+            edit.has_size = true;
+            edit.size = b.size();
+        }
+        if (b.has_height())
+        {
+            edit.has_height = true;
+            edit.height = b.height();
+        }
+        if (b.has_radius())
+        {
+            edit.has_radius = true;
+            edit.radius = b.radius();
+        }
+        if (b.has_axis())
+        {
+            edit.has_axis = true;
+            edit.axis = b.axis();
+        }
+        if (b.has_width())
+        {
+            edit.has_width = true;
+            edit.width = b.width();
+        }
+        if (b.has_length())
+        {
+            edit.has_length = true;
+            edit.length = b.length();
+        }
+
+        // A reference holder carries the arc kind and the stage-relative target
+        // path; the prim stays typeless and the referenced asset composes in.
+        if (b.has_reference_path())
+        {
+            edit.has_ref = true;
+            edit.reference_path = b.reference_path();
+            edit.ref_kind = (b.ref_type() == idtxcore::PRIM_REF_PAYLOAD) ? model::PrimEdit::RefKind::Payload
+                                                                         : model::PrimEdit::RefKind::Reference;
+        }
+
+        // Optional create-time LOCAL transform, copied into the dedicated create
+        // members without composition (the separate->matrix resolve happens on
+        // the authoring side). Per-field has_* accessors keep this independent of
+        // the oneof's name.
+        if (b.has_matrix())
+        {
+            edit.has_create_transform = true;
+            edit.create_is_matrix = true;
+            const auto& m = b.matrix();
+            edit.create_matrix.m = {m.m00(), m.m01(), m.m02(), m.m03(), m.m10(), m.m11(), m.m12(), m.m13(),
+                                    m.m20(), m.m21(), m.m22(), m.m23(), m.m30(), m.m31(), m.m32(), m.m33()};
+        }
+        else if (b.has_seperate()) // the wire field name is intentionally "seperate"
+        {
+            edit.has_create_transform = true;
+            edit.create_is_matrix = false;
+            const auto& s = b.seperate();
+            edit.create_separate.translation[0] = s.translation().x();
+            edit.create_separate.translation[1] = s.translation().y();
+            edit.create_separate.translation[2] = s.translation().z();
+            edit.create_separate.rotation[0] = s.rotation().x();
+            edit.create_separate.rotation[1] = s.rotation().y();
+            edit.create_separate.rotation[2] = s.rotation().z();
+            edit.create_separate.scale[0] = s.scale().x();
+            edit.create_separate.scale[1] = s.scale().y();
+            edit.create_separate.scale[2] = s.scale().z();
+        }
+        return true;
+    }
+    case idtxcore::BaseMessage::kSetPrimActiveBroadcast: {
+        const auto& b = msg.set_prim_active_broadcast();
+        out.kind = DecodedMessage::Kind::RemoteEdit;
+        out.remote_edit.from_client_id.clear();
+
+        model::PrimEdit& edit = out.remote_edit.edit;
+        edit.kind = model::PrimEdit::Kind::SetActive;
+        edit.prim_path = b.prim_path();
+        edit.active = b.active();
+        return true;
+    }
     default:
         return false;
     }
@@ -153,6 +306,105 @@ std::string encode_transform_update(const std::string& session_id, const model::
 void verify_protobuf_version()
 {
     GOOGLE_PROTOBUF_VERIFY_VERSION;
+}
+
+namespace
+{
+// Fill a request's transform oneof from the edit's create-transform members. The
+// matrix branch writes the 16 row-major elements; the separate branch writes
+// T/R/S. Keeps the oneof name local to this file.
+template <typename RequestT> void fill_create_transform(RequestT* req, const model::PrimEdit& edit)
+{
+    if (!edit.has_create_transform) return;
+    if (edit.create_is_matrix)
+    {
+        idtxcore::Matrix4dTransform* m = req->mutable_matrix();
+        const auto& a = edit.create_matrix.m;
+        m->set_m00(a[0]);
+        m->set_m01(a[1]);
+        m->set_m02(a[2]);
+        m->set_m03(a[3]);
+        m->set_m10(a[4]);
+        m->set_m11(a[5]);
+        m->set_m12(a[6]);
+        m->set_m13(a[7]);
+        m->set_m20(a[8]);
+        m->set_m21(a[9]);
+        m->set_m22(a[10]);
+        m->set_m23(a[11]);
+        m->set_m30(a[12]);
+        m->set_m31(a[13]);
+        m->set_m32(a[14]);
+        m->set_m33(a[15]);
+    }
+    else
+    {
+        idtxcore::SeparateTransform* s = req->mutable_seperate(); // "seperate" (sic)
+        const auto& sep = edit.create_separate;
+        s->mutable_translation()->set_x(sep.translation[0]);
+        s->mutable_translation()->set_y(sep.translation[1]);
+        s->mutable_translation()->set_z(sep.translation[2]);
+        s->mutable_rotation()->set_x(sep.rotation[0]);
+        s->mutable_rotation()->set_y(sep.rotation[1]);
+        s->mutable_rotation()->set_z(sep.rotation[2]);
+        s->mutable_scale()->set_x(sep.scale[0]);
+        s->mutable_scale()->set_y(sep.scale[1]);
+        s->mutable_scale()->set_z(sep.scale[2]);
+    }
+}
+} // namespace
+
+std::string encode_create_prim_request(const std::string& session_id, const model::PrimEdit& edit,
+                                       uint64_t base_server_seq, uint64_t request_id)
+{
+    idtxcore::BaseMessage msg;
+    msg.set_session_id(session_id);
+    msg.set_server_seq(base_server_seq);
+    msg.set_request_id(request_id);
+
+    idtxcore::CreatePrimRequest* req = msg.mutable_create_prim();
+    req->set_session_id(session_id);
+    // The edit's prim_path is the parent the new prim is created under; the
+    // server assigns the child name and reports it back in the broadcast.
+    req->set_parent_path(edit.prim_path);
+
+    // A reference holder is typeless (PRIM_TYPE_REF) and carries its arc kind and
+    // target path; every other create carries its built-in schema type.
+    if (edit.has_ref)
+    {
+        req->set_type(idtxcore::PRIM_TYPE_REF);
+        req->set_ref_type(edit.ref_kind == model::PrimEdit::RefKind::Payload ? idtxcore::PRIM_REF_PAYLOAD
+                                                                             : idtxcore::PRIM_REF_REFERENCE);
+        req->set_reference_path(edit.reference_path);
+    }
+    else
+    {
+        req->set_type(prim_type_from_token(edit.prim_type));
+    }
+
+    fill_create_transform(req, edit);
+
+    std::string bytes;
+    msg.SerializeToString(&bytes);
+    return bytes;
+}
+
+std::string encode_set_prim_active_request(const std::string& session_id, const model::PrimEdit& edit,
+                                           uint64_t base_server_seq, uint64_t request_id)
+{
+    idtxcore::BaseMessage msg;
+    msg.set_session_id(session_id);
+    msg.set_server_seq(base_server_seq);
+    msg.set_request_id(request_id);
+
+    idtxcore::SetPrimActiveRequest* req = msg.mutable_set_prim_active();
+    req->set_session_id(session_id);
+    req->set_prim_path(edit.prim_path);
+    req->set_active(edit.active);
+
+    std::string bytes;
+    msg.SerializeToString(&bytes);
+    return bytes;
 }
 
 } // namespace wire

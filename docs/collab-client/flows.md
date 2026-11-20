@@ -1,7 +1,7 @@
 # End-to-End Flows
 
-How a whole import operation runs across the three layers — the editor UI, the
-Godot binding, and the net core — down to the IDTX backend. Per-file detail lives
+How import and live-edit operations run from the caller through the Godot binding
+and the net core to the IDTX backend. Per-file detail lives
 in [import-manager.md](import-manager.md), [godot-binding.md](godot-binding.md),
 and [net-core.md](net-core.md); this doc shows how they cooperate.
 
@@ -30,7 +30,7 @@ The four import-mode options are:
 - **Server download import** (option 1/2, server source) — authenticated download; no
   session/WebSocket.
 - **Create / Join session** (option 3/4, server only) — authenticated download **plus** a
-  live session WebSocket and real-time transform sync.
+  live session WebSocket, transform sync and structural edit broadcasts.
 
 **Destination.** Options 1/2 honor their selection; the session options
 (3/4) always import into a new scene. *current scene* imports the stage under the
@@ -110,7 +110,7 @@ plain local copy.
 ## Flow 3 — Server collaboration session (Create or Join)
 
 Everything in Flow 2's login/browse, but the import opens a **live session**: a
-WebSocket is opened and the loaded stage is wired for real-time transform sync. Two
+WebSocket is opened and the loaded stage is wired for real-time edits. Two
 entry points share the same tail — they differ only in how the session is obtained:
 
 - **Create** (`create_session`) → `IdtxClient.open_new_session(usd_file, mode, auto_commit)` →
@@ -128,9 +128,11 @@ report `on_session_ready`. `IdtxClient` delivers that per request through the
 `session_stage_ready`, and the wizard loads the stage from the resolved `stage_url`
 (same download-resolution mechanism as Flow 2) into a **new scene**,
 then calls `bind_session(session_id, stage_node, true)`; the engine attaches the stage
-bridge and arms broadcasting a few frames later. Transform sync is then live for **both**
-flows — see [transform-sync-flow.md](transform-sync-flow.md) for the inbound/outbound
-edit path.
+bridge, replays any buffered snapshot edits and arms outgoing transforms once
+both post-attach settling and `SnapshotComplete` have finished. Socket snapshot
+delivery and stage loading can complete in either order.
+See [transform-sync-flow.md](transform-sync-flow.md) for the inbound/outbound
+transform path and [Flow 4](#flow-4--live-primitive-edits) for structural requests.
 
 ```mermaid
 sequenceDiagram
@@ -155,9 +157,15 @@ sequenceDiagram
     Engine->>BE: open session WebSocket
     Engine-->>Client: on_session_ready session, stage_url, ws_url
     Client-->>Wiz: on_done result (session_id, stage_url, ws_url) -> session_stage_ready
-    Wiz->>Wiz: load stage from stage_url (new scene)
-    Wiz->>Client: bind_session session_id, stage_node, true
-    Client->>Engine: attach stage and arm broadcasting after a few frames
+    par Snapshot delivery
+        BE-->>Engine: handshake, snapshot edits, SnapshotComplete
+        Engine->>Engine: apply edits or buffer until a stage attaches
+    and Stage materialization
+        Wiz->>Wiz: evict cached root, load, pack and reopen new scene
+        Wiz->>Client: bind_session session_id, stage_node, true
+        Client->>Engine: attach stage, replay buffered edits
+    end
+    Engine->>Engine: arm transforms after settle and SnapshotComplete
 ```
 
 ### Flow 3a — Create session
@@ -187,6 +195,43 @@ Session imports produce a **transient** scene (not a kept project asset) that is
 up when its tab is closed / the session ends — see
 [import-manager.md](import-manager.md#transient-session-scenes) for the storage location
 and deletion triggers.
+
+---
+
+## Flow 4 — Live primitive edits
+
+After joining and binding a stage, the host application can create a child,
+add a reference/payload, deactivate a prim, or
+restore it through `IdtxClient`. Creation uses the chosen parent's exact USD path;
+Delete/Restore use the chosen prim's path.
+```mermaid
+flowchart LR
+    HOST["Caller"] -->|request_*| CLIENT["IdtxClient"]
+    CLIENT --> ENGINE["CollabEngine"]
+    ENGINE -->|remote + snapshot complete + open socket| SERVER["Server validates request"]
+    SERVER -->|accepted: author and broadcast| APPLY["CollabEngine → StageBridge"]
+    APPLY --> USD["Live USD session layer"]
+    USD --> SCENE["Convert new prims or update retained activity"]
+    SERVER -.->|acknowledgement or rejection| CLIENT
+    CLIENT -.->|session status signal| HOST
+```
+
+Sending a request does not change the scene. The server assigns names/default
+dimensions and applies its parent, asset and deletion policies. Accepted
+broadcasts reach the sender and peers through their normal stage bridge. A
+rejection is reported asynchronously and creates no optimistic node to undo.
+
+Structural sends check remote mode, snapshot completion and an open socket. They
+do not use the transform arming gate. `is_session_synced` only exposes the
+snapshot latch, so hosts also wait for successful loading/settling and revalidate
+their targets before enabling actions. `ack_received` has no public request ID
+and is status reporting, not a matched action-completion API.
+
+Delete authors `active=false` and retains the Godot representation under native
+activity protection. Restore authors `active=true` and restores from current
+live USD; it requests neither a file reload nor another snapshot. The complete
+sequence, request examples, asset-path rules and server rejections are in
+[structural-edits.md](structural-edits.md).
 
 ---
 
@@ -257,10 +302,11 @@ Socket resilience (TLS, keepalive, reconnect) is handled inside the WebSocket tr
 
 ## Where each flow touches the code
 
-| Flow | UI | Binding | Core / backend |
+| Flow | Caller / UI | Binding | Core / backend |
 |---|---|---|---|
 | Local | `_perform_local_import`, `UsdStageNode3D` | — | — |
 | Server download | login/browse steps, `_perform_server_download_import` | `IdtxClient.login/list_files/download_url`, JWT asset resolver | `POST /auth/login`, `GET /files`, `GET /download/<path>` |
 | Create session | `_perform_server_session_import`, coordinator `create_session`, `_on_session_stage_ready` | `IdtxClient.open_new_session`, `StageBridge` | `CollabEngine.open_new_session` → `enter_session`, `POST /sessions`, `/ws`, transform sync |
 | Join session | `_refresh_join_sessions`, `_perform_server_join_import`, coordinator `join_session`, `_on_session_stage_ready` | `IdtxClient.list_sessions`, `IdtxClient.open_existing_session`, `StageBridge` | `CollabEngine.open_existing_session` → `enter_session`, `GET /sessions`, `GET /sessions/<id>`, `/ws`, transform sync |
+| Live primitive edits | Host application | `IdtxClient.request_create_prim/request_delete_prim/request_restore_prim`, `StageBridge`, `StageActivityController` | `CreatePrimRequest` / `SetPrimActiveRequest`, validation, structural broadcasts |
 

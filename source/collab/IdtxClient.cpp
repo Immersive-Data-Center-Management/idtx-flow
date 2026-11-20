@@ -302,6 +302,36 @@ void IdtxClient::unbind_session(const String& session_id)
     bindings_.erase(sid);
 }
 
+void IdtxClient::request_create_prim(const String& session_id, const String& parent_path, const Dictionary& spec)
+{
+    // Unpack the editor's Variant spec into plain values; the engine builds the
+    // request and applies the reference-vs-type decision and the placement.
+    const bool is_reference = spec.has("reference_path");
+    const std::string reference_path = is_reference ? String(spec["reference_path"]).utf8().get_data() : std::string();
+    const bool is_payload = spec.has("payload") && static_cast<bool>(spec["payload"]);
+    const std::string prim_type = spec.has("type") ? String(spec["type"]).utf8().get_data() : std::string();
+
+    const bool has_transform = spec.has("transform");
+    idtxflow::net::model::Mat4 transform;
+    if (has_transform)
+    {
+        transform = gxform::transform_to_prim_edit(std::string(), static_cast<Transform3D>(spec["transform"])).matrix;
+    }
+
+    engine_.request_create_prim(session_id.utf8().get_data(), parent_path.utf8().get_data(), prim_type, is_reference,
+                                is_payload, reference_path, has_transform, transform);
+}
+
+void IdtxClient::request_delete_prim(const String& session_id, const String& prim_path)
+{
+    engine_.request_set_prim_active(session_id.utf8().get_data(), prim_path.utf8().get_data(), /*active=*/false);
+}
+
+void IdtxClient::request_restore_prim(const String& session_id, const String& prim_path)
+{
+    engine_.request_set_prim_active(session_id.utf8().get_data(), prim_path.utf8().get_data(), /*active=*/true);
+}
+
 void IdtxClient::attach_bridge(const std::string& session_id)
 {
     auto it = bindings_.find(session_id);
@@ -571,7 +601,13 @@ void IdtxClient::on_handshake(const std::string& sid, const std::string& path, c
 void IdtxClient::on_remote_edit(const std::string& session_id, const idtxflow::net::model::PrimEdit& edit,
                                 const std::string& from)
 {
-    // The engine already applied the edit to the session's stage; surface it for any UI.
+    // The engine already applied the edit to the session's stage; surface it for
+    // any UI. Only transform edits carry a meaningful transform payload — create
+    // and active-toggle edits reuse this callback but must not emit a bogus
+    // transform_broadcast_received (their rendering is driven by the stage bridge
+    // conversion/visibility path).
+    if (edit.kind != idtxflow::net::model::PrimEdit::Kind::Transform) return;
+
     emit_signal("transform_broadcast_received", String(session_id.c_str()), String(edit.prim_path.c_str()),
                 gxform::prim_edit_to_transform(edit), String(from.c_str()));
 }
@@ -641,6 +677,12 @@ void IdtxClient::_bind_methods()
 
     ClassDB::bind_method(D_METHOD("bind_session", "session_id", "stage_node", "remote"), &IdtxClient::bind_session);
     ClassDB::bind_method(D_METHOD("unbind_session", "session_id"), &IdtxClient::unbind_session);
+
+    ClassDB::bind_method(D_METHOD("request_create_prim", "session_id", "parent_path", "spec"),
+                         &IdtxClient::request_create_prim);
+    ClassDB::bind_method(D_METHOD("request_delete_prim", "session_id", "prim_path"), &IdtxClient::request_delete_prim);
+    ClassDB::bind_method(D_METHOD("request_restore_prim", "session_id", "prim_path"),
+                         &IdtxClient::request_restore_prim);
 
     // Internal trampolines: dispatcher drain, per-frame tick, and the deferred
     // ticker bootstrap (all call_deferred / signal targets).

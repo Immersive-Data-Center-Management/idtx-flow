@@ -4,6 +4,7 @@ package idtxcore;
 
 import "transform.proto";
 import "session.proto";
+import "prim.proto";
 
 message Handshake {
   string session_id = 1;
@@ -52,6 +53,13 @@ message BaseMessage {
     Ack ack = 5;
     Error error = 6;
     SnapshotComplete snapshot_complete = 7;
+    // Prim lifecycle messages. Tags match idtx-core's BaseMessage oneof: the
+    // create_prim / set_prim_active requests (client -> server) and the
+    // create_prim_broadcast / set_prim_active_broadcast the server sends back.
+    CreatePrimRequest create_prim = 10;
+    CreatePrimBroadcast create_prim_broadcast = 11;
+    SetPrimActiveRequest set_prim_active = 12;
+    SetPrimActiveBroadcast set_prim_active_broadcast = 13;
   }
   uint64 request_id = 8;
   uint64 server_seq = 9;

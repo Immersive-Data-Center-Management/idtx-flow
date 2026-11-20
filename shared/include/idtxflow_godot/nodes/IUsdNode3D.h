@@ -18,6 +18,11 @@ class IExecBridgeHandler;
 class IDTXFLOW_GODOT_API IUsdNode3D
 {
   public:
+    /// Serialized node metadata marking visuals created by IDTXFlow's standard
+    /// Cone/Cylinder/Capsule converters, so StageBridge can remove and restore
+    /// their USD-axis presentation rotation.
+    static constexpr const char* BUILTIN_SPINE_AXIS_META = "_idtx_builtin_spine_axis";
+
     IUsdNode3D() = default;
     virtual ~IUsdNode3D();
 

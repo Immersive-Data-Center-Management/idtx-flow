@@ -175,12 +175,39 @@ class CollabEngine
     // conversion-time writes don't phantom-broadcast.
     void arm_sync(const std::string& session_id);
 
+    // --- structural edits (client-originated), per session ---
+    //
+    // Structural edits are server-authoritative: the client asks, the server
+    // authors (assigning the prim name) and broadcasts the result back to every
+    // client including the originator, which materializes it through the normal
+    // inbound path. These send the request; they do not touch the stage.
+
+    // Ask the server to create a prim under @c parent_path (the server assigns
+    // the child name). @c is_reference selects a typeless reference/payload holder
+    // (@c is_payload picks the arc kind, @c reference_path its target); otherwise
+    // @c prim_type is the built-in schema type. @c has_transform places the new
+    // prim with @c transform (a local matrix, authored verbatim). No-op unless the
+    // session is remote, snapshot-complete and its socket open.
+    void request_create_prim(const std::string& session_id, const std::string& parent_path,
+                             const std::string& prim_type, bool is_reference, bool is_payload,
+                             const std::string& reference_path, bool has_transform, const model::Mat4& transform);
+
+    // Ask the server to change a prim's active state (false = soft delete, true =
+    // restore). Same session preconditions as request_create_prim.
+    void request_set_prim_active(const std::string& session_id, const std::string& prim_path, bool active);
+
     /// Advance each session's auto-arm settle countdown. Driven by the frame
     /// ticker. Outbound edits are sent immediately in on_stage_changed, not here.
     void poll();
 
   private:
     IDTX_LOG_CATEGORY("CollabEngine")
+
+    // Explicit retirement revokes delivery even while an active callback still owns the token.
+    struct SessionCallbackLifetime
+    {
+        bool active = true;
+    };
 
     // One live session the engine holds: its identity, its own WebSocket
     // transport + protocol socket, the attached stage (if any), and the
@@ -194,6 +221,7 @@ class CollabEngine
 
         std::unique_ptr<ports::IWebSocketTransport> ws; // owned per session
         std::unique_ptr<SessionSocket> socket;
+        std::shared_ptr<SessionCallbackLifetime> callback_lifetime;
 
         ports::IStageBridge* stage = nullptr; // attached on stage load
         bool remote = false;
