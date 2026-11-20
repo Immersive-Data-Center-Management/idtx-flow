@@ -50,8 +50,7 @@ inline std::string CanonicalUrl(const std::string& url)
         path_end = url.size();
     }
 
-    const auto hex_value = [](char c) -> int
-    {
+    const auto hex_value = [](char c) -> int {
         if (c >= '0' && c <= '9') return c - '0';
         if (c >= 'a' && c <= 'f') return c - 'a' + 10;
         if (c >= 'A' && c <= 'F') return c - 'A' + 10;
@@ -105,10 +104,9 @@ inline std::string CanonicalUrl(const std::string& url)
         pos = next + 1;
     }
 
-    const auto unreserved = [](unsigned char c)
-    {
-        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '.'
-            || c == '_' || c == '~';
+    const auto unreserved = [](unsigned char c) {
+        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '.' ||
+               c == '_' || c == '~';
     };
     static const char* hex_digits = "0123456789ABCDEF";
 

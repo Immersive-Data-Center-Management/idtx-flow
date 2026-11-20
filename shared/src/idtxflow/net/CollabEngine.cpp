@@ -508,55 +508,55 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
             if (observer_) observer_->on_snapshot_complete(session_id);
         });
     });
-    s.socket->on_layer_reloaded([this, post, session_id](const std::string& usd_path, const std::string& usd_uri,
-                                                         uint64_t server_seq) {
-        post([this, session_id, usd_path, usd_uri, server_seq](Session& session, const auto&) {
-            IDTX_LOG(IDTX_INFO, "layer reloaded session='{}' usd_path='{}' server_seq={}", session_id, usd_path,
-                     server_seq);
-            // Stop sending and stop applying until the host has rebuilt and the
-            // requested snapshot has arrived. The reload's server_seq is not adopted:
-            // the client has not applied that state yet; the snapshot carries it.
-            session.reloading = true;
-            session.snapshot_complete = false;
-            session.armed = false;
-            session.snapshot_request_id = 0;
-            session.snapshot_retry_countdown = -1; // reload_complete sends a new request
-            session.pending_remote.clear(); // superseded by the snapshot as well
-            const std::string file_url = usd_uri.empty() ? download_url(usd_path) : base_url() + usd_uri;
-            if (observer_) observer_->on_layer_reloaded(session_id, usd_path, file_url);
-        });
-    });
-    s.socket->on_ack(
-        [this, post, session_id](bool ok, const std::string& error, uint64_t request_id, uint64_t server_seq) {
-            post([this, session_id, ok, error, request_id, server_seq](Session& session, const auto&) {
-                IDTX_LOG(IDTX_DEBUG, "[trace] H on_ack session='{}' ok={} error='{}' req_id={} server_seq={}",
-                         session_id, ok, error, request_id, server_seq);
-                // The ack also carries server progress: adopt its server_seq so this author's base
-                // advances past its own applied edit (otherwise the next local edit on
-                // the same prim would fail the server's stale check), log it, and
-                // notify. The server resolves ordering, so a rejected update is not resent;
-                // the one exception is the SnapshotRequest sent after a reload (below).
-                advance_server_seq(session, server_seq);
-                if (!ok && request_id != 0 && request_id == session.snapshot_request_id)
-                {
-                    // The server refused the SnapshotRequest sent after a reload, so
-                    // no SnapshotComplete follows and the session would never re-arm.
-                    // A full queue is transient: ask again shortly. Any other reason
-                    // ("session_closing") means the session is going away.
-                    session.snapshot_request_id = 0;
-                    if (error == "queue_full")
-                    {
-                        IDTX_LOG(IDTX_WARN, "snapshot request rejected (queue_full) session='{}', retrying", session_id);
-                        session.snapshot_retry_countdown = kSnapshotRetryTicks;
-                    }
-                    else
-                    {
-                        IDTX_LOG(IDTX_WARN, "snapshot request rejected session='{}' error='{}'", session_id, error);
-                    }
-                }
-                if (observer_) observer_->on_ack(session_id, ok, error);
+    s.socket->on_layer_reloaded(
+        [this, post, session_id](const std::string& usd_path, const std::string& usd_uri, uint64_t server_seq) {
+            post([this, session_id, usd_path, usd_uri, server_seq](Session& session, const auto&) {
+                IDTX_LOG(IDTX_INFO, "layer reloaded session='{}' usd_path='{}' server_seq={}", session_id, usd_path,
+                         server_seq);
+                // Stop sending and stop applying until the host has rebuilt and the
+                // requested snapshot has arrived. The reload's server_seq is not adopted:
+                // the client has not applied that state yet; the snapshot carries it.
+                session.reloading = true;
+                session.snapshot_complete = false;
+                session.armed = false;
+                session.snapshot_request_id = 0;
+                session.snapshot_retry_countdown = -1; // reload_complete sends a new request
+                session.pending_remote.clear();        // superseded by the snapshot as well
+                const std::string file_url = usd_uri.empty() ? download_url(usd_path) : base_url() + usd_uri;
+                if (observer_) observer_->on_layer_reloaded(session_id, usd_path, file_url);
             });
         });
+    s.socket->on_ack([this, post, session_id](bool ok, const std::string& error, uint64_t request_id,
+                                              uint64_t server_seq) {
+        post([this, session_id, ok, error, request_id, server_seq](Session& session, const auto&) {
+            IDTX_LOG(IDTX_DEBUG, "[trace] H on_ack session='{}' ok={} error='{}' req_id={} server_seq={}", session_id,
+                     ok, error, request_id, server_seq);
+            // The ack also carries server progress: adopt its server_seq so this author's base
+            // advances past its own applied edit (otherwise the next local edit on
+            // the same prim would fail the server's stale check), log it, and
+            // notify. The server resolves ordering, so a rejected update is not resent;
+            // the one exception is the SnapshotRequest sent after a reload (below).
+            advance_server_seq(session, server_seq);
+            if (!ok && request_id != 0 && request_id == session.snapshot_request_id)
+            {
+                // The server refused the SnapshotRequest sent after a reload, so
+                // no SnapshotComplete follows and the session would never re-arm.
+                // A full queue is transient: ask again shortly. Any other reason
+                // ("session_closing") means the session is going away.
+                session.snapshot_request_id = 0;
+                if (error == "queue_full")
+                {
+                    IDTX_LOG(IDTX_WARN, "snapshot request rejected (queue_full) session='{}', retrying", session_id);
+                    session.snapshot_retry_countdown = kSnapshotRetryTicks;
+                }
+                else
+                {
+                    IDTX_LOG(IDTX_WARN, "snapshot request rejected session='{}' error='{}'", session_id, error);
+                }
+            }
+            if (observer_) observer_->on_ack(session_id, ok, error);
+        });
+    });
     s.socket->on_error([this, post, session_id](const std::string& code, const std::string& message) {
         post([this, session_id, code, message](Session&, const auto&) {
             IDTX_LOG(IDTX_ERROR, "session '{}' socket error code='{}' msg='{}'", session_id, code, message);
