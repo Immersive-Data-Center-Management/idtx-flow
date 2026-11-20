@@ -209,6 +209,7 @@ class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
     void on_snapshot_complete(const std::string& session_id) override;
     void on_layer_reloaded(const std::string& session_id, const std::string& usd_path,
                            const std::string& file_url) override;
+    void on_reconnected(const std::string& session_id) override;
     /// Emit the correlated result; IDs outside Godot's positive integer range become zero/Unknown.
     void on_ack(const std::string& session_id, uint64_t request_id, idtxflow::net::model::RequestKind request_kind,
                 bool ok, const std::string& error) override;

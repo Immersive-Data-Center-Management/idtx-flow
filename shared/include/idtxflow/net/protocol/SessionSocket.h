@@ -102,7 +102,7 @@ class SessionSocket
     /// Ask the server for a snapshot of the session's current state (after a
     /// rebuilt stage lost the session's edits). Returns the request id its
     /// SnapshotComplete will echo, or 0 if the socket is closed and nothing was
-    /// sent (a reconnect delivers a join snapshot instead).
+    /// sent (the reconnect rebuilds the stage and requests one again).
     uint64_t send_snapshot_request();
 
     void on_opened(OpenedCb cb)

@@ -90,6 +90,12 @@ class CollabObserver
     // the requested snapshot supersedes them. May arrive again, for another file, while the host is still rebuilding.
     virtual void on_layer_reloaded(const std::string& session_id, const std::string& usd_path,
                                    const std::string& file_url) = 0;
+    // The session's socket reconnected after a drop (reported right after on_socket_opened). The stage kept across
+    // the drop may hold state the server has since changed, and a LayerReloaded sent meanwhile was lost. The host
+    // evicts the files the session's stage nodes use, rebuilds them, and then calls CollabEngine::reload_complete(),
+    // exactly as after on_layer_reloaded; until then the engine ignores the session's stage frames, including the
+    // join snapshot. May arrive while a rebuild is still running.
+    virtual void on_reconnected(const std::string& session_id) = 0;
     /// Reports the request identity and server result. Acceptance does not imply
     /// completed scene conversion; untracked request metadata has kind Unknown.
     virtual void on_ack(const std::string& session_id, uint64_t request_id, model::RequestKind request_kind, bool ok,
