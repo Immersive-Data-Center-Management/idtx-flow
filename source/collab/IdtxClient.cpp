@@ -38,6 +38,23 @@ bool stage_uses(const pxr::UsdStageRefPtr& stage, const std::string& canonical)
     return false;
 }
 
+// Evict every remote (http/https) layer @p stage composes from the HTTP cache, so
+// the next load of any of them downloads it again. Local and anonymous layers
+// (the session layer) are not cached and are skipped.
+void evict_remote_layers(const pxr::UsdStageRefPtr& stage)
+{
+    if (!stage) return;
+    for (const pxr::SdfLayerHandle& layer: stage->GetUsedLayers())
+    {
+        if (!layer) continue;
+        const std::string& id = layer->GetIdentifier();
+        if (id.rfind("http://", 0) == 0 || id.rfind("https://", 0) == 0)
+        {
+            UsdStageNode3D::evict_http_cache_entry(String(id.c_str()));
+        }
+    }
+}
+
 // Every UsdStageNode3D in the subtree of @p node, @p node included, parents
 // before their children (nested payload stages are children of their holder).
 void collect_stage_nodes(Node* node, std::vector<UsdStageNode3D*>& out)
@@ -742,6 +759,62 @@ void IdtxClient::on_layer_reloaded(const std::string& session_id, const std::str
     }
 }
 
+void IdtxClient::on_reconnected(const std::string& session_id)
+{
+    ReloadState& state = reloads_[session_id];
+
+    auto binding = bindings_.find(session_id);
+    UsdStageNode3D* root = binding != bindings_.end()
+                               ? Object::cast_to<UsdStageNode3D>(ObjectDB::get_instance(binding->second.node_id))
+                               : nullptr;
+    if (root != nullptr)
+    {
+        std::vector<UsdStageNode3D*> subtree;
+        collect_stage_nodes(root, subtree);
+
+        // Any file the session's stages use may have changed while the socket was
+        // down; the LayerReloaded for it was lost with the connection.
+        for (UsdStageNode3D* node: subtree)
+        {
+            evict_remote_layers(node->get_stage());
+        }
+
+        const uint64_t root_id = root->get_instance_id();
+        if (state.loading.count(root_id) > 0 || root->is_loading())
+        {
+            // A load is in flight (a rebuild, or the stage's first load): it may
+            // have fetched files before the eviction above, so it is rebuilt once
+            // more when it finishes. While the node is loading, start_node_reload
+            // only starts tracking it (reload() does nothing then); a tracked node
+            // whose load was cut off is rebuilt right away instead.
+            start_node_reload(session_id, root);
+            state.again.insert(root_id);
+        }
+        else
+        {
+            // Release nested stages first, as for a reload: as long as one stage
+            // still holds an old in-memory layer, a new load is handed that copy
+            // instead of the re-fetched file. Rebuilding the root replaces every
+            // nested stage, so none of them is waited for any longer (this also
+            // clears one whose load was cut off without a signal).
+            for (auto it = subtree.rbegin(); it != subtree.rend(); ++it)
+            {
+                state.loading.erase((*it)->get_instance_id());
+                state.again.erase((*it)->get_instance_id());
+                (*it)->unload_stage();
+            }
+            start_node_reload(session_id, root);
+        }
+    }
+
+    if (state.loading.empty())
+    {
+        // No stage to rebuild (not loaded or bound yet): just request the state.
+        reloads_.erase(session_id);
+        engine_.reload_complete(session_id);
+    }
+}
+
 void IdtxClient::start_node_reload(const std::string& session_id, Node* node)
 {
     UsdStageNode3D* stage_node = Object::cast_to<UsdStageNode3D>(node);
@@ -804,11 +877,12 @@ void IdtxClient::sweep_abandoned_reloads()
     // A node freed before its rebuild finished never emits stage_loading_finished:
     // NOTIFICATION_PREDELETE cancels its load silently. Waiting for it would keep
     // the session from ever calling reload_complete, leaving it disarmed until a
-    // reconnect. This happens when an outer stage reloads over a nested one still
-    // rebuilding for an earlier file (_cleanup_nodes queues it via an ancestor),
-    // or when the node is freed otherwise (its scene closes, free()). A node that
-    // only left the tree is still counted: its load goes on and finishes outside
-    // the tree (the editor's "delete" keeps the node alive for undo).
+    // reconnect (on_reconnected stops waiting for the session's stages). This
+    // happens when an outer stage reloads over a nested one still rebuilding for
+    // an earlier file (_cleanup_nodes queues it via an ancestor), or when the node
+    // is freed otherwise (its scene closes, free()). A node that only left the
+    // tree is still counted: its load goes on and finishes outside the tree (the
+    // editor's "delete" keeps the node alive for undo).
     //
     // TODO: Not covered: a load cancelled without freeing the node and without a new
     // load starting (set_stage_uri("") or a new URI while out of the tree, or a

@@ -194,6 +194,7 @@ class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
     void on_snapshot_complete(const std::string& session_id) override;
     void on_layer_reloaded(const std::string& session_id, const std::string& usd_path,
                            const std::string& file_url) override;
+    void on_reconnected(const std::string& session_id) override;
     void on_ack(const std::string& session_id, bool ok, const std::string& error) override;
     void on_socket_error(const std::string& session_id, const std::string& code, const std::string& message) override;
     void on_disconnected(const std::string& session_id, idtxflow::net::model::CloseReason reason, int code,

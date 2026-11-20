@@ -402,6 +402,9 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
         s.socket.reset();
     }
     s.ws.reset();
+    // A fresh transport's first open is a join (the host loads the stage for it);
+    // only the transport re-opening after a drop is a reconnect.
+    s.opened_before = false;
     s.callback_lifetime = std::make_shared<SessionCallbackLifetime>();
     const std::weak_ptr<SessionCallbackLifetime> weak_lifetime = s.callback_lifetime;
     ports::IMainThreadDispatcher* dispatcher = ports_.dispatcher;
@@ -432,17 +435,31 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
     s.socket->on_opened([this, post, session_id] {
         post([this, session_id](Session& session, const auto&) {
             // A (re)connect restarts the snapshot handshake: clear the latch and
-            // disarm so we never broadcast on a stale base. Only snapshot_complete
-            // re-gates — settle_done stays latched from the original attach, since a
-            // reconnect does not reconvert the stage (clearing it would strand the
-            // session un-armed, as nothing restarts the settle countdown).
+            // disarm so we never broadcast on a stale base.
+            const bool reconnect = session.opened_before;
+            session.opened_before = true;
             session.snapshot_complete = false;
             session.armed = false;
             // A request sent on the old connection is never answered; the join
-            // snapshot of the new one replaces it, and so does no retry.
+            // snapshot of the new one (or, after a reconnect, the request sent once
+            // the stage is rebuilt) replaces it, and so does no retry.
             session.snapshot_request_id = 0;
             session.snapshot_retry_countdown = -1;
+            if (reconnect)
+            {
+                // The join snapshot only replays onto a freshly loaded stage: it
+                // re-creates prims and replays deactivations, but cannot undo state
+                // the kept stage still holds (a restore made meanwhile stays
+                // missing). A LayerReloaded sent while disconnected was lost as
+                // well. So rebuild like after a reload: ignore the join snapshot,
+                // let the host rebuild from re-fetched files, and request the
+                // session's state once it calls reload_complete(). The rebuilt
+                // stage's attach restarts the settle countdown.
+                session.reloading = true;
+                session.pending_remote.clear(); // superseded by the requested snapshot
+            }
             if (observer_) observer_->on_socket_opened(session_id);
+            if (reconnect && observer_) observer_->on_reconnected(session_id);
         });
     });
     s.socket->on_handshake([this, post](const std::string& sid, const std::string& path, const std::string& uri) {
@@ -566,9 +583,10 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
     s.socket->on_disconnected([this, post, session_id](model::CloseReason reason, int code, const std::string& text) {
         post([this, session_id, reason, code, text](Session& session, const auto&) {
             // Disarm and drop the snapshot latch so a transport-level drop cannot
-            // leave the session armed; a reconnect then re-gates on the fresh
-            // snapshot. The socket drops its last-sent cache as it goes down, so later
-            // edits are not deduplicated against pre-disconnect values. The join snapshot is authoritative.
+            // leave the session armed; a reconnect then rebuilds the stage and
+            // re-gates on the snapshot it requests. The socket drops its last-sent cache
+            // as it goes down, so later edits are not deduplicated against
+            // pre-disconnect values. That snapshot is authoritative.
             session.snapshot_complete = false;
             session.armed = false;
             if (observer_) observer_->on_disconnected(session_id, reason, code, text);
@@ -657,7 +675,7 @@ void CollabEngine::reload_complete(const std::string& session_id)
 
     s->reloading = false;
     // The rebuilt stage no longer holds the session's edits: ask for them. If the
-    // socket is closed nothing is sent; a reconnect delivers a join snapshot.
+    // socket is closed nothing is sent; the reconnect rebuilds and asks again.
     s->snapshot_request_id = s->socket ? s->socket->send_snapshot_request() : 0;
     IDTX_LOG(IDTX_INFO, "reload complete session='{}' snapshot req_id={}", session_id, s->snapshot_request_id);
 }
@@ -794,9 +812,8 @@ void CollabEngine::poll()
         if (s.snapshot_retry_countdown > 0 && --s.snapshot_retry_countdown == 0)
         {
             s.snapshot_retry_countdown = -1;
-            // Not while reloading or after a snapshot arrived (a reconnect's join
-            // snapshot also restores the state); a closed socket sends nothing and
-            // its reconnect delivers a join snapshot instead.
+            // Not while reloading or after a snapshot arrived; a closed socket
+            // sends nothing, and its reconnect rebuilds the stage and asks again.
             if (!s.reloading && !s.snapshot_complete && s.socket)
             {
                 s.snapshot_request_id = s.socket->send_snapshot_request();

@@ -66,9 +66,9 @@ sequenceDiagram
   post-attach settle elapsed (`arm_countdown_` = kArmAfterTicks, 3 frames, so USD
   load-time writes settle and do not phantom-broadcast) **and** the join snapshot
   completed (`SnapshotComplete`) — the protocol forbids sending updates before the
-  snapshot. A reconnect re-gates on the snapshot only (`snapshot_complete_` is
-  cleared and the session disarmed); the settle latch stays set, since a reconnect
-  does not reconvert the stage.
+  snapshot. A reconnect rebuilds the session's stage nodes like a layer reload, so
+  both gates apply again: the rebuilt stage's attach restarts the settle, and the
+  snapshot requested afterwards completes the other gate.
 - **Immediate send + duplicate suppression.** The bridge reports final changed
   transforms. `SessionSocket::send` additionally drops an edit identical (payload
   only, ignoring the timestamp) to the last one it sent for that prim. Accepted
@@ -78,7 +78,8 @@ sequenceDiagram
   `request_id` echoed in the matching Ack. Acks are **diagnostic only** — the client
   adopts the ack's `server_seq` (so its own applied edit advances its base) and does
   not resend; the server resolves ordering. An edit authored while disconnected is
-  dropped, and the join snapshot is authoritative on reconnect. See
+  dropped, and on reconnect the snapshot requested after the stage rebuild is
+  authoritative. See
   [net-core.md](net-core.md).
 
 ---
