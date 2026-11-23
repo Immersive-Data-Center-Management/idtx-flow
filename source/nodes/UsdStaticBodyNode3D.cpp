@@ -207,24 +207,6 @@ void UsdStaticBodyNode3D::create_collision_static(const godot::Transform3D& tran
     // Set collision shape
     Ref<Shape3D> collider_shape = create_collision_shape(collision_shape_);
     collider->set_shape(collider_shape);
-
-    // Resolve major axis orientation
-    // Note: currently removed, done using toTransform with axis attribute instead
-    // if (axis_ != Vector3(0.0f, 0.0f, 0.0f))
-    // {
-    //     Transform3D t = get_global_transform();
-
-    //     Vector3 scale = t.basis.get_scale();
-
-    //     Vector3 up = Vector3(0.0f, 0.0f, 1.0f); // Z up in USD
-    //     t = t.looking_at(t.origin + axis_, up);
-
-    //     t.basis = t.basis.scaled(scale);
-
-    //     Basis axis_correction = Basis(Vector3(1.0f, 0.0f, 0.0f), Math_PI / 2.0f);
-    //     t.basis = t.basis * axis_correction;
-    //     set_global_transform(t);
-    // }
 }
 
 void UsdStaticBodyNode3D::_bind_methods()
