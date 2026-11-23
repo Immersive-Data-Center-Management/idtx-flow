@@ -1,4 +1,6 @@
 #include <idtxflow/net/wire/WireCodec.h>
+#include <idtxflow/utils/Logger.h>
+#include <google/protobuf/unknown_field_set.h>
 
 #include "base.pb.h"
 #include "transform.pb.h"
@@ -13,6 +15,8 @@ namespace wire
 {
 namespace
 {
+IDTX_LOG_CATEGORY("WireCodec")
+
 // Map the wire PrimType enum onto the USD schema type token the converter and
 // stage bridge understand. Mirrors idtx-core's PrimDispatcher type mapping.
 // Returns empty for UNSPECIFIED / unknown, which the caller treats as "ignore".
@@ -63,6 +67,7 @@ bool decode(const std::string& bytes, DecodedMessage& out)
     idtxcore::BaseMessage msg;
     if (!msg.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())))
     {
+        IDTX_LOG(IDTX_DEBUG, "Ignoring malformed protobuf message: bytes={}", bytes.size());
         return false;
     }
 
@@ -146,6 +151,8 @@ bool decode(const std::string& bytes, DecodedMessage& out)
         {
             // Unknown/unspecified prim type: nothing we can author. Leave kind
             // None so the frame is ignored rather than mishandled.
+            IDTX_LOG(IDTX_DEBUG, "Ignoring unsupported create type: bytes={} message_case={} prim_type={}",
+                     bytes.size(), static_cast<int>(msg.message_case()), static_cast<int>(b.type()));
             return true;
         }
 
@@ -242,8 +249,15 @@ bool decode(const std::string& bytes, DecodedMessage& out)
         edit.active = b.active();
         return true;
     }
-    default:
+    default: {
+        // Newer envelope cases arrive as unknown fields. Log only their first
+        // field number; payload values can contain private application data.
+        const auto& unknown = msg.GetReflection()->GetUnknownFields(msg);
+        const int first_unknown = unknown.empty() ? 0 : unknown.field(0).number();
+        IDTX_LOG(IDTX_DEBUG, "Ignoring unsupported message: bytes={} message_case={} unknown_field={}", bytes.size(),
+                 static_cast<int>(msg.message_case()), first_unknown);
         return false;
+    }
     }
 }
 
