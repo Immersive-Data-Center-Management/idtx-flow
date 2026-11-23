@@ -474,7 +474,7 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCollis
 template <>
 inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCollision(
     const godot::Transform3D& transform, const pxr::TfToken shape, const pxr::VtArray<pxr::TfToken> types,
-    const pxr::GfVec3f axis, const double height, const double radius)
+    const pxr::GfVec3f axis, const double height, const double radius, const double size)
 {
     UsdStaticBodyNode3D* collisionNode = memnew(UsdStaticBodyNode3D);
 
@@ -501,6 +501,10 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCollis
     if (radius)
     {
         collisionNode->set_radius(radius);
+    }
+    if (size)
+    {
+        collisionNode->set_size(size);
     }
 
     return collisionNode;
@@ -962,10 +966,12 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertPrimPo
 
                 double height;
                 double radius;
+                double size;
                 if (!usd_prim.GetAttribute(pxr::UsdGeomTokens->height).Get(&height)) height = 0.0f;
                 if (!usd_prim.GetAttribute(pxr::UsdGeomTokens->radius).Get(&radius)) radius = 0.0f;
-                godot::Node3D* converted_node =
-                    ConvertCollision(godot::Transform3D(), shape, interaction_types, pxr::GfVec3f(0), height, radius);
+                if (!usd_prim.GetAttribute(pxr::UsdGeomTokens->size).Get(&size)) size = 0.0f;
+                godot::Node3D* converted_node = ConvertCollision(godot::Transform3D(), shape, interaction_types,
+                                                                 pxr::GfVec3f(0), height, radius, size);
 
                 // cast to custom UsdStaticBodyNode3D* required for set_stage_path() method
                 UsdStaticBodyNode3D* collision_node = static_cast<UsdStaticBodyNode3D*>(converted_node);

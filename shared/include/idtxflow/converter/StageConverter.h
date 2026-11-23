@@ -662,12 +662,14 @@ class UsdStageConverter
             pxr::UsdAttribute axisAttribute = usdPrim.GetAttribute(pxr::UsdGeomTokens->axis);
             pxr::UsdAttribute heightAttribute = usdPrim.GetAttribute(pxr::UsdGeomTokens->height);
             pxr::UsdAttribute radiusAttribute = usdPrim.GetAttribute(pxr::UsdGeomTokens->radius);
+            pxr::UsdAttribute sizeAttribute = usdPrim.GetAttribute(pxr::UsdGeomTokens->size);
 
             pxr::TfToken shape;
             pxr::VtTokenArray types = pxr::VtArray{pxr::IDTXTokens->Collide};
             pxr::TfToken axis;
             double height;
             double radius;
+            double size;
 
             if (usdPrim.IsA<pxr::UsdGeomCube>())
             {
@@ -691,7 +693,7 @@ class UsdStageConverter
             }
             else
             {
-                IDTX_LOG(IDTX_WARN, "Prim {} of kind `guide` has unsupported collision shape",
+                IDTX_LOG(IDTX_WARN, "Prim {} with `guide` purpose has unsupported collision shape",
                          usdPrim.GetPath().GetText());
                 return nullptr;
             }
@@ -699,6 +701,7 @@ class UsdStageConverter
             if (!axisAttribute.Get(&axis)) axis = pxr::TfToken("");
             if (!radiusAttribute.Get(&radius)) radius = 0.0;
             if (!heightAttribute.Get(&height)) height = 0.0;
+            if (!sizeAttribute.Get(&size)) size = 0.0;
 
             pxr::GfVec3f main_axis = pxr::GfVec3f(0);
 
@@ -716,7 +719,8 @@ class UsdStageConverter
                 main_axis = pxr::GfVec3f::ZAxis();
             }
 
-            return ConvertCollision(TypeConverter::toTransform(matrix, axis), shape, types, main_axis, height, radius);
+            return ConvertCollision(TypeConverter::toTransform(matrix, axis), shape, types, main_axis, height, radius,
+                                    size);
         }
         // Convert to visual representation
         else if (usdPrim.IsA<pxr::UsdGeomCube>())
@@ -947,12 +951,13 @@ class UsdStageConverter
      * @param axis The authored main axis
      * @param height The shape height
      * @param radius The shape radius (if applicable)
+     * @param radius The shape size (if applicable)
      * @return
      */
     typename Types::ConvertedEntity* ConvertCollision(const typename Types::Transform& transform,
                                                       const pxr::TfToken shape, const pxr::VtArray<pxr::TfToken> types,
-                                                      const pxr::GfVec3f axis, const double height,
-                                                      const double radius);
+                                                      const pxr::GfVec3f axis, const double height, const double radius,
+                                                      const double size);
 
     /**
      * Convert a Mesh

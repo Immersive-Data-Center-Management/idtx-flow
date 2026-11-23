@@ -71,6 +71,12 @@ void UsdStaticBodyNode3D::_enter_tree()
     Node3D::_enter_tree();
 
     set_position(transform_data_.get_origin());
+}
+
+void UsdStaticBodyNode3D::_ready()
+{
+    Node3D::_ready();
+
     create_collision_static(transform_data_);
 }
 
@@ -104,14 +110,13 @@ void UsdStaticBodyNode3D::set_collision_shape(const std::string& shape)
 
 Ref<Shape3D> UsdStaticBodyNode3D::create_collision_shape(const ShapeType& shape) const
 {
-    Vector3 scale = transform_data_.basis.get_scale_abs();
 
     switch (shape)
     {
     case SHAPE_CUBE: {
         Ref<BoxShape3D> box_shape;
         box_shape.instantiate();
-        box_shape->set_size(scale);
+        box_shape->set_size(Vector3(size_, size_, size_));
         box_shape->set_local_to_scene(true);
         box_shape->set_name(box_shape->get_scene_unique_id());
         return box_shape;
@@ -263,4 +268,10 @@ void UsdStaticBodyNode3D::_bind_methods()
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "radius", PROPERTY_HINT_NONE, "",
                               PROPERTY_USAGE_READ_ONLY | PROPERTY_USAGE_DEFAULT),
                  "set_radius", "get_radius");
+
+    ClassDB::bind_method(D_METHOD("set_size", "size"), &UsdStaticBodyNode3D::set_size);
+    ClassDB::bind_method(D_METHOD("get_size"), &UsdStaticBodyNode3D::get_size);
+    ADD_PROPERTY(
+        PropertyInfo(Variant::FLOAT, "size", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_READ_ONLY | PROPERTY_USAGE_DEFAULT),
+        "set_size", "get_size");
 }
