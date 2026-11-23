@@ -110,7 +110,7 @@ so a host tracking multiple concurrent sessions can route each event to the righ
 | `handshake_received(session_id, usd_path, usd_uri)` | server handshake for the session |
 | `transform_broadcast_received(session_id, prim_path, xform, from_client_id)` | a transform broadcast arrived; structural broadcasts do not emit this signal |
 | `snapshot_complete(session_id)` | the server snapshot boundary arrived; stage loading/conversion may still be pending |
-| `ack_received(session_id, ok, error)` | server accepted or rejected a submitted edit; no request ID is exposed |
+| `ack_received(session_id, request_id, request_kind, ok, error)` | server result with the request ID and its locally tracked kind |
 | `socket_error(session_id, code, message)` | protocol-level socket error |
 | `socket_disconnected(session_id, reason, code, text)` | socket closed/dropped |
 
@@ -133,15 +133,27 @@ For creation, `spec` contains either `type` (`Xform`, `Cube`, `Sphere`, `Cone`,
 supplies initial placement. The server assigns the child name and default
 dimensions; size/radius/height fields are not exposed by this GDScript method.
 
-These are void request methods: they do not modify the scene optimistically.
+These methods return an integer request ID: `0` means not submitted; a positive
+ID means submitted to the transport, not confirmed delivery or acceptance. They
+do not modify the scene optimistically.
 The engine sends only when the session is remote, its snapshot is complete, and
 its socket is open. Unlike outgoing transforms, these request methods do not
 check the post-attach arming gate. Hosts should also wait for successful loading
 and settling before enabling actions against converted nodes.
 
 Server broadcasts apply creation/activity changes through the bound stage bridge.
-`ack_received` reports acceptance or rejection but cannot be matched to a
-particular action through its public arguments. See [structural-edits.md](structural-edits.md)
+Caller-side request ID tracking is optional: callers can ignore the returned ID
+and use `ack_received` for general status via `request_kind`, `ok` and `error`.
+Signal handlers still accept all five arguments; name an unused ID `_request_id`.
+For per-action results, match the signal's ID to the returned ID within the same
+session membership.
+Its `request_kind` uses the `IdtxClient` constants `REQUEST_KIND_UNKNOWN`,
+`REQUEST_KIND_TRANSFORM`, `REQUEST_KIND_CREATE_PRIM`, `REQUEST_KIND_DELETE_PRIM`
+and `REQUEST_KIND_RESTORE_PRIM` (values 0–4). References and payloads use the create
+kind. A kind can be unknown when native tracking metadata is unavailable; a valid
+ID can still match a caller's own pending request. An Ack does not confirm
+scene conversion completion.
+See [structural-edits.md](structural-edits.md)
 for path rules, current server policies, examples, and the request/broadcast flow.
 
 ---

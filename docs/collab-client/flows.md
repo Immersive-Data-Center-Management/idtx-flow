@@ -224,8 +224,9 @@ rejection is reported asynchronously and creates no optimistic node to undo.
 Structural sends check remote mode, snapshot completion and an open socket. They
 do not use the transform arming gate. `is_session_synced` only exposes the
 snapshot latch, so hosts also wait for successful loading/settling and revalidate
-their targets before enabling actions. `ack_received` has no public request ID
-and is status reporting, not a matched action-completion API.
+their targets before enabling actions. `ack_received` includes the request ID and
+kind so callers can match the server result to their request. An accepted Ack
+does not mean the scene has finished applying the broadcast.
 
 Delete authors `active=false` and retains the Godot representation under native
 activity protection. Restore authors `active=true` and restores from current

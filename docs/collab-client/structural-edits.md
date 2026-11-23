@@ -16,15 +16,19 @@ protocol and [stage-authoring.md](stage-authoring.md) for USD/Godot application.
 | `request_delete_prim(session_id, prim_path)` | Set the target inactive | `SetPrimActiveRequest(active=false)` |
 | `request_restore_prim(session_id, prim_path)` | Set the target active | `SetPrimActiveRequest(active=true)` |
 
-These methods return void. Requests require a known remote session, completed
-snapshot and open socket; otherwise they are dropped, without queuing for
-reconnection. Also require a loaded/bound stage and eligible selection, rechecking
+These methods return an integer request ID: `0` means not submitted; a positive
+ID means submitted to the transport. Requests require a known remote session,
+completed snapshot and open socket; otherwise they return `0`, without queuing
+for reconnection. Also require a loaded/bound stage and eligible selection, rechecking
 the path and owning stage before sending. `is_session_synced(session_id)` reports
 only snapshot completion, not all of these conditions.
 
-`ack_received(session_id, ok, error)` reports server results without a request ID,
-so it cannot match one of several pending actions or confirm scene conversion has
-finished. Observe the stage/activity state for applied changes;
+For per-action results, match `ack_received(session_id, request_id, request_kind, ok, error)` to
+the returned ID and original action context. IDs belong to a session membership;
+if you track pending UI actions, discard them when that context ends or disconnects. Selection
+changes alone do not cancel a submitted request. The [binding guide](godot-binding.md#structural-requests)
+lists the request-kind constants. Neither submission nor an accepted Ack confirms
+scene conversion has finished. Observe the stage/activity state for applied changes;
 `transform_broadcast_received` covers only transforms. Identical create requests
 remain separate requests and can create separate children.
 
@@ -46,7 +50,10 @@ Here `client` is the existing `IdtxClient`, `session_id` names the ready session
 and `parent_path` is an eligible USD parent in its stage. Each call creates a child.
 
 ```gdscript
-client.request_create_prim(session_id, parent_path, {"type": "Cube"})
+var request_id: int = client.request_create_prim(session_id, parent_path, {"type": "Cube"})
+if request_id == 0:
+    push_warning("Create request was not submitted.")
+# Optionally keep positive IDs with the original target to match ack_received.
 
 client.request_create_prim(session_id, parent_path, {
     "reference_path": "/kit/asset.usda",
@@ -117,8 +124,9 @@ for native activity handling and UI status queries.
 
 Core validates the parent, asset and operation permissions. A request can be
 rejected even when its target is selectable in Godot. Handle server rejections
-through `ack_received`; structural changes are applied only through server
-broadcasts.
+through `ack_received`; use the returned ID when identifying the original
+action is needed. Report unowned rejections as session errors; structural changes are
+applied only through server broadcasts.
 
 ## References, payloads and asset paths
 

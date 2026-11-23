@@ -482,19 +482,20 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
             if (observer_) observer_->on_snapshot_complete(session_id);
         });
     });
-    s.socket->on_ack(
-        [this, post, session_id](bool ok, const std::string& error, uint64_t request_id, uint64_t server_seq) {
-            post([this, session_id, ok, error, request_id, server_seq](Session& session, const auto&) {
-                IDTX_LOG(IDTX_DEBUG, "[trace] H on_ack session='{}' ok={} error='{}' req_id={} server_seq={}",
-                         session_id, ok, error, request_id, server_seq);
-                // The ack also carries server progress: adopt its server_seq so this author's base
-                // advances past its own applied edit (otherwise the next local edit on
-                // the same prim would fail the server's stale check), log it, and
-                // notify. The server resolves ordering — this handler does not retry rejected requests.
-                advance_server_seq(session, server_seq);
-                if (observer_) observer_->on_ack(session_id, ok, error);
-            });
+    s.socket->on_ack([this, post, session_id](bool ok, const std::string& error, uint64_t request_id,
+                                              uint64_t server_seq, model::RequestKind request_kind) {
+        post([this, session_id, ok, error, request_id, server_seq, request_kind](Session& session, const auto&) {
+            IDTX_LOG(IDTX_DEBUG, "[trace] H on_ack session='{}' ok={} error='{}' req_id={} server_seq={}", session_id,
+                     ok, error, request_id, server_seq);
+            // The ack also carries server progress: adopt its server_seq so this author's base
+            // advances past its own applied edit (otherwise the next local edit on
+            // the same prim would fail the server's stale check), log it, and
+            // notify. The server resolves ordering — this handler does not retry rejected requests.
+            advance_server_seq(session, server_seq);
+            // Keep notification last: observers may end this membership or destroy the engine.
+            if (observer_) observer_->on_ack(session_id, request_id, request_kind, ok, error);
         });
+    });
     s.socket->on_error([this, post, session_id](const std::string& code, const std::string& message) {
         post([this, session_id, code, message](Session&, const auto&) {
             IDTX_LOG(IDTX_ERROR, "session '{}' socket error code='{}' msg='{}'", session_id, code, message);
@@ -607,13 +608,13 @@ void CollabEngine::try_arm(Session& s)
     IDTX_LOG(IDTX_DEBUG, "[trace] E try_arm session='{}' ARMED (settle_done + snapshot_complete)", s.id);
 }
 
-void CollabEngine::request_create_prim(const std::string& session_id, const std::string& parent_path,
-                                       const std::string& prim_type, bool is_reference, bool is_payload,
-                                       const std::string& reference_path, bool has_transform,
-                                       const model::Mat4& transform)
+uint64_t CollabEngine::request_create_prim(const std::string& session_id, const std::string& parent_path,
+                                           const std::string& prim_type, bool is_reference, bool is_payload,
+                                           const std::string& reference_path, bool has_transform,
+                                           const model::Mat4& transform)
 {
     Session* s = find_session(session_id);
-    if (!s) return;
+    if (!s) return 0;
 
     // Same preconditions as an outbound transform: a remote, snapshot-complete
     // session with an open socket. The protocol forbids sending before the
@@ -622,7 +623,7 @@ void CollabEngine::request_create_prim(const std::string& session_id, const std:
     {
         IDTX_LOG(IDTX_DEBUG, "request_create_prim dropped (remote={} snapshot={} has_socket={})", s->remote,
                  s->snapshot_complete, s->socket != nullptr);
-        return;
+        return 0;
     }
 
     // Build the request edit from the decomposed intent: a reference holder is
@@ -650,26 +651,26 @@ void CollabEngine::request_create_prim(const std::string& session_id, const std:
     }
 
     // The prim is materialized later by the server's broadcast echo, not here.
-    s->socket->send_create_prim(edit);
+    return s->socket->send_create_prim(edit);
 }
 
-void CollabEngine::request_set_prim_active(const std::string& session_id, const std::string& prim_path, bool active)
+uint64_t CollabEngine::request_set_prim_active(const std::string& session_id, const std::string& prim_path, bool active)
 {
     Session* s = find_session(session_id);
-    if (!s) return;
+    if (!s) return 0;
 
     if (!s->remote || !s->snapshot_complete || !s->socket || !s->socket->is_open())
     {
         IDTX_LOG(IDTX_DEBUG, "request_set_prim_active dropped (remote={} snapshot={} has_socket={})", s->remote,
                  s->snapshot_complete, s->socket != nullptr);
-        return;
+        return 0;
     }
 
     model::PrimEdit edit;
     edit.kind = model::PrimEdit::Kind::SetActive;
     edit.prim_path = prim_path;
     edit.active = active;
-    s->socket->send_set_prim_active(edit);
+    return s->socket->send_set_prim_active(edit);
 }
 
 void CollabEngine::on_stage_changed(const std::string& session_id, const model::PrimEdit& edit)

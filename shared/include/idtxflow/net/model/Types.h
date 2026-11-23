@@ -18,6 +18,17 @@ namespace net
 {
 namespace model
 {
+/// The submitted operation associated with an acknowledgement. Unknown means
+/// its request was not tracked, was already acknowledged, or was evicted.
+enum class RequestKind
+{
+    Unknown = 0,
+    Transform = 1,
+    CreatePrim = 2,
+    DeletePrim = 3,
+    RestorePrim = 4
+};
+
 /// A 4x4 transform stored row-major, so element (row r, col c) is m[r*4 + c].
 /// This mirrors the wire protocol's Matrix4dTransform (m00..m33) one-to-one;
 /// its cells are numerically identical to USD's row-vector matrix, with

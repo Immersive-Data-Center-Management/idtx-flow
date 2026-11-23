@@ -186,9 +186,12 @@ supported types, reference/payload paths and server validation rules.
 Creation uses the exact selected USD parent path. The server chooses the name
 and default shape dimensions; the request can optionally supply a `Transform3D`.
 Requests do not immediately create/remove nodes: server broadcasts apply the result.
-`ack_received(session_id, ok, error)` reports acceptance or rejection without a
-public request ID, so do not treat it as a matched completion for a particular
-button press.
+Each request returns `0` when not submitted, or a positive request ID after
+transport submission. Optionally match it with
+`ack_received(session_id, request_id, request_kind, ok, error)` to report
+acceptance or rejection for the original action. If you track pending actions,
+keep them across selection changes and clear them when their session context ends or disconnects.
+An accepted Ack does not mean the scene has finished updating.
 
 Delete sets `active=false`; it does not erase the USD data or remove the retained
 Godot nodes. Native activity handling hides blocked content, disables processing

@@ -188,13 +188,16 @@ class CollabEngine
     // @c prim_type is the built-in schema type. @c has_transform places the new
     // prim with @c transform (a local matrix, authored verbatim). No-op unless the
     // session is remote, snapshot-complete and its socket open.
-    void request_create_prim(const std::string& session_id, const std::string& parent_path,
-                             const std::string& prim_type, bool is_reference, bool is_payload,
-                             const std::string& reference_path, bool has_transform, const model::Mat4& transform);
+    // Returns the ID submitted to the transport, or 0 when not submitted.
+    // Acceptance is reported separately; the return value does not imply delivery.
+    uint64_t request_create_prim(const std::string& session_id, const std::string& parent_path,
+                                 const std::string& prim_type, bool is_reference, bool is_payload,
+                                 const std::string& reference_path, bool has_transform, const model::Mat4& transform);
 
     // Ask the server to change a prim's active state (false = soft delete, true =
     // restore). Same session preconditions as request_create_prim.
-    void request_set_prim_active(const std::string& session_id, const std::string& prim_path, bool active);
+    // Returns the submitted ID, or 0 when not submitted.
+    uint64_t request_set_prim_active(const std::string& session_id, const std::string& prim_path, bool active);
 
     /// Advance each session's auto-arm settle countdown. Driven by the frame
     /// ticker. Outbound edits are sent immediately in on_stage_changed, not here.

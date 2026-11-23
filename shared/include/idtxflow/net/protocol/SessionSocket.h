@@ -9,14 +9,15 @@
  * port, holding no transport, protobuf, or engine types. An outbound edit is
  * encoded and sent the moment it is authored (one transform notice per node per
  * frame already bounds the rate); a per-prim last-sent cache drops an edit
- * identical to the one just sent for that prim. Acks are reported for
- * diagnostics only — the server resolves ordering, so nothing is resent.
+ * identical to the one just sent for that prim. Acks report request identity
+ * and acceptance — the server resolves ordering, so nothing is resent.
  * Results are delivered through caller-supplied callbacks so any binding can
  * route them to its own sink.
  */
 
 #include <functional>
 #include <map>
+#include <mutex>
 #include <string>
 
 #include <idtxflow/net/model/CloseReason.h>
@@ -37,7 +38,8 @@ class SessionSocket
         std::function<void(const std::string& session_id, const std::string& usd_path, const std::string& usd_uri)>;
     using RemoteEditCb =
         std::function<void(const model::PrimEdit& edit, const std::string& from_client_id, uint64_t server_seq)>;
-    using AckCb = std::function<void(bool ok, const std::string& error, uint64_t request_id, uint64_t server_seq)>;
+    using AckCb = std::function<void(bool ok, const std::string& error, uint64_t request_id, uint64_t server_seq,
+                                     model::RequestKind request_kind)>;
     using ErrorCb = std::function<void(const std::string& code, const std::string& message)>;
     using DisconnectCb = std::function<void(model::CloseReason reason, int code, const std::string& text)>;
     using SnapshotCompleteCb = std::function<void(uint64_t server_seq)>;
@@ -50,6 +52,7 @@ class SessionSocket
 
     void set_session_id(const std::string& id)
     {
+        std::lock_guard<std::mutex> lock(mutex_);
         session_id_ = id;
     }
     const std::string& session_id() const
@@ -61,6 +64,7 @@ class SessionSocket
     /// updates carry it as their base for the server's stale check.
     void set_base_server_seq(uint64_t seq)
     {
+        std::lock_guard<std::mutex> lock(mutex_);
         base_server_seq_ = seq;
     }
 
@@ -69,6 +73,7 @@ class SessionSocket
     void close();
     bool is_open() const
     {
+        std::lock_guard<std::mutex> lock(mutex_);
         return is_open_;
     }
 
@@ -76,43 +81,54 @@ class SessionSocket
     /// No-op if the socket is closed or the edit is identical (payload only,
     /// ignoring the timestamp) to the last one sent for its prim — this drops
     /// the duplicate info-only USD notice.
-    void send(const model::PrimEdit& edit);
+    /// Returns the request ID submitted to the transport, or 0 when skipped or
+    /// IDs are exhausted. Submission does not guarantee delivery or acceptance.
+    uint64_t send(const model::PrimEdit& edit);
 
     /// Request the server create a prim (the edit's prim_path is the parent).
     /// Unlike send(), there is no per-prim dedup: a create has no stable prim
     /// path yet (the server assigns the name). No-op if the socket is closed.
-    void send_create_prim(const model::PrimEdit& edit);
+    /// Returns the submitted ID, or 0 when closed or IDs are exhausted.
+    uint64_t send_create_prim(const model::PrimEdit& edit);
 
     /// Request the server change a prim's active state (soft delete / restore).
     /// No dedup: a delete/restore is a one-shot intent. No-op if closed.
-    void send_set_prim_active(const model::PrimEdit& edit);
+    /// Returns the submitted ID, or 0 when closed or IDs are exhausted.
+    uint64_t send_set_prim_active(const model::PrimEdit& edit);
 
     void on_opened(OpenedCb cb)
     {
+        std::lock_guard<std::mutex> lock(mutex_);
         on_opened_ = std::move(cb);
     }
     void on_handshake(HandshakeCb cb)
     {
+        std::lock_guard<std::mutex> lock(mutex_);
         on_handshake_ = std::move(cb);
     }
     void on_remote_edit(RemoteEditCb cb)
     {
+        std::lock_guard<std::mutex> lock(mutex_);
         on_remote_edit_ = std::move(cb);
     }
     void on_ack(AckCb cb)
     {
+        std::lock_guard<std::mutex> lock(mutex_);
         on_ack_ = std::move(cb);
     }
     void on_error(ErrorCb cb)
     {
+        std::lock_guard<std::mutex> lock(mutex_);
         on_error_ = std::move(cb);
     }
     void on_disconnected(DisconnectCb cb)
     {
+        std::lock_guard<std::mutex> lock(mutex_);
         on_disconnected_ = std::move(cb);
     }
     void on_snapshot_complete(SnapshotCompleteCb cb)
     {
+        std::lock_guard<std::mutex> lock(mutex_);
         on_snapshot_complete_ = std::move(cb);
     }
 
@@ -121,18 +137,26 @@ class SessionSocket
 
     void handle_binary(const std::string& bytes);
     void handle_state(ports::IWebSocketTransport::State state, int code, const std::string& reason);
+    // Called with mutex_ held. Retains only the newest 4096 outstanding kinds;
+    // an evicted request can still be acknowledged, with kind Unknown.
+    uint64_t register_request(model::RequestKind kind);
 
     ports::IWebSocketTransport* ws_;
     ports::IClock* clock_;
+    // Send state and copied receive callbacks cross main/network threads. Never
+    // hold this mutex while invoking a transport or a caller-supplied callback.
+    mutable std::mutex mutex_;
     std::string session_id_;
     bool is_open_ = false;
     // Base server_seq carried on outbound updates (engine keeps it current).
     uint64_t base_server_seq_ = 0;
-    // Per-connection monotonic request id for outbound updates (0 = unset).
+    // Monotonic across reconnects of this socket. 1..INT64_MAX are valid so all
+    // bindings can report positive IDs; the exhausted counter never wraps.
     uint64_t next_request_id_ = 1;
+    std::map<uint64_t, model::RequestKind> pending_requests_;
 
     // Last edit sent per prim (payload only). Drops a repeated identical notice
-    // for the same prim. Main-thread only; cleared on close so a reconnect
+    // for the same prim. Protected by mutex_; cleared on close so a reconnect
     // resends the current state.
     std::map<std::string, model::PrimEdit> last_sent_; // prim_path -> last sent edit
 

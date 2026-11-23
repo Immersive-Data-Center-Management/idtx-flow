@@ -29,6 +29,8 @@ var _last_frame := -1
 var _connection_ready := false
 var _context_reason := "Open a registered live-session scene."
 var _status_message := ""
+# Preserve each status update, including repeated identical errors.
+var _status_revision := 0
 var _session_label: Label
 var _target_label: Label
 var _reason_label: Label
@@ -105,29 +107,28 @@ func submit_create(prim_type: String) -> bool:
 		return false
 	if prim_type != "Xform" and not String(state.gprim_ancestor).is_empty():
 		return false
-	_client.call("request_create_prim", String(state.session_id), String(state.prim_path), {"type": prim_type})
-	_report_submitted()
-	return true
+	return _submit_request("request_create_prim", [String(state.session_id), String(state.prim_path), {"type": prim_type}],
+		"Create %s under" % prim_type, String(state.prim_path))
 
 
 ## Submit deletion only while the original confirmation target remains current.
 func submit_delete(ticket: Dictionary) -> bool:
 	if not _ticket_matches(ticket) or not _evaluate_state().delete_enabled:
 		return false
-	_client.call("request_delete_prim", String(ticket.session_id), String(ticket.prim_path))
+	var target := String(ticket.prim_path)
+	var arguments := [String(ticket.session_id), target]
 	_invalidate_actions()
-	_report_submitted()
-	return true
+	return _submit_request("request_delete_prim", arguments, "Delete", target)
 
 
 ## Submit restoration of the selected inactive prim without retargeting an ancestor.
 func submit_restore(ticket: Dictionary) -> bool:
 	if not _ticket_matches(ticket) or not _evaluate_state().restore_enabled:
 		return false
-	_client.call("request_restore_prim", String(ticket.session_id), String(ticket.prim_path))
+	var target := String(ticket.prim_path)
+	var arguments := [String(ticket.session_id), target]
 	_invalidate_actions()
-	_report_submitted()
-	return true
+	return _submit_request("request_restore_prim", arguments, "Restore", target)
 
 
 ## Submit a server file as a reference or payload under the captured selection.
@@ -137,10 +138,11 @@ func submit_asset(path: String, payload: bool, ticket: Dictionary) -> bool:
 	var backend_path := _uploads_path(path)
 	if backend_path.is_empty() or not _is_usd_file(backend_path):
 		return false
-	_client.call("request_create_prim", String(ticket.session_id), String(ticket.prim_path), {"reference_path": backend_path, "payload": payload})
+	var target := String(ticket.prim_path)
+	var arguments := [String(ticket.session_id), target, {"reference_path": backend_path, "payload": payload}]
 	_invalidate_actions()
-	_report_submitted()
-	return true
+	return _submit_request("request_create_prim", arguments,
+		"%s %s under" % ["Payload" if payload else "Reference", backend_path], target)
 
 
 ## Revalidate editor context, selection, native readiness and outstanding dialogs.
@@ -543,9 +545,10 @@ func _on_session_closed(session_id: String) -> void:
 	refresh_context()
 
 
-func _on_ack(session_id: String, ok: bool, error: String) -> void:
-	if session_id == String(_context.get("session_id", "")) and not ok:
-		_set_status("A session edit was rejected: " + error)
+func _on_ack(session_id: String, _request_id: int, _request_kind: int, ok: bool, error: String) -> void:
+	_sync_context()
+	if _closed or session_id != String(_context.get("session_id", "")): return
+	if not ok: _set_status("A session edit was rejected: " + error)
 
 
 func _on_socket_error(session_id: String, code: String, message: String) -> void:
@@ -671,12 +674,26 @@ func _selected_type() -> String:
 	return PRIM_TYPES[_type_option.selected] if is_instance_valid(_type_option) else "Xform"
 
 
-func _report_submitted() -> void:
-	_set_status("Request submitted. The scene updates from server broadcasts.")
+## Send an action and report submission without retaining its request ID.
+func _submit_request(method: String, arguments: Array, operation: String, target: String) -> bool:
+	var generation := _generation
+	var status_revision := _status_revision
+	var result: Variant = _client.callv(method, arguments)
+	var submitted: bool = result is int and result > 0
+	_sync_context()
+	# Keep feedback from a context change or session error that occurred during the call.
+	if _closed or generation != _generation or status_revision != _status_revision or not _evaluate_state().ready:
+		return submitted
+	if not submitted:
+		_set_status("%s %s: request not submitted. Check session readiness and request values." % [operation, target])
+		return false
 	_update_controls()
+	_set_status("%s %s: request submitted. The scene updates from server broadcasts." % [operation, target])
+	return true
 
 
 func _set_status(message: String) -> void:
+	_status_revision += 1
 	_status_message = message
 	if is_instance_valid(_status_label): _status_label.text = message
 	status_changed.emit(message)

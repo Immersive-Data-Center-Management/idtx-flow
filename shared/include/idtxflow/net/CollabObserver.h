@@ -84,7 +84,10 @@ class CollabObserver
     // Reported once the terminal join-snapshot marker arrives: the host now has the full current server state for
     // `session_id`.
     virtual void on_snapshot_complete(const std::string& session_id) = 0;
-    virtual void on_ack(const std::string& session_id, bool ok, const std::string& error) = 0;
+    /// Reports the request identity and server result. Acceptance does not imply
+    /// completed scene conversion; untracked request metadata has kind Unknown.
+    virtual void on_ack(const std::string& session_id, uint64_t request_id, model::RequestKind request_kind, bool ok,
+                        const std::string& error) = 0;
     virtual void on_socket_error(const std::string& session_id, const std::string& code,
                                  const std::string& message) = 0;
     virtual void on_disconnected(const std::string& session_id, model::CloseReason reason, int code,

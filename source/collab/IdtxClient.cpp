@@ -1,5 +1,7 @@
 #include "IdtxClient.h"
 
+#include <limits>
+
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/object.hpp>
@@ -302,7 +304,7 @@ void IdtxClient::unbind_session(const String& session_id)
     bindings_.erase(sid);
 }
 
-void IdtxClient::request_create_prim(const String& session_id, const String& parent_path, const Dictionary& spec)
+int64_t IdtxClient::request_create_prim(const String& session_id, const String& parent_path, const Dictionary& spec)
 {
     // Unpack the editor's Variant spec into plain values; the engine builds the
     // request and applies the reference-vs-type decision and the placement.
@@ -318,18 +320,21 @@ void IdtxClient::request_create_prim(const String& session_id, const String& par
         transform = gxform::transform_to_prim_edit(std::string(), static_cast<Transform3D>(spec["transform"])).matrix;
     }
 
-    engine_.request_create_prim(session_id.utf8().get_data(), parent_path.utf8().get_data(), prim_type, is_reference,
-                                is_payload, reference_path, has_transform, transform);
+    return static_cast<int64_t>(engine_.request_create_prim(session_id.utf8().get_data(), parent_path.utf8().get_data(),
+                                                            prim_type, is_reference, is_payload, reference_path,
+                                                            has_transform, transform));
 }
 
-void IdtxClient::request_delete_prim(const String& session_id, const String& prim_path)
+int64_t IdtxClient::request_delete_prim(const String& session_id, const String& prim_path)
 {
-    engine_.request_set_prim_active(session_id.utf8().get_data(), prim_path.utf8().get_data(), /*active=*/false);
+    return static_cast<int64_t>(
+        engine_.request_set_prim_active(session_id.utf8().get_data(), prim_path.utf8().get_data(), /*active=*/false));
 }
 
-void IdtxClient::request_restore_prim(const String& session_id, const String& prim_path)
+int64_t IdtxClient::request_restore_prim(const String& session_id, const String& prim_path)
 {
-    engine_.request_set_prim_active(session_id.utf8().get_data(), prim_path.utf8().get_data(), /*active=*/true);
+    return static_cast<int64_t>(
+        engine_.request_set_prim_active(session_id.utf8().get_data(), prim_path.utf8().get_data(), /*active=*/true));
 }
 
 void IdtxClient::attach_bridge(const std::string& session_id)
@@ -619,9 +624,18 @@ void IdtxClient::on_snapshot_complete(const std::string& session_id)
     emit_signal("snapshot_complete", String(session_id.c_str()));
 }
 
-void IdtxClient::on_ack(const std::string& session_id, bool ok, const std::string& error)
+void IdtxClient::on_ack(const std::string& session_id, uint64_t request_id,
+                        idtxflow::net::model::RequestKind request_kind, bool ok, const std::string& error)
 {
-    emit_signal("ack_received", String(session_id.c_str()), ok, String(error.c_str()));
+    // Protocol IDs are unsigned; never expose an oversized peer value as a negative Godot ID.
+    if (request_id > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()))
+    {
+        IDTX_LOG(IDTX_DEBUG, "Ack request ID {} exceeds Godot's integer range; reporting zero/Unknown", request_id);
+        request_id = 0;
+        request_kind = idtxflow::net::model::RequestKind::Unknown;
+    }
+    emit_signal("ack_received", String(session_id.c_str()), static_cast<int64_t>(request_id),
+                static_cast<int64_t>(request_kind), ok, String(error.c_str()));
 }
 
 void IdtxClient::on_socket_error(const std::string& session_id, const std::string& code, const std::string& message)
@@ -640,6 +654,12 @@ void IdtxClient::on_disconnected(const std::string& session_id, idtxflow::net::m
 void IdtxClient::_bind_methods()
 {
     using namespace godot;
+
+    BIND_ENUM_CONSTANT(REQUEST_KIND_UNKNOWN);
+    BIND_ENUM_CONSTANT(REQUEST_KIND_TRANSFORM);
+    BIND_ENUM_CONSTANT(REQUEST_KIND_CREATE_PRIM);
+    BIND_ENUM_CONSTANT(REQUEST_KIND_DELETE_PRIM);
+    BIND_ENUM_CONSTANT(REQUEST_KIND_RESTORE_PRIM);
 
     ClassDB::bind_method(D_METHOD("set_base_url", "url"), &IdtxClient::set_base_url);
     ClassDB::bind_method(D_METHOD("get_base_url"), &IdtxClient::get_base_url);
@@ -699,6 +719,7 @@ void IdtxClient::_bind_methods()
                           PropertyInfo(Variant::STRING, "from_client_id")));
     ADD_SIGNAL(MethodInfo("snapshot_complete", PropertyInfo(Variant::STRING, "session_id")));
     ADD_SIGNAL(MethodInfo("ack_received", PropertyInfo(Variant::STRING, "session_id"),
+                          PropertyInfo(Variant::INT, "request_id"), PropertyInfo(Variant::INT, "request_kind"),
                           PropertyInfo(Variant::BOOL, "ok"), PropertyInfo(Variant::STRING, "error")));
     ADD_SIGNAL(MethodInfo("socket_error", PropertyInfo(Variant::STRING, "session_id"),
                           PropertyInfo(Variant::STRING, "code"), PropertyInfo(Variant::STRING, "message")));
