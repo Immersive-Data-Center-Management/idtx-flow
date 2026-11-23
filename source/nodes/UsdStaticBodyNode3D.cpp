@@ -152,8 +152,8 @@ Ref<Shape3D> UsdStaticBodyNode3D::create_collision_shape(const ShapeType& shape)
     }
 
     // the world boundary shape is an infinite half-space volume collider shape in godot and
-    // equivalent to the infinite half-space colliders which is used during simulation in the
-    // USD standard for planes with collision enabled
+    // equivalent to the infinite half-space collider which is used during simulation in the
+    // USD standard for plane prims authored with PhysicsCollisionAPI
     case SHAPE_WORLD_BOUNDARY: {
         Ref<WorldBoundaryShape3D> world_boundary_shape;
         world_boundary_shape.instantiate();

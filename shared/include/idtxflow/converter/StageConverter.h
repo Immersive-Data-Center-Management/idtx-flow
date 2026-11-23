@@ -655,7 +655,7 @@ class UsdStageConverter
 
         // Handle colliders for prims with purpose `guide`, which are not rendered visually.
         // only UsdGeomImageable and those inheriting from it, like UsdGeomGprim, have GetPurposeAttr(),
-        // so the usdGprim variable hast to be used
+        // so the usdGprim variable is used here
         if (usdPrim.HasAPI<pxr::UsdPhysicsCollisionAPI>() && usdGprim.GetPurposeAttr().Get(&purpose) &&
             purpose == pxr::UsdGeomTokens->guide)
         {

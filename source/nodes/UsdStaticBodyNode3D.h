@@ -115,8 +115,8 @@ class UsdStaticBodyNode3D : public godot::StaticBody3D, public IUsdNode3D
         size_ = size;
     }
     /**
-     * Returns the current radius value.
-     * @return Radius of the shape.
+     * Returns the current size value.
+     * @return Size of the shape.
      */
     float get_size() const
     {

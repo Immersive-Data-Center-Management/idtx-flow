@@ -927,8 +927,8 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertPrimPo
     {
 
         pxr::UsdGeomGprim usdGprim = pxr::UsdGeomGprim(usd_prim);
-        // if the prim is of kind `guide` it is not visually rendered and instead only used as a collider
-        // at this stage if the usd_prim is of kind `guide` it is assumed to be converted already and should
+        // if the prim is authored with purpose `guide` it is not visually rendered and instead only used as a collider
+        // at this stage if the usd_prim has purpose `guide` it is assumed to be converted already and should
         // not require this step
         if (!usdGprim.GetPurposeAttr().Get(&purpose) || purpose != pxr::UsdGeomTokens->guide)
         {
