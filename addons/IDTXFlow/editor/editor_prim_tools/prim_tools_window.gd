@@ -225,6 +225,16 @@ func _query_activity(stage: Object, path: String) -> Dictionary:
 	return {"status": "unavailable", "reason": "Native USD activity information is unavailable."}
 
 
+## Protect the owning stage's defaultPrim
+func _delete_reason(stage: Object, path: String) -> String:
+	if not stage.has_method("get_default_prim_path"):
+		return "Update the native IDTXFlow extension to check the stage's defaultPrim before deleting."
+	var default_path := String(stage.call("get_default_prim_path"))
+	if not default_path.is_empty() and path == default_path:
+		return "The stage's defaultPrim (%s) is protected from deletion." % default_path
+	return ""
+
+
 func _ready() -> void:
 	_build_ui()
 
@@ -355,7 +365,8 @@ func _evaluate_state() -> Dictionary:
 					match String(activity.get("status", "unavailable")):
 						"active":
 							state.target_valid = true
-							state.delete_enabled = true
+							state.delete_reason = _delete_reason(stage, path)
+							state.delete_enabled = String(state.delete_reason).is_empty()
 							state.children_allowed = not node.is_class("UsdStageNode3D")
 							state.gprim_ancestor = _known_gprim_ancestor(node, stage)
 							state.create_enabled = state.children_allowed and (_selected_type() == "Xform" or String(state.gprim_ancestor).is_empty())
@@ -372,7 +383,8 @@ func _evaluate_state() -> Dictionary:
 						_:
 							state.reason = String(activity.get("reason", "USD activity is unavailable."))
 	for action: String in ["create", "delete", "restore", "asset"]:
-		if not bool(state[action + "_enabled"]): state[action + "_reason"] = state.reason
+		if not bool(state[action + "_enabled"]) and String(state[action + "_reason"]).is_empty():
+			state[action + "_reason"] = state.reason
 	if state.target_valid and not state.restore_enabled and String(state.restore_reason).is_empty():
 		state.restore_reason = "The selected prim is already active."
 	return state
@@ -548,7 +560,11 @@ func _on_session_closed(session_id: String) -> void:
 func _on_ack(session_id: String, _request_id: int, _request_kind: int, ok: bool, error: String) -> void:
 	_sync_context()
 	if _closed or session_id != String(_context.get("session_id", "")): return
-	if not ok: _set_status("A session edit was rejected: " + error)
+	if not ok:
+		var explanation := ""
+		if error == "not_deletable":
+			explanation = ". The server protects the stage's defaultPrim and can reject deletion of prims with opinions from outside the root and session layers, such as a sublayer or an ancestor's reference/payload. A locally defined asset holder can still be deleted as a whole."
+		_set_status("A session edit was rejected: " + error + explanation)
 
 
 func _on_socket_error(session_id: String, code: String, message: String) -> void:
@@ -704,7 +720,7 @@ func _update_controls() -> void:
 	var state := _evaluate_state()
 	_session_label.text = "Session: " + (String(state.session_id) if not String(state.session_id).is_empty() else "none")
 	_target_label.text = "Selected USD prim: " + (String(state.prim_path) if not String(state.prim_path).is_empty() else "none")
-	_reason_label.text = String(state.reason)
+	_reason_label.text = String(state.reason) if not String(state.reason).is_empty() else String(state.delete_reason)
 	_status_label.text = _status_message
 	_create_button.disabled = not state.create_enabled
 	_delete_button.disabled = not state.delete_enabled

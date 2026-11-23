@@ -178,6 +178,10 @@ class UsdStageNode3D : public godot::Node3D, public IUsdNode3D
     /// Fields are status, blocker_stage_id, blocker_path and reason; invalid paths are unavailable.
     godot::Dictionary get_prim_activity(const godot::String& prim_path);
 
+    /// Return the absolute prim path named by the loaded root layer's defaultPrim metadata.
+    /// Empty when the stage is unavailable or the metadata is unset/invalid; never loads or authors USD.
+    godot::String get_default_prim_path() const;
+
     /// Borrow this node's runtime activity controller; it owns no USD or collaboration session.
     idtxflow::collab::StageActivityController& get_activity_controller();
 

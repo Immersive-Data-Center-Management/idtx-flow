@@ -71,6 +71,18 @@ Dictionary UsdStageNode3D::get_prim_activity(const String& prim_path)
     return get_activity_controller().query(prim_path);
 }
 
+String UsdStageNode3D::get_default_prim_path() const
+{
+    const auto stage = get_stage();
+    if (!stage) return {};
+    const auto root = stage->GetRootLayer();
+    if (!root) return {};
+    // Do not substitute stronger session metadata or a payload view's separately retained
+    // source and selected conversion root.
+    const auto path = root->GetDefaultPrimAsPath();
+    return path.IsEmpty() ? String() : String(path.GetText());
+}
+
 void UsdStageNode3D::_flush_prim_activity(int64_t generation)
 {
     if (activity_) activity_->flush(static_cast<uint64_t>(generation));
@@ -704,6 +716,7 @@ void UsdStageNode3D::_bind_methods()
     ClassDB::bind_method(D_METHOD("_load_converted_stage"), &UsdStageNode3D::_load_converted_stage);
 
     ClassDB::bind_method(D_METHOD("get_prim_activity", "prim_path"), &UsdStageNode3D::get_prim_activity);
+    ClassDB::bind_method(D_METHOD("get_default_prim_path"), &UsdStageNode3D::get_default_prim_path);
     ClassDB::bind_method(D_METHOD("_flush_prim_activity", "generation"), &UsdStageNode3D::_flush_prim_activity);
     ClassDB::bind_method(D_METHOD("_on_prim_activity_node_added", "node"),
                          &UsdStageNode3D::_on_prim_activity_node_added);
