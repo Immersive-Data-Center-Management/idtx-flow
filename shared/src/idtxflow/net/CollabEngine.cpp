@@ -446,8 +446,8 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
     s.socket->on_remote_edit(
         [this, post, session_id](const model::PrimEdit& edit, const std::string& from, uint64_t server_seq) {
             post([this, session_id, edit, from, server_seq](Session& session, const auto& lifetime) {
-                IDTX_LOG(IDTX_DEBUG, "[trace] H on_remote_edit session='{}' prim='{}' from='{}' server_seq={}",
-                         session_id, edit.prim_path, from, server_seq);
+                IDTX_LOG(IDTX_DEBUG, "Received edit session='{}' prim='{}' from='{}' server_seq={}", session_id,
+                         edit.prim_path, from, server_seq);
                 // Apply inbound to the stage with loopback suppression (so our author
                 // isn't re-broadcast), then report. The broadcast's server_seq (incl. a
                 // correction sent only to us) becomes our base, keeping updates non-stale.
@@ -485,8 +485,8 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
     s.socket->on_ack([this, post, session_id](bool ok, const std::string& error, uint64_t request_id,
                                               uint64_t server_seq, model::RequestKind request_kind) {
         post([this, session_id, ok, error, request_id, server_seq, request_kind](Session& session, const auto&) {
-            IDTX_LOG(IDTX_DEBUG, "[trace] H on_ack session='{}' ok={} error='{}' req_id={} server_seq={}", session_id,
-                     ok, error, request_id, server_seq);
+            IDTX_LOG(IDTX_DEBUG, "Acknowledgement received session='{}' ok={} error='{}' req_id={} server_seq={}",
+                     session_id, ok, error, request_id, server_seq);
             // The ack also carries server progress: adopt its server_seq so this author's base
             // advances past its own applied edit (otherwise the next local edit on
             // the same prim would fail the server's stale check), log it, and
@@ -605,7 +605,7 @@ void CollabEngine::try_arm(Session& s)
     // SnapshotComplete; if it never arrives, the client never arms.
     if (!s.remote || s.armed || !s.settle_done || !s.snapshot_complete) return;
     s.armed = true;
-    IDTX_LOG(IDTX_DEBUG, "[trace] E try_arm session='{}' ARMED (settle_done + snapshot_complete)", s.id);
+    IDTX_LOG(IDTX_DEBUG, "Transform synchronization enabled session='{}'", s.id);
 }
 
 uint64_t CollabEngine::request_create_prim(const std::string& session_id, const std::string& parent_path,
@@ -683,9 +683,6 @@ void CollabEngine::on_stage_changed(const std::string& session_id, const model::
     // completed snapshot and an open socket: the protocol forbids sending before
     // the snapshot, and an edit authored while disconnected is dropped (the join
     // snapshot wins on reconnect).
-    IDTX_LOG(IDTX_DEBUG,
-             "[trace] D on_stage_changed session='{}' prim='{}' remote={} armed={} applying={} has_socket={}",
-             session_id, edit.prim_path, s->remote, s->armed, s->applying_remote, s->socket != nullptr);
     if (!s->remote || !s->armed || s->applying_remote)
     {
         return;
@@ -708,8 +705,6 @@ void CollabEngine::poll()
         if (s.arm_countdown > 0)
         {
             --s.arm_countdown;
-            IDTX_LOG(IDTX_DEBUG, "[trace] E poll session='{}' settle countdown={} armed={}", id, s.arm_countdown,
-                     s.armed);
             if (s.arm_countdown == 0)
             {
                 // Settle elapsed; arm iff the snapshot gate is also satisfied.

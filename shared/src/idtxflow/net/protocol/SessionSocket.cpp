@@ -197,7 +197,7 @@ uint64_t SessionSocket::send(const model::PrimEdit& edit)
         std::lock_guard<std::mutex> lock(mutex_);
         if (!is_open_)
         {
-            IDTX_LOG(IDTX_DEBUG, "[trace] F send SKIP: socket not open (is_open_=false) prim='{}'", edit.prim_path);
+            IDTX_LOG(IDTX_DEBUG, "Transform not sent: socket is not open prim='{}'", edit.prim_path);
             return 0;
         }
 
@@ -206,7 +206,6 @@ uint64_t SessionSocket::send(const model::PrimEdit& edit)
         auto it = last_sent_.find(edit.prim_path);
         if (it != last_sent_.end() && same_payload(it->second, edit))
         {
-            IDTX_LOG(IDTX_DEBUG, "[trace] F send SKIP: duplicate of last sent prim='{}'", edit.prim_path);
             return 0;
         }
 
@@ -214,7 +213,7 @@ uint64_t SessionSocket::send(const model::PrimEdit& edit)
         out.timestamp = clock_->now_millis();
         request_id = register_request(model::RequestKind::Transform);
         if (!request_id) return 0;
-        IDTX_LOG(IDTX_DEBUG, "[trace] F send prim='{}' base_seq={} req_id={}", edit.prim_path, base_server_seq_,
+        IDTX_LOG(IDTX_DEBUG, "Sending transform prim='{}' base_seq={} req_id={}", edit.prim_path, base_server_seq_,
                  request_id);
         bytes = wire::encode_transform_update(session_id_, out, base_server_seq_, request_id);
         // Record before transport delivery: a synchronous Ack can recursively
