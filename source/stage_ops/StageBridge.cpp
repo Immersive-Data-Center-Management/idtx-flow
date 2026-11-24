@@ -507,10 +507,19 @@ void StageBridge::author_create(const net::model::PrimEdit& edit)
     const pxr::SdfPath path(edit.prim_path);
     if (!path.IsPrimPath()) return;
 
+    // Keep the optional source prim separate from the asset identifier passed to the resolver.
+    idtxflow::resolver::ParsedAssetTarget asset_target;
+    if (edit.has_ref && !idtxflow::resolver::ParseAssetTarget(edit.reference_path, asset_target))
+    {
+        IDTX_LOG(IDTX_WARN, "author_create: invalid asset/prim target '{}' for '{}'", edit.reference_path,
+                 edit.prim_path);
+        return;
+    }
+
     // Reject an unusable asset anchor before a partial holder can enter composition.
     // Anonymous session layers have no asset directory; wire-relative arcs belong to the owning root.
     const std::string arc_asset =
-        edit.has_ref ? idtxflow::resolver::AnchorAssetIdentifier(edit.reference_path, stage_->GetRootLayer(),
+        edit.has_ref ? idtxflow::resolver::AnchorAssetIdentifier(asset_target.asset_identifier, stage_->GetRootLayer(),
                                                                  stage_->GetPathResolverContext())
                      : std::string();
     if (edit.has_ref && arc_asset.empty())
@@ -544,9 +553,11 @@ void StageBridge::author_create(const net::model::PrimEdit& edit)
         if (edit.has_ref)
         {
             if (edit.ref_kind == net::model::PrimEdit::RefKind::Payload)
-                spec->GetPayloadList().GetExplicitItems().push_back(pxr::SdfPayload(arc_asset));
+                spec->GetPayloadList().GetExplicitItems().push_back(
+                    pxr::SdfPayload(arc_asset, asset_target.target_prim));
             else
-                spec->GetReferenceList().GetExplicitItems().push_back(pxr::SdfReference(arc_asset));
+                spec->GetReferenceList().GetExplicitItems().push_back(
+                    pxr::SdfReference(arc_asset, asset_target.target_prim));
         }
         else
         {
