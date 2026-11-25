@@ -1,8 +1,8 @@
 # Godot Binding
 
 The Godot binding is the engine-specific C++ (GDExtension) that connects the
-[engine-agnostic net core](net-core.md) to the Godot editor. It is the only place
-that names both Godot (`godot::`) and OpenUSD (`pxr::`) types. It implements the
+[engine-agnostic net core](net-core.md) to Godot, in the editor and at runtime. It
+is where Godot (`godot::`) and OpenUSD (`pxr::`) types meet. It implements the
 engine-specific ports, converts between Godot and core types, exposes a
 GDScript-facing API, and is the composition root that wires everything together.
 
@@ -11,19 +11,21 @@ It lives in:
 | Path | Contents |
 |---|---|
 | `source/collab/` | `IdtxClient`, `Dispatcher`, `Ticker` |
-| `source/stage_ops/` | `StageBridge`, `StageEditController`, `TransformCodec` (see [stage-authoring.md](stage-authoring.md)) |
+| `source/stage_ops/` | `StageBridge`, `StageEditController`, `StageActivityController`, `PayloadPlacement`, `TransformCodec` (see [stage-authoring.md](stage-authoring.md)) |
 | `source/nodes/` | USD node types (`UsdStageNode3D` + converted prim nodes) |
 | `source/register_types.cpp` | Module boot: class registration, singleton, composition root |
 
 ```mermaid
 graph TB
-    GD["GDScript (import wizard)"]
+    GD["Host GDScript"]
     subgraph BIND["Godot binding"]
         CLIENT["IdtxClient<br/>Node · singleton · CollabObserver"]
         BRIDGE["StageBridge (IStageBridge)"]
         CODEC["TransformCodec"]
         DISP["Dispatcher (IMainThreadDispatcher)"]
         TICK["Ticker (IFrameTicker)"]
+        STAGE["UsdStageNode3D"]
+        ACTIVITY["StageActivityController"]
     end
     ENGINE["CollabEngine (net core)"]
 
@@ -33,6 +35,9 @@ graph TB
     ENGINE -->|via ports| BRIDGE
     ENGINE -->|via ports| DISP
     ENGINE -->|via ports| TICK
+    STAGE -->|owns| BRIDGE
+    STAGE -->|owns| ACTIVITY
+    BRIDGE -->|checks local eligibility| ACTIVITY
     CLIENT -.marshalling.- CODEC
     BRIDGE -.marshalling.- CODEC
 
@@ -100,16 +105,56 @@ so a host tracking multiple concurrent sessions can route each event to the righ
 
 | Signal | Fired when |
 |---|---|
-| `session_closed` | `end_session(session_id)` completed (carries `session_id`) |
-| `socket_opened` | session WebSocket connected (carries `session_id`) |
-| `handshake_received` | server handshake for the session |
-| `transform_broadcast_received` | a peer's transform edit arrived (already applied to the stage) |
-| `ack_received` | server acknowledged a submitted edit |
-| `socket_error` | protocol-level socket error |
-| `socket_disconnected` | socket closed/dropped (with reason/code) |
+| `session_closed(session_id)` | `end_session(session_id)` completed |
+| `socket_opened(session_id)` | session WebSocket connected |
+| `handshake_received(session_id, usd_path, usd_uri)` | server handshake for the session |
+| `transform_broadcast_received(session_id, prim_path, xform, from_client_id)` | a transform broadcast arrived; structural broadcasts do not emit this signal |
+| `snapshot_complete(session_id)` | the server snapshot boundary arrived; stage loading/conversion may still be pending |
+| `ack_received(session_id, request_id, request_kind, ok, error)` | server result with the request ID and its locally tracked kind |
+| `socket_error(session_id, code, message)` | protocol-level socket error |
+| `socket_disconnected(session_id, reason, code, text)` | socket closed/dropped |
 
 So GDScript never sees a core type: it calls methods, awaits `on_done`
 dictionaries, and reacts to signals.
+
+### Structural requests
+
+The same native methods are available to runtime scripts and editor tools:
+
+| Method | Meaning |
+|---|---|
+| `request_create_prim(session_id, parent_path, spec)` | Ask the server to create a child beneath the exact USD parent path. |
+| `request_delete_prim(session_id, prim_path)` | Request `active=false` for that prim. |
+| `request_restore_prim(session_id, prim_path)` | Request `active=true` for that prim. |
+
+For creation, `spec` contains either `type` (`Xform`, `Cube`, `Sphere`, `Cone`,
+`Cylinder`, `Capsule`, or `Plane`) or `reference_path` with optional `payload`
+(`false` for a reference, `true` for a payload). An optional `transform: Transform3D`
+supplies initial placement. The server assigns the child name and default
+dimensions; size/radius/height fields are not exposed by this GDScript method.
+
+These methods return an integer request ID: `0` means not submitted; a positive
+ID means submitted to the transport, not confirmed delivery or acceptance. They
+do not modify the scene optimistically.
+The engine sends only when the session is remote, its snapshot is complete, and
+its socket is open. Unlike outgoing transforms, these request methods do not
+check the post-attach arming gate. Hosts should also wait for successful loading
+and settling before enabling actions against converted nodes.
+
+Server broadcasts apply creation/activity changes through the bound stage bridge.
+Caller-side request ID tracking is optional: callers can ignore the returned ID
+and use `ack_received` for general status via `request_kind`, `ok` and `error`.
+Signal handlers still accept all five arguments; name an unused ID `_request_id`.
+For per-action results, match the signal's ID to the returned ID within the same
+session membership.
+Its `request_kind` uses the `IdtxClient` constants `REQUEST_KIND_UNKNOWN`,
+`REQUEST_KIND_TRANSFORM`, `REQUEST_KIND_CREATE_PRIM`, `REQUEST_KIND_DELETE_PRIM`
+and `REQUEST_KIND_RESTORE_PRIM` (values 0–4). References and payloads use the create
+kind. A kind can be unknown when native tracking metadata is unavailable; a valid
+ID can still match a caller's own pending request. An Ack does not confirm
+scene conversion completion.
+See [structural-edits.md](structural-edits.md)
+for path rules, current server policies, examples, and the request/broadcast flow.
 
 ---
 
@@ -119,27 +164,15 @@ These are the ports the net core requires that can only be implemented in terms 
 Godot (and, for the stage, OpenUSD). Everything else (transports, token, clock) is
 reused from `shared/` — see [net-core.md](net-core.md).
 
-- **`StageBridge`** (`IStageBridge`) — where Godot and OpenUSD types meet **for the
-  net binding's transform authoring/reading**, **owned by the `UsdStageNode3D`**
-  (not the engine); a session borrows it.
-  It authors edits into the live USD stage (the free local save), applies
-  inbound edits with **loopback suppression** (a flag set while it authors, so the
-  resulting change notice isn't re-broadcast), reads prim transforms, and reports
-  genuine stage changes back to the core through a USD change-notice (`TfNotice`)
-  listener. It lives in `source/stage_ops/` with `StageEditController` (which
-  applies the local-or-session authoring decision) — see
-  [stage-authoring.md](stage-authoring.md). It also handles the spine-axis
-  presentation rotation for Cone/Cylinder (see [transform-sync-flow.md](transform-sync-flow.md)).
-- **`TransformCodec`** — converts a Godot `Transform3D` to/from the core's
-  `PrimEdit`/`Mat4`. Godot-only (no pxr); shared by both `IdtxClient` (outbound
-  origin and inbound signal) and `StageBridge` (USD authoring), so the marshalling
-  lives in one place. Built on the core's `ConventionMath` for the wire/USD layout.
-- **`Dispatcher`** (`IMainThreadDispatcher`) — marshals a background result onto
-  the editor main thread via `call_deferred` on the host node; drops posts after
-  shutdown so nothing touches a torn-down engine.
-- **`Ticker`** (`IFrameTicker`) — drives `poll()` once per frame off
-  `SceneTree::process_frame` (which fires in the editor too, unlike `Node::_process`
-  for an out-of-tree singleton).
+| Adapter | Port | Responsibility |
+|---|---|---|
+| `StageBridge` | `IStageBridge` | Applies edits to USD, reads transforms and reports local changes without echoing external edits. Owned by `UsdStageNode3D`; borrowed by a session. |
+| `Dispatcher` | `IMainThreadDispatcher` | Runs callbacks on Godot's main thread. |
+| `Ticker` | `IFrameTicker` | Drives the collaboration engine once per frame. |
+
+For authoring and supporting helpers, see [stage-authoring.md](stage-authoring.md).
+Transform conversion and synchronization are detailed in
+[transform-sync-flow.md](transform-sync-flow.md).
 
 ---
 
@@ -182,11 +215,12 @@ Teardown (`uninitialize`) shuts the client down and frees it.
 
 ## How it plugs into the core
 
-`IdtxClient` assembles `CollabPorts` from two sources: the engine-specific ports it
-implements here (`StageBridge`, `Dispatcher`, `Ticker`) and the engine-agnostic
-ports built by the shared `CollabComposition` helpers (HTTP/WebSocket transports,
-token, clock) from the injected `ITransportFactory`. It hands those ports to
-`CollabEngine::initialize`, then receives every result back through the
+`IdtxClient` assembles `CollabPorts` from two sources: Godot's `Dispatcher` and
+`Ticker`, and the shared `CollabComposition` helpers' HTTP transport, WebSocket
+factory, token and clock. It hands those ports to `CollabEngine::initialize`.
+The engine creates one WebSocket transport per session; the host separately
+attaches that session's borrowed `StageBridge` after loading. The client receives
+results through the
 `CollabObserver` interface and converts it to Godot signals / `on_done`
 dictionaries. The full "reuse vs. implement" split is in
 [net-core.md](net-core.md#portability--what-a-new-host-engine-reuses-vs-implements).

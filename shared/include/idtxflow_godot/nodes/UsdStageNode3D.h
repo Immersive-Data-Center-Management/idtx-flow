@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <mutex>
+#include <vector>
 
 #include <godot_cpp/classes/node3d.hpp>
 #include <godot_cpp/classes/mesh_instance3d.hpp>
@@ -12,6 +13,11 @@
 #include <idtxflow/net/ports/IStageBridge.h>
 #include <idtxflow_godot/nodes/IUsdNode3D.h>
 #include "idtxflow/converter/StageHandle.h"
+
+namespace idtxflow::collab
+{
+class StageActivityController;
+}
 
 /**
  * This node represents an USD Stage or an USD Layer defined by an *.usd[a|c|z] file.
@@ -168,6 +174,17 @@ class UsdStageNode3D : public godot::Node3D, public IUsdNode3D
      */
     void author_node_transform(godot::Node3D* child);
 
+    /// Return effective USD activity and its stage-qualified blocker without loading or authoring.
+    /// Fields are status, blocker_stage_id, blocker_path and reason; invalid paths are unavailable.
+    godot::Dictionary get_prim_activity(const godot::String& prim_path);
+
+    /// Return the absolute prim path named by the loaded root layer's defaultPrim metadata.
+    /// Empty when the stage is unavailable or the metadata is unset/invalid; never loads or authors USD.
+    godot::String get_default_prim_path() const;
+
+    /// Borrow this node's runtime activity controller; it owns no USD or collaboration session.
+    idtxflow::collab::StageActivityController& get_activity_controller();
+
     /**
      * Save a flattened snapshot of this node's live stage to a new USD file at
      * out_uri (res://, user://, or absolute; extension selects the encoding).
@@ -176,6 +193,30 @@ class UsdStageNode3D : public godot::Node3D, public IUsdNode3D
      * @return OK on success, else a Godot Error
      */
     godot::Error save_stage(const godot::String& out_uri);
+
+    /**
+     * Incrementally convert a single prim (and its descendants) that appeared on
+     * the already-converted stage — e.g. after a collaborative create broadcast
+     * authored it into the live stage. Resolves the prim's parent Godot node,
+     * converts the subtree via UsdStageConverter::ConvertSubtree, attaches it
+     * under that parent (or under this node when the parent is the stage's
+     * pseudo-root), and rebuilds the authoring bridge index. No-op when there is
+     * no live stage or the prim is missing/inactive.
+     *
+     * Must run on the main thread (creates/attaches Godot nodes).
+     * @param prim_path Absolute USD path of the prim to convert.
+     */
+    void convert_prim_subtree(const godot::String& prim_path);
+
+    /**
+     * Find the converted Godot node for a prim path by walking this stage's
+     * converted subtree and matching IUsdNode3D::get_prim_path. Returns null when
+     * no converted node exists for that path (e.g. a not-yet-converted or
+     * structural-only prim).
+     * @param prim_path Absolute USD path to look up.
+     * @return The matching Node3D, or null.
+     */
+    godot::Node3D* find_prim_node(const godot::String& prim_path) const;
 
   protected:
     /**
@@ -205,6 +246,22 @@ class UsdStageNode3D : public godot::Node3D, public IUsdNode3D
     void _configure_nodes_recursive(godot::Node3D* node, godot::Node* owner, bool register_compute = false);
 
     /**
+     * Attach a set of freshly converted root nodes under a parent and rebuild the
+     * authoring bridge index. Each root is owner-configured before it is parented
+     * (the owner must be set before the node enters the tree), then added as a
+     * child of @p parent. After every root is attached, the authoring bridge's
+     * prim index is rebuilt so it tracks the new node(s).
+     *
+     * Shared by full-stage conversion and single-subtree conversion so both reach
+     * the tree the same way.
+     *
+     * Must run on the main thread (mutates the Godot scene tree).
+     * @param roots Converted root nodes to attach, in order.
+     * @param parent Node the roots become children of.
+     */
+    void attach_converted_subtree(const std::vector<godot::Node3D*>& roots, godot::Node* parent);
+
+    /**
      * remove all child nodes that has been converted as part of the referenced usd stage
      */
     void _cleanup_nodes();
@@ -225,6 +282,13 @@ class UsdStageNode3D : public godot::Node3D, public IUsdNode3D
     void _pack_and_save_cached_scene();
 
     static void _bind_methods();
+
+    // The out-of-line deleter keeps activity implementation out of the public node header.
+    static void _delete_activity_controller(idtxflow::collab::StageActivityController* controller);
+    void _flush_prim_activity(int64_t generation);
+    void _on_prim_activity_node_added(godot::Node* node);
+    std::unique_ptr<idtxflow::collab::StageActivityController, decltype(&_delete_activity_controller)> activity_{
+        nullptr, &_delete_activity_controller};
 
     bool node_ready_ = false;
     godot::String stage_uri_;
@@ -250,5 +314,5 @@ class UsdStageNode3D : public godot::Node3D, public IUsdNode3D
     std::mutex result_mutex_;
 
     // Whether an async load is currently in progress
-    bool is_loading_;
+    bool is_loading_ = false;
 };

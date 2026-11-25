@@ -47,30 +47,38 @@ Transform3D separate_to_transform(const net::model::SeparateXform& s)
 {
     Transform3D t;
     t.origin = Vector3((real_t)s.translation[0], (real_t)s.translation[1], (real_t)s.translation[2]);
+    // USD rotateXYZ corresponds to Rz * Ry * Rx in Godot's column-vector basis.
     Basis b =
         Basis::from_euler(Vector3(Math::deg_to_rad((real_t)s.rotation[0]), Math::deg_to_rad((real_t)s.rotation[1]),
-                                  Math::deg_to_rad((real_t)s.rotation[2])));
-    b.scale(Vector3((real_t)s.scale[0], (real_t)s.scale[1], (real_t)s.scale[2]));
-    t.basis = b;
+                                  Math::deg_to_rad((real_t)s.rotation[2])),
+                          EulerOrder::EULER_ORDER_ZYX);
+    // Scale follows the rotated local axes, so the column-vector basis is R * S.
+    t.basis = b.scaled_local(Vector3((real_t)s.scale[0], (real_t)s.scale[1], (real_t)s.scale[2]));
     return t;
+}
+
+Transform3D to_transform(bool is_matrix, const net::model::Mat4& matrix, const net::model::SeparateXform& separate)
+{
+    return is_matrix ? mat4_to_transform(matrix) : separate_to_transform(separate);
 }
 
 Transform3D prim_edit_to_transform(const net::model::PrimEdit& e)
 {
-    return e.is_matrix ? mat4_to_transform(e.matrix) : separate_to_transform(e.separate);
+    return to_transform(e.is_matrix, e.matrix, e.separate);
 }
 
 namespace
 {
 // The presentation rotation UsdGodotTypeConverter::toTransform bakes for a
-// given spine axis: X -> rot_z(+90), Z -> rot_x(+90), Y/None -> identity.
-// Kept byte-identical to the converter so load and collaboration agree.
+// given spine axis: X -> rot_z(-90), Z -> rot_x(+90), Y/None -> identity.
+// Kept aligned with the converter so load and collaboration agree.
+// The mesh's local +Y must point along the positive USD shape axis.
 Basis spine_axis_rotation(SpineAxis axis)
 {
     switch (axis)
     {
     case SpineAxis::X:
-        return Basis(Vector3(0, 0, 1), (real_t)Math::deg_to_rad(90.0));
+        return Basis(Vector3(0, 0, 1), (real_t)Math::deg_to_rad(-90.0));
     case SpineAxis::Z:
         return Basis(Vector3(1, 0, 0), (real_t)Math::deg_to_rad(90.0));
     case SpineAxis::Y:
@@ -85,6 +93,7 @@ Basis apply_spine_axis(const Basis& basis, SpineAxis axis)
 {
     if (axis == SpineAxis::Y || axis == SpineAxis::None) return basis;
     // Matches the converter: basis = basis * rot.
+    // Mesh orientation follows the authored basis, including nonuniform scale.
     return basis * spine_axis_rotation(axis);
 }
 
@@ -92,6 +101,7 @@ Basis strip_spine_axis(const Basis& basis, SpineAxis axis)
 {
     if (axis == SpineAxis::Y || axis == SpineAxis::None) return basis;
     // Inverse of apply_spine_axis: basis * rot^-1 (transpose of the orthonormal rotation).
+    // The inverse keeps mesh alignment out of the authored USD basis.
     return basis * spine_axis_rotation(axis).transposed();
 }
 

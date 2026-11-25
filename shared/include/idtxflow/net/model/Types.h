@@ -18,10 +18,21 @@ namespace net
 {
 namespace model
 {
+/// The submitted operation associated with an acknowledgement. Unknown means
+/// its request was not tracked, was already acknowledged, or was evicted.
+enum class RequestKind
+{
+    Unknown = 0,
+    Transform = 1,
+    CreatePrim = 2,
+    DeletePrim = 3,
+    RestorePrim = 4
+};
+
 /// A 4x4 transform stored row-major, so element (row r, col c) is m[r*4 + c].
 /// This mirrors the wire protocol's Matrix4dTransform (m00..m33) one-to-one;
-/// it is deliberately distinct from USD's column-major basis, which the stage
-/// bridge transposes on its own boundary.
+/// its cells are numerically identical to USD's row-vector matrix, with
+/// translation in m30..m32. Column-vector engines transpose only their basis.
 struct Mat4
 {
     std::array<double, 16> m{{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}};
@@ -36,22 +47,78 @@ struct SeparateXform
     double scale[3]{1, 1, 1};
 };
 
-/// A single collaborative edit to one prim. Today an edit is always a
-/// transform, carried either as a full matrix or as separate T/R/S; the kind
-/// is modelled explicitly so the shape can grow without changing call sites.
+/// A single collaborative edit to one prim. An edit is either a transform
+/// (carried as a full matrix or separate T/R/S), the creation of a built-in
+/// prim, or an active-state change (soft delete / undo). The kind is modelled
+/// explicitly so the shape can grow without changing call sites.
+///
+/// A CreatePrim edit may additionally carry Plane dimensions, a reference/payload
+/// arc (for a typeless reference holder), and an optional local transform that is
+/// authored verbatim as the new prim's placement.
 struct PrimEdit
 {
     enum class Kind
     {
-        Transform
+        Transform,
+        CreatePrim, ///< author a built-in prim of `prim_type` at `prim_path`
+        SetActive   ///< author `active` metadata on `prim_path`
+    };
+
+    /// How a reference prim holds its target: a USD reference or a payload.
+    /// Relevant only when `has_ref` is set on a CreatePrim edit.
+    enum class RefKind
+    {
+        Reference,
+        Payload
     };
 
     Kind kind = Kind::Transform;
     std::string prim_path;
+
+    // --- Transform ---
     bool is_matrix = true; ///< choose matrix vs. separate representation
     Mat4 matrix;
     SeparateXform separate;
     int64_t timestamp = 0; ///< millis, stamped when the edit is sent
+
+    // --- CreatePrim ---
+    /// USD schema type token, e.g. "Cube"/"Sphere"/"Cone"/"Cylinder"/
+    /// "Capsule"/"Plane"/"Xform". Empty for non-create edits and for a reference
+    /// holder (which is typeless; see `has_ref`).
+    std::string prim_type;
+    // Optional built-in shape defaults the server authored (has-field semantics
+    // mirror the wire's proto3 optional fields). Only the ones that apply to the
+    // type are set: Cube -> size; Sphere -> radius; Cone/Cylinder/Capsule ->
+    // height, radius, axis; Plane -> width, length, axis; Xform -> none.
+    bool has_size = false;
+    double size = 0.0;
+    bool has_height = false;
+    double height = 0.0;
+    bool has_radius = false;
+    double radius = 0.0;
+    bool has_axis = false;
+    std::string axis; ///< "X"/"Y"/"Z"
+    bool has_width = false;
+    double width = 0.0;
+    bool has_length = false;
+    double length = 0.0;
+
+    // A reference holder: a typeless prim carrying a reference or payload arc to
+    // `reference_path` (stage-relative). `prim_type` is empty for such a prim.
+    bool has_ref = false;
+    RefKind ref_kind = RefKind::Reference;
+    std::string reference_path;
+
+    // Optional create-time LOCAL transform, kept distinct from the Transform-kind
+    // members above so a create placement can never flow through the transform
+    // path's spine-axis bake. Authored verbatim as the new prim's local xformOp.
+    bool has_create_transform = false;
+    bool create_is_matrix = true; ///< choose create_matrix vs. create_separate
+    Mat4 create_matrix;
+    SeparateXform create_separate;
+
+    // --- SetActive ---
+    bool active = true; ///< target active state (false = soft delete)
 };
 
 /// One entry from the file listing; `filepath` is the key used for sessions

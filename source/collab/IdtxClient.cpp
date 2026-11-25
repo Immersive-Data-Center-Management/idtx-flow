@@ -1,5 +1,7 @@
 #include "IdtxClient.h"
 
+#include <limits>
+
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/object.hpp>
@@ -302,6 +304,39 @@ void IdtxClient::unbind_session(const String& session_id)
     bindings_.erase(sid);
 }
 
+int64_t IdtxClient::request_create_prim(const String& session_id, const String& parent_path, const Dictionary& spec)
+{
+    // Unpack the editor's Variant spec into plain values; the engine builds the
+    // request and applies the reference-vs-type decision and the placement.
+    const bool is_reference = spec.has("reference_path");
+    const std::string reference_path = is_reference ? String(spec["reference_path"]).utf8().get_data() : std::string();
+    const bool is_payload = spec.has("payload") && static_cast<bool>(spec["payload"]);
+    const std::string prim_type = spec.has("type") ? String(spec["type"]).utf8().get_data() : std::string();
+
+    const bool has_transform = spec.has("transform");
+    idtxflow::net::model::Mat4 transform;
+    if (has_transform)
+    {
+        transform = gxform::transform_to_prim_edit(std::string(), static_cast<Transform3D>(spec["transform"])).matrix;
+    }
+
+    return static_cast<int64_t>(engine_.request_create_prim(session_id.utf8().get_data(), parent_path.utf8().get_data(),
+                                                            prim_type, is_reference, is_payload, reference_path,
+                                                            has_transform, transform));
+}
+
+int64_t IdtxClient::request_delete_prim(const String& session_id, const String& prim_path)
+{
+    return static_cast<int64_t>(
+        engine_.request_set_prim_active(session_id.utf8().get_data(), prim_path.utf8().get_data(), /*active=*/false));
+}
+
+int64_t IdtxClient::request_restore_prim(const String& session_id, const String& prim_path)
+{
+    return static_cast<int64_t>(
+        engine_.request_set_prim_active(session_id.utf8().get_data(), prim_path.utf8().get_data(), /*active=*/true));
+}
+
 void IdtxClient::attach_bridge(const std::string& session_id)
 {
     auto it = bindings_.find(session_id);
@@ -571,7 +606,13 @@ void IdtxClient::on_handshake(const std::string& sid, const std::string& path, c
 void IdtxClient::on_remote_edit(const std::string& session_id, const idtxflow::net::model::PrimEdit& edit,
                                 const std::string& from)
 {
-    // The engine already applied the edit to the session's stage; surface it for any UI.
+    // The engine already applied the edit to the session's stage; surface it for
+    // any UI. Only transform edits carry a meaningful transform payload — create
+    // and active-toggle edits reuse this callback but must not emit a bogus
+    // transform_broadcast_received (their rendering is driven by the stage bridge
+    // conversion/visibility path).
+    if (edit.kind != idtxflow::net::model::PrimEdit::Kind::Transform) return;
+
     emit_signal("transform_broadcast_received", String(session_id.c_str()), String(edit.prim_path.c_str()),
                 gxform::prim_edit_to_transform(edit), String(from.c_str()));
 }
@@ -583,9 +624,18 @@ void IdtxClient::on_snapshot_complete(const std::string& session_id)
     emit_signal("snapshot_complete", String(session_id.c_str()));
 }
 
-void IdtxClient::on_ack(const std::string& session_id, bool ok, const std::string& error)
+void IdtxClient::on_ack(const std::string& session_id, uint64_t request_id,
+                        idtxflow::net::model::RequestKind request_kind, bool ok, const std::string& error)
 {
-    emit_signal("ack_received", String(session_id.c_str()), ok, String(error.c_str()));
+    // Protocol IDs are unsigned; never expose an oversized peer value as a negative Godot ID.
+    if (request_id > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()))
+    {
+        IDTX_LOG(IDTX_DEBUG, "Ack request ID {} exceeds Godot's integer range; reporting zero/Unknown", request_id);
+        request_id = 0;
+        request_kind = idtxflow::net::model::RequestKind::Unknown;
+    }
+    emit_signal("ack_received", String(session_id.c_str()), static_cast<int64_t>(request_id),
+                static_cast<int64_t>(request_kind), ok, String(error.c_str()));
 }
 
 void IdtxClient::on_socket_error(const std::string& session_id, const std::string& code, const std::string& message)
@@ -604,6 +654,12 @@ void IdtxClient::on_disconnected(const std::string& session_id, idtxflow::net::m
 void IdtxClient::_bind_methods()
 {
     using namespace godot;
+
+    BIND_ENUM_CONSTANT(REQUEST_KIND_UNKNOWN);
+    BIND_ENUM_CONSTANT(REQUEST_KIND_TRANSFORM);
+    BIND_ENUM_CONSTANT(REQUEST_KIND_CREATE_PRIM);
+    BIND_ENUM_CONSTANT(REQUEST_KIND_DELETE_PRIM);
+    BIND_ENUM_CONSTANT(REQUEST_KIND_RESTORE_PRIM);
 
     ClassDB::bind_method(D_METHOD("set_base_url", "url"), &IdtxClient::set_base_url);
     ClassDB::bind_method(D_METHOD("get_base_url"), &IdtxClient::get_base_url);
@@ -642,6 +698,12 @@ void IdtxClient::_bind_methods()
     ClassDB::bind_method(D_METHOD("bind_session", "session_id", "stage_node", "remote"), &IdtxClient::bind_session);
     ClassDB::bind_method(D_METHOD("unbind_session", "session_id"), &IdtxClient::unbind_session);
 
+    ClassDB::bind_method(D_METHOD("request_create_prim", "session_id", "parent_path", "spec"),
+                         &IdtxClient::request_create_prim);
+    ClassDB::bind_method(D_METHOD("request_delete_prim", "session_id", "prim_path"), &IdtxClient::request_delete_prim);
+    ClassDB::bind_method(D_METHOD("request_restore_prim", "session_id", "prim_path"),
+                         &IdtxClient::request_restore_prim);
+
     // Internal trampolines: dispatcher drain, per-frame tick, and the deferred
     // ticker bootstrap (all call_deferred / signal targets).
     ClassDB::bind_method(D_METHOD("_drain_dispatch"), &IdtxClient::_drain_dispatch);
@@ -657,6 +719,7 @@ void IdtxClient::_bind_methods()
                           PropertyInfo(Variant::STRING, "from_client_id")));
     ADD_SIGNAL(MethodInfo("snapshot_complete", PropertyInfo(Variant::STRING, "session_id")));
     ADD_SIGNAL(MethodInfo("ack_received", PropertyInfo(Variant::STRING, "session_id"),
+                          PropertyInfo(Variant::INT, "request_id"), PropertyInfo(Variant::INT, "request_kind"),
                           PropertyInfo(Variant::BOOL, "ok"), PropertyInfo(Variant::STRING, "error")));
     ADD_SIGNAL(MethodInfo("socket_error", PropertyInfo(Variant::STRING, "session_id"),
                           PropertyInfo(Variant::STRING, "code"), PropertyInfo(Variant::STRING, "message")));

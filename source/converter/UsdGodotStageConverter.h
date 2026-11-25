@@ -4,6 +4,7 @@
 #include <godot_cpp/classes/box_mesh.hpp>
 #include <godot_cpp/classes/sphere_mesh.hpp>
 #include <godot_cpp/classes/cylinder_mesh.hpp>
+#include <godot_cpp/classes/plane_mesh.hpp>
 #include <godot_cpp/classes/capsule_mesh.hpp>
 #include <godot_cpp/classes/plane_mesh.hpp>
 #include <godot_cpp/classes/multi_mesh.hpp>
@@ -31,6 +32,7 @@
 #include "nodes/UsdXFormNode3D.h"
 #include "nodes/UsdMultiMeshInstanceNode3D.h"
 #include "nodes/UsdRestDatasourceNode3D.h"
+#include "stage_ops/PayloadPlacement.h"
 
 /**
  * Implement Godot engine specialization of the UsdStageConverter
@@ -232,6 +234,7 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCylind
 
     UsdMeshInstanceNode3D* converted_node = memnew(UsdMeshInstanceNode3D);
     converted_node->set_mesh(cylinder);
+    converted_node->set_meta(IUsdNode3D::BUILTIN_SPINE_AXIS_META, true);
     converted_node->set_transform(transform);
 
     if (animation.has_value())
@@ -281,6 +284,7 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCone(
 
     UsdMeshInstanceNode3D* converted_node = memnew(UsdMeshInstanceNode3D);
     converted_node->set_mesh(cylinder);
+    converted_node->set_meta(IUsdNode3D::BUILTIN_SPINE_AXIS_META, true);
     converted_node->set_transform(transform);
 
     if (animation.has_value())
@@ -342,6 +346,63 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertSphere
 }
 
 template <>
+inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertPlane(
+    const godot::Transform3D& transform, const std::optional<AnimationDescription<types::TargetEngineGodot>>& animation,
+    const std::optional<godot::Ref<godot::StandardMaterial3D>>& material, float plane_width, float plane_length,
+    const pxr::TfToken& axis, const pxr::VtArray<class pxr::GfVec4f>& display_colors,
+    const class pxr::TfToken& color_interpolation)
+{
+    godot::Ref<godot::PlaneMesh> plane;
+    plane.instantiate();
+    // USD's plane lies in the plane normal to its axis (Z by default); the mesh
+    // orientation preserves USD width/length axes without rotating the authored node transform.
+    // For axis X, USD width spans Z and length spans Y; the spine-axis
+    // rotation around Z would swap those dimensions.
+    plane->set_size(godot::Vector2(plane_width, plane_length));
+    if (axis == pxr::UsdGeomTokens->x)
+        plane->set_orientation(godot::PlaneMesh::FACE_X);
+    else if (axis == pxr::UsdGeomTokens->y)
+        plane->set_orientation(godot::PlaneMesh::FACE_Y);
+    else
+        plane->set_orientation(godot::PlaneMesh::FACE_Z);
+
+    godot::Ref<godot::StandardMaterial3D> standard_material;
+    if (material.has_value())
+    {
+        standard_material = material.value();
+    }
+    else
+    {
+        // use a default material if none could be created
+        standard_material.instantiate();
+        // if the current Mesh prim authored a display color as a constant value, pass this into the
+        // default material as base albedo color.
+        if (!display_colors.empty() && color_interpolation == pxr::UsdGeomTokens->constant)
+        {
+            godot::Color albedo = TypeConverter::toColor(display_colors[0]);
+            standard_material->set_albedo(albedo);
+            if (albedo.a < 1.0f) standard_material->set_transparency(godot::BaseMaterial3D::TRANSPARENCY_ALPHA);
+        }
+        else
+            standard_material->set_flag(godot::BaseMaterial3D::FLAG_ALBEDO_FROM_VERTEX_COLOR, true);
+    }
+
+    plane->set_material(standard_material);
+
+    UsdMeshInstanceNode3D* converted_node = memnew(UsdMeshInstanceNode3D);
+    converted_node->set_mesh(plane);
+    converted_node->set_transform(transform);
+
+    if (animation.has_value())
+    {
+        const auto& animation_description = animation.value();
+        helper::AddAnimation(animation_description, converted_node, StageAnimationLength);
+    }
+
+    return converted_node;
+}
+
+template <>
 inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCapsule(
     const godot::Transform3D& transform, const std::optional<AnimationDescription<types::TargetEngineGodot>>& animation,
     const std::optional<typename Types::Material>& material, float capsuleRadius, float capsuleHeight,
@@ -350,8 +411,7 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCapsul
     godot::Ref<godot::CapsuleMesh> capsule;
     capsule.instantiate();
 
-    // ensure that the capsule radius never get 0.0 as this would cause the following error downstream
-    // servers/rendering/renderer_scene_cull.cpp:991 - Condition "!v.is_finite()" is true.
+    // ensure that the capsule radius never get 0.0 as this would produce non-finite geometry downstream
     capsule->set_radius(std::max(capsuleRadius, MIN_SPHERE_RADIUS));
 
     // set the correct total height of the capsule mesh
@@ -385,6 +445,7 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCapsul
 
     UsdMeshInstanceNode3D* converted_node = memnew(UsdMeshInstanceNode3D);
     converted_node->set_mesh(capsule);
+    converted_node->set_meta(IUsdNode3D::BUILTIN_SPINE_AXIS_META, true);
     converted_node->set_transform(transform);
 
     if (animation.has_value())
@@ -828,7 +889,9 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertPrimWi
 
     // a Prim with an authored payload that is not yet loaded will be treated as "standalone" stage node that
     // takes the payloadURI and runs the conversion of the referred stage on its own.
+    // A payload owns a nested conversion but its editable placement belongs to the containing stage.
     UsdStageNode3D* stage_node = memnew(UsdStageNode3D);
+    idtxflow::collab::payload::mark_carrier(stage_node);
     stage_node->set_meta("USD_PARENT_MPU", static_cast<float>(StageMetersPerUnit));
     stage_node->set_meta("USD_PARENT_UP", StageUpAxis.GetString().c_str());
 
@@ -844,8 +907,9 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertPrimWi
     // on `_ready()` of the node
     stage_node->set_stage_uri(payload_uri.c_str());
 
-    // we do not the transform on the node itself as it will be set from the payload contents composed with the
-    // override layer!
+    // we do not set the transform on the node itself as it will be set after conversion from the payload contents
+    // composed with the override layer. For supported payload roots, a current containing-stage holder transform
+    // takes precedence.
 
     return stage_node;
 }
@@ -959,6 +1023,7 @@ inline std::vector<godot::Node3D*> UsdStageConverter<types::TargetEngineGodot>::
             godot::Vector3 scale = node->get_scale() * mpu;
             node->set_scale(scale);
         }
+        idtxflow::collab::payload::record_stage_basis(node);
     }
 
     return converted_entities;

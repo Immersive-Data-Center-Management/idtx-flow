@@ -42,6 +42,7 @@
 #include <pxr/usd/usdGeom/cone.h>
 #include <pxr/usd/usdGeom/cylinder.h>
 #include <pxr/usd/usdGeom/sphere.h>
+#include <pxr/usd/usdGeom/plane.h>
 #include <pxr/usd/usdGeom/capsule.h>
 #include <pxr/usd/usdGeom/plane.h>
 #include <pxr/usd/usdGeom/mesh.h>
@@ -164,6 +165,52 @@ class UsdStageConverter
         // return the stage conversation result. This will instantiate the StageHandle that will perform anything
         // that is bound to the lifetime of the convertion outcome, eg. configure the ExecBridge
         return {StageHandle(Stage), ConvertStagePostProcess(convertedEntities)};
+    }
+
+    /**
+     * Convert a single prim and its descendants, for incremental conversion of a
+     * prim that appeared on an already-converted stage (e.g. a collaborative
+     * create broadcast). Mirrors Convert()'s stage-wide setup, but converts only
+     * the subtree rooted at @p prim and does NOT create a StageHandle (the stage
+     * is already handled by the owning node).
+     *
+     * The returned entities are the detached top-level node(s) of the converted
+     * subtree (descendants are already parented beneath them via
+     * ConvertPrimPostProcess); the caller attaches them under the correct parent.
+     *
+     * @param stage          The live stage the prim belongs to.
+     * @param prim           The prim whose subtree to convert.
+     * @param applyStageBake Apply the up-axis / meters-per-unit root bake. Pass
+     *                       true only when the converted node is a NEW stage-level
+     *                       root (its USD parent is the pseudo-root); pass false
+     *                       when it attaches under an already-converted parent,
+     *                       which already carries the bake through the hierarchy —
+     *                       re-applying it would double-rotate/scale the subtree.
+     * @return The top-level converted node(s), or empty if nothing converted.
+     */
+    [[nodiscard]]
+    std::vector<typename Types::ConvertedEntity*> ConvertSubtree(const pxr::UsdStageRefPtr& stage,
+                                                                 const pxr::UsdPrim& prim, bool applyStageBake)
+    {
+        Stage = stage;
+        StageUpAxis = pxr::UsdGeomGetStageUpAxis(stage);
+        StageMetersPerUnit = pxr::UsdGeomGetStageMetersPerUnit(stage);
+        if (StageMetersPerUnit == 0.0) StageMetersPerUnit = 0.01;
+        StageTimecodesPerSec = stage->GetTimeCodesPerSecond();
+        if (StageTimecodesPerSec == 0) StageTimecodesPerSec = 24.0;
+        StageAnimationStart = stage->GetStartTimeCode() / StageTimecodesPerSec;
+        StageAnimationEnd = stage->GetEndTimeCode() / StageTimecodesPerSec;
+        StageAnimationLength = StageAnimationEnd - StageAnimationStart;
+
+        // rootEntity == nullptr so the subtree's top prim is returned as a root
+        // entity (detached) rather than parented onto a caller-supplied node.
+        // Unloaded payload holders must reach their converter to start nested loading.
+        std::vector<typename Types::ConvertedEntity*> convertedEntities =
+            ConvertPrims(stage, pxr::UsdPrimRange::AllPrims(prim), nullptr);
+        StagePrototypeMap.clear();
+
+        if (applyStageBake) return ConvertStagePostProcess(convertedEntities);
+        return convertedEntities;
     }
 
   protected:
@@ -735,6 +782,22 @@ class UsdStageConverter
             return ConvertSphere(TypeConverter::toTransform(matrix), gPrimAnimation, material, sphereRadius,
                                  displayColors, colorInterpolation);
         }
+        else if (usdPrim.IsA<pxr::UsdGeomPlane>())
+        {
+            pxr::UsdGeomPlane usdPlane(usdPrim);
+            double planeWidth;
+            double planeLength;
+            if (!usdPlane.GetWidthAttr().Get(&planeWidth)) planeWidth = 1.0;
+            if (!usdPlane.GetLengthAttr().Get(&planeLength)) planeLength = 1.0;
+
+            // Keep the Plane schema's Z default if the attribute cannot be read.
+            pxr::TfToken axis = pxr::UsdGeomTokens->z;
+            usdPlane.GetAxisAttr().Get(&axis);
+
+            // The geometry axis is independent of the authored transform.
+            return ConvertPlane(TypeConverter::toTransform(matrix), gPrimAnimation, material, planeWidth, planeLength,
+                                axis, displayColors, colorInterpolation);
+        }
         else if (usdPrim.IsA<pxr::UsdGeomCapsule>())
         {
             pxr::UsdGeomCapsule usdCapsule(usdPrim);
@@ -860,6 +923,25 @@ class UsdStageConverter
                                                    const pxr::VtArray<class pxr::GfVec4f>& displayColors,
                                                    const class pxr::TfToken& colorInterpolation);
 
+    /**
+     * Convert a Plane
+     * The mesh geometry represents the plane's axis.
+     * @param transform The transform of the plane (without baked axis orientation)
+     * @param animation The animation of the plane's transform, if any
+     * @param material The material of the plane
+     * @param planeWidth The width along Z for axis X, or along X otherwise
+     * @param planeLength The length along Z for axis Y, or along Y otherwise
+     * @param axis The USD plane normal (X, Y or Z), with the schema default Z
+     * @param displayColors The authored display colors
+     * @param colorInterpolation The authored color interpolation
+     * @return The converted plane with its authored local transform
+     */
+    typename Types::ConvertedEntity* ConvertPlane(const typename Types::Transform& transform,
+                                                  const std::optional<AnimationDescription<TargetEngine>>& animation,
+                                                  const std::optional<typename Types::Material>& material,
+                                                  float planeWidth, float planeLength, const class pxr::TfToken& axis,
+                                                  const pxr::VtArray<class pxr::GfVec4f>& displayColors,
+                                                  const class pxr::TfToken& colorInterpolation);
     /**
      * Convert a capsule
      * @param transform The transform of the capsule

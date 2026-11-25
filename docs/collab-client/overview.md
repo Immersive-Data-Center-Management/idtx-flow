@@ -3,8 +3,8 @@
 The collaboration client is the part of IDTXFlow that connects the Godot editor to
 an IDTX backend: it authenticates, browses and downloads USD assets from an asset
 server, and — for collaboration sessions — opens a live WebSocket and keeps prim
-transforms in sync between collaborating peers in real time. Local (res://) imports
-share the same import UI but need no backend.
+transforms, creation and active-state changes in sync between collaborating peers
+in real time. Local (res://) imports share the same import UI but need no backend.
 
 This folder documents that client end to end. Start here, then follow the links
 below into each layer.
@@ -15,10 +15,11 @@ about Godot, the WebSocket library (IXWebSocket), protobuf-on-the-wire, or OpenU
 Everything engine- or library-specific lives in thin **adapters** behind the core's
 **ports**. The engine-specific part is the whole **Godot binding** — `source/collab/*`
 (`IdtxClient`, `Dispatcher`, `Ticker`), the node-owned stage authoring in
-`source/stage_ops/*` (`StageBridge`, `StageEditController`, `TransformCodec`), the USD nodes
+`source/stage_ops/*` (`StageBridge`, `StageEditController`, `TransformCodec`,
+`PayloadPlacement`, `StageActivityController`), the USD nodes
 in `source/nodes/*`, and module registration (`register_types.cpp`). Within that
-binding, `StageBridge` is where Godot and OpenUSD types meet for transform
-authoring/reading (not the project's only such boundary — the USD converter and
+binding, `StageBridge` is where Godot and OpenUSD types meet for transform and
+structural authoring/reading (not the project's only such boundary — the USD converter and
 asset resolver also bridge the two). A different
 host engine reuses the entire core and swaps only these adapters — see
 [net-core.md](net-core.md) for the ports contract and
@@ -89,12 +90,15 @@ graph TB
             WIZUI["wizard pieces<br/>steps · providers · widgets"]
             SESS["editor/session_scene/<br/>coordinator + live-session indicators"]
         end
+        CALLER["Caller<br/>Create / Delete / Restore"]
 
         subgraph BIND["Godot binding — source/collab, source/stage_ops, source/nodes (godot-cpp + USD)"]
             CLIENT["IdtxClient<br/>Node · singleton · CollabObserver · composition root"]
             CTL["StageEditController<br/>applies the author decision"]
-            BRIDGE["StageBridge<br/>IStageBridge — godot+USD for transform authoring"]
+            BRIDGE["StageBridge<br/>IStageBridge — transform and structural application"]
             CODEC2["TransformCodec<br/>Transform3D &lt;-&gt; PrimEdit/Mat4"]
+            ACTIVITY["StageActivityController<br/>inactive prim protection"]
+            PAYLOAD["PayloadPlacement<br/>payload placement"]
             DISP["Dispatcher<br/>IMainThreadDispatcher"]
             TICK["Ticker<br/>IFrameTicker"]
             NODES["UsdStageNode3D + converted prim nodes"]
@@ -104,6 +108,7 @@ graph TB
 
     ENGINEREF["→ CollabEngine<br/>engine-agnostic core (see next graph)"]
     PORTSREF["→ ports/*<br/>engine-agnostic core contract (see next graph)"]
+    ASSET["UsdAssetPath<br/>shared USD path anchoring"]
 
     PLUGIN --> WIZ
     WIZ --> WIZUI
@@ -112,9 +117,17 @@ graph TB
 
     WIZ -->|Engine.get_singleton · methods · signals · on_done| CLIENT
     WIZUI --> CLIENT
+    CALLER -->|structural request APIs| CLIENT
     REG -->|create singleton, initialize| CLIENT
     NODES -->|transform changed| CTL
-    CTL -->|author_local_edit| BRIDGE
+    CTL -->|author_edit: Local transform| BRIDGE
+    NODES -->|owns| ACTIVITY
+    CTL -.checks.-> ACTIVITY
+    BRIDGE -->|updates converted subtrees| NODES
+    BRIDGE -.activity.-> ACTIVITY
+    BRIDGE -.placement.-> PAYLOAD
+    NODES -.on load.-> PAYLOAD
+    BRIDGE -.asset paths.-> ASSET
     CTL -.uses.- CODEC2
     BRIDGE -.uses.- CODEC2
     CLIENT -.uses.- CODEC2
@@ -126,11 +139,15 @@ graph TB
 
     classDef engine fill:#fff0e6,stroke:#d9822b,color:#5c2d0b;
     classDef ref fill:#eeeeee,stroke:#888888,color:#333333,stroke-dasharray: 5 3;
-    class ENGINESPECIFIC,UI,PLUGIN,WIZ,WIZUI,SESS,BIND,CLIENT,CTL,BRIDGE,CODEC2,DISP,TICK,NODES,REG engine;
-    class ENGINEREF,PORTSREF ref;
+    class ENGINESPECIFIC,UI,PLUGIN,WIZ,WIZUI,SESS,CALLER,BIND,CLIENT,CTL,BRIDGE,CODEC2,ACTIVITY,PAYLOAD,DISP,TICK,NODES,REG engine;
+    class ENGINEREF,PORTSREF,ASSET ref;
 ```
 
 **↕ Boundary: `IdtxClient` (engine-specific binding) owns and drives `CollabEngine` (engine-agnostic core), and the binding implements the core's ports. The two graphs meet at this seam. The binding's `StageBridge` is also the one place that authors and reads the live USD stage.**
+
+Callers request structural changes through `IdtxClient`; server broadcasts apply
+them through `StageBridge`. See [stage-authoring.md](stage-authoring.md) for the
+stage's editing, activity and payload placement responsibilities.
 
 ### Engine-agnostic layer — idtxflow::net core + adapters
 
@@ -225,7 +242,8 @@ graph TB
 | Layer | Location | Key pieces |
 |---|---|---|
 | Net core | `shared/idtxflow/net/` | `CollabEngine`, `CollabObserver`, `protocol/` (RestClient, SessionSocket), `wire/WireCodec`, `model/`, `ports/`, `adapters/`, `CollabComposition` |
-| Godot binding | `source/collab/`, `source/stage_ops/`, `source/nodes/`, `source/register_types.cpp` | `IdtxClient`, `Dispatcher`, `Ticker`; `StageBridge`, `StageEditController`, `TransformCodec` (stage_ops); USD nodes; module boot |
+| Shared USD helper | `shared/include/idtxflow/resolver/UsdAssetPath.h` | Asset path anchoring; engine-independent, OpenUSD-dependent |
+| Godot binding | `source/collab/`, `source/stage_ops/`, `source/nodes/`, `source/register_types.cpp` | `IdtxClient`, `Dispatcher`, `Ticker`; `StageBridge`, `StageEditController`, `TransformCodec`, `PayloadPlacement`, `StageActivityController` (stage_ops); USD nodes; module boot |
 | Editor UI | `addons/IDTXFlow/` | `plugin.gd`, `editor/import/` (wizard), `editor/session_scene/` (session-scene lifecycle + indicators), `editor/inspector/` |
 
 ---
@@ -244,9 +262,11 @@ graph TB
   session) and the session lifecycle.
 - **[transform-sync-flow.md](transform-sync-flow.md)** — deep dive on how a single transform
   edit travels inbound and outbound between the editor and collaborating peers.
-- **[stage-authoring.md](stage-authoring.md)** — how a Godot transform edit is authored onto the
-  live USD stage via the node-owned bridge: the local-or-session gate, placement-root and
-  nested-stage (reference/payload holder) handling
+- **[structural-edits.md](structural-edits.md)** — Create/Delete/Restore requests, server defaults
+  and policy, references/payloads, path anchoring and broadcast-driven application.
+- **[stage-authoring.md](stage-authoring.md)** — how edits reach live USD and converted nodes
+  through the node-owned bridge: authoring gates, incremental conversion, inactive-content
+  protection, placement-root and nested payload-stage handling.
 - **[usage.md](usage.md)** — intended usage & how-to: what runs in the editor vs. at runtime,
   driving a session (open/join → load stage → `bind_session`), local authoring and its
   prerequisites, a runtime flow, and behavior / limitations / gaps.
@@ -257,5 +277,10 @@ graph TB
 
 - **Local import** — pick a USD file from `res://` and import it into the current or a new scene. No backend.
 - **Server download import** — log in to an asset server, browse its files, and import a USD via an authenticated download (into the current or a new scene). No session.
-- **Create collaboration session** — as above, but open a live session for the file (single-edit or collaborative-edit): a WebSocket is opened and the stage is wired for real-time transform sync with other peers.
-- **Join collaboration session** — join a running collaborative-edit session for the selected file; same live transform sync.
+- **Create collaboration session** — as above, but open a live session for the file (single-edit or collaborative-edit): a WebSocket is opened and the stage is wired for real-time transform and structural sync with other peers.
+- **Join collaboration session** — join a running collaborative-edit session for the selected file; same live transform and structural sync.
+- **Create a prim or add an asset** — request a built-in prim, reference or payload under an eligible parent; the server broadcasts the result.
+- **Delete / Restore** — deactivate or reactivate a prim while retaining its content.
+
+See [Behavior, limitations & gaps](usage.md#behavior-limitations--gaps) for current
+constraints on these flows.

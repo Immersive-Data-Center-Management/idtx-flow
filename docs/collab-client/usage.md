@@ -6,6 +6,8 @@ drive a session and local authoring.
 For *what the pieces are* see [overview.md](overview.md); for the *data flows* see
 [flows.md](flows.md) and [transform-sync-flow.md](transform-sync-flow.md); for *how
 authoring works internally* see [stage-authoring.md](stage-authoring.md).
+For Create/Delete/Restore requests and asset insertion, see
+[structural-edits.md](structural-edits.md).
 
 ---
 
@@ -21,6 +23,8 @@ Godot editor).
 | `UsdStageNode3D` + converted prim nodes | ✅ | ✅ | load a stage, read/author transforms |
 | Local authoring (`local_authoring`) | ✅ | ✅ | a node property; no editor dependency |
 | Session binding (`bind_session` / sync) | ✅ | ✅ | you supply the stage node and session id |
+| Create / reference / payload / Delete / Restore requests | ✅ | ✅ | `IdtxClient.request_*`; server broadcasts apply the changes |
+| Inactive-prim protection and activity query | ✅ | ✅ | native policy; no editor plugin or script setup required |
 | Reload / save-export (`reload()`, `save_stage()`) | ✅ | ✅ | bound node methods, callable from code anywhere; the Inspector buttons that call them are editor-only |
 | Import wizard (browse / download / create-join) | ✅ | ❌ | `import_manager.gd` / `plugin.gd` are `@tool` / `EditorPlugin` |
 | Session scenes, scene-tab lifecycle, indicators | ✅ | ❌ | `editor/session_scene/` is strictly editor-tier |
@@ -30,8 +34,8 @@ Godot editor).
 The rule of thumb: **the GDScript UI and editor orchestration (wizard, tabs,
 indicators) are editor-only; the `IdtxClient` public API and the USD nodes are the
 runtime surface.** Anything the editor UI does — list files, open/join/commit
-sessions, bind a stage, author and sync transforms — can be reconstructed at runtime
-through the same API.
+sessions, bind a stage, create/deactivate/restore prims, author and sync transforms —
+can be reconstructed at runtime through the same API.
 
 ---
 
@@ -45,14 +49,11 @@ Driven through the plugin's main screen and the 3-step import wizard
 - **Server download** — log in, browse, import via an authenticated download; no session.
 - **Create / join session** — open a live session for a file; the editor loads the
   stage into a scene, binds it, and arms sync. Each session lives in its **own scene
-  tab**; the `editor/session_scene/` coordinator tracks tabs, shows live indicators,
-  and offers commit/save on close.
-- **Reload** — the stage node's Inspector reload re-downloads the stage, bypassing the
-  cached copy, for a **local or non-session** stage whose source changed. It is **not
-  safe during an active collaboration session**: reload drops the stage and its
-  in-memory session layer and re-downloads only the committed root USD, so uncommitted
-  in-session edits (local and peers') are not reapplied and the view desyncs until a
-  fresh edit or a rejoin. Commit first, or reload only outside a session.
+  tab**; the `editor/session_scene/` coordinator tracks tabs, while separate
+  plugin-owned helpers show live indicators and offer a server commit on editor save.
+- **Reload** — the stage node's Inspector reload reopens the source, bypassing the
+  cached download for a remote stage. Use it outside an active session; see the
+  [reload caveat](#caveats--gotchas).
 - **Save As... (experimental)** — the Inspector's Save As... button (next to Reload)
   flattens a snapshot of the stage to a new USD file. See
   [Saving / exporting a stage](#saving--exporting-a-stage-experimental) below.
@@ -60,6 +61,13 @@ Driven through the plugin's main screen and the 3-step import wizard
 Multi-session in the editor means **one session per scene tab**; closing the tab
 leaves that session. The engine itself holds sessions by id, so a runtime host can
 run several, though a running game usually has one active scene and one session.
+
+For an experimental editor demonstration of the API, open
+`addons/IDTXFlow/editor/editor_prim_tools/run_prim_tools.gd` in Godot's Script editor
+and choose **File > Run** while a live-session tab is active. Select a converted
+USD prim to use **Create child**, **Add asset** (Reference/Payload), **Delete
+selected**, or **Restore selected**. See the
+[demo README](../../addons/IDTXFlow/editor/editor_prim_tools/README.md).
 
 ---
 
@@ -79,11 +87,8 @@ without any session. Enable it per node:
 See [stage-authoring.md](stage-authoring.md) for where edits land and how nested
 stages / reference-payload holders route.
 
-> **Gotcha — enabling the checkbox does not author the current pose.** Authoring is
-> triggered only by a transform *change*. A node moved **before** `local_authoring`
-> is enabled (or before a session arms) stays a Godot-only change; ticking the box
-> does nothing retroactively. The stage catches up only when that node is **moved
-> again**. If a prim looks out of sync with the stage, nudge it to re-author.
+For edits made before authoring or synchronization is enabled, see
+[Caveats / gotchas](#caveats--gotchas).
 
 ---
 
@@ -94,9 +99,11 @@ button next to **Reload** in the inspector. It writes a **flattened snapshot** o
 live stage to a new USD file: the source's layer stack with your **session-layer edits
 merged in**, composition arcs (references/payloads/variants) preserved as external arcs
 (not inlined). Non-destructive (new file; source and server copy untouched; not a server
-commit), works local and mid-session, encoding chosen by the extension
+commit), callable locally or mid-session, encoding chosen by the extension
 (`.usda`/`.usdc`/`.usdz`). The target may be `res://`, `user://`, or absolute, but never
 inside the download cache (`user://usd_cache/`).
+This experimental export is separate from the normal live-session workflow;
+it is not needed to send edits or restore an inactive prim.
 
 > Overwrite-source is available only programmatically (`StageSaveController::save_overwrite`,
 > not on the node); Saving is **synchronous** and may
@@ -107,7 +114,8 @@ inside the download cache (`user://usd_cache/`).
 
 ## Session binding — prerequisites & how-to
 
-Binding wires a live session to a loaded stage node so transforms sync. `bind_session`
+Binding wires a live session to a loaded stage node so transforms and structural
+broadcasts apply to it. `bind_session`
 requires the node to be an already-constructed `UsdStageNode3D`; it attaches (or
 rebuilds, on reload) the node's authoring bridge and follows the node's
 `stage_loading_finished` / `stage_unloading` lifecycle.
@@ -122,21 +130,25 @@ Order of operations:
    for `stage_loading_finished(success=true)`.
 4. `bind_session(session_id, stage_node, remote)` — `remote = true` means outbound
    edits broadcast to peers; `false` binds without broadcasting.
-5. Sync **arms** once two gates hold: a short post-attach settle **and** the join
-   `SnapshotComplete` (see [transform-sync-flow.md](transform-sync-flow.md)). Edits
-   made before arming are not broadcast.
+5. Outgoing transform sync **arms** once two gates hold: a short post-attach
+   settle **and** the join `SnapshotComplete` (see
+   [transform-sync-flow.md](transform-sync-flow.md)). Edits made before arming
+   are not broadcast.
+
+`is_session_synced(session_id)` reports only the snapshot latch, and can be true
+before the loaded stage has settled. Structural sends check remote mode, snapshot
+completion and an open socket; they do not use the transform arming gate. A host
+should additionally require a successfully loaded, settled stage and a valid
+selection before offering actions.
 
 Teardown: `unbind_session(session_id)` detaches the bridge and disconnects the node;
-`end_session(session_id)` also closes the socket and asks the backend to drop the
-session.
+`end_session(session_id)` also closes the socket and leaves the session. It does
+not delete the backend session; the server handles sessions with no remaining
+clients according to its own lifecycle rules.
 
 On join, the server sends a snapshot of the session's live prim state, applied over
-whatever base the stage loaded, so a client normally catches up to the session
-without extra steps. The snapshot reflects the *session's* state, not a diff against
-your local copy — so if you suspect a **stale cached base** (for example, another
-session committed changes to the file since you last downloaded it), reload the stage
-**before** joining. Do not reload during an active session (see
-[Local authoring](#editor-usage) and the gotchas below).
+the base the stage loaded. See [Current limitations](#current-limitations) for
+source-file freshness and [Caveats / gotchas](#caveats--gotchas) before reloading.
 
 ---
 
@@ -154,7 +166,7 @@ set base URL, then login  ->  on success:
         when stage_loading_finished(success) fires:
             bind_session(session_id, stage_node, remote = true)
         ... sync arms after settle + SnapshotComplete; edits now broadcast
-teardown: unbind_session (leave sync) or end_session (also close socket + drop server-side)
+teardown: unbind_session (detach sync) or end_session (also close socket + leave session)
 ```
 
 The rest of the API is available too (`list_files`, `list_sessions`, `get_session`,
@@ -163,28 +175,69 @@ so a runtime host can reconstruct the editor's capabilities without the editor U
 
 ---
 
+## Create, delete and restore in a live session
+
+Use `IdtxClient.request_create_prim(session_id, parent_path, spec)`,
+`request_delete_prim(session_id, prim_path)`, and
+`request_restore_prim(session_id, prim_path)` from your own runtime controls.
+The [structural edit guide](structural-edits.md) contains the GDScript examples,
+supported types, reference/payload paths and server validation rules.
+
+Creation uses the exact selected USD parent path. The server chooses the name
+and default shape dimensions; the request can optionally supply a `Transform3D`.
+Requests do not immediately create/remove nodes: server broadcasts apply the result.
+Each request returns `0` when not submitted, or a positive request ID after
+transport submission. Optionally match it with
+`ack_received(session_id, request_id, request_kind, ok, error)` to report
+acceptance or rejection for the original action. If you track pending actions,
+keep them across selection changes and clear them when their session context ends or disconnects.
+An accepted Ack does not mean the scene has finished updating.
+
+Delete sets `active=false`; it does not erase the USD data or remove the retained
+Godot nodes. Native activity handling hides blocked content, disables processing
+(including descendants set to `PROCESS_MODE_ALWAYS`), removes collision objects
+from simulation and disables their ray picking. Rejected local transform edits
+are corrected without authoring USD or sending a transform update. External USD
+updates remain accepted.
+
+Restore requests `active=true`. Once its broadcast arrives, the native controller
+uses the current live USD state and restores saved runtime settings. It does not
+request another snapshot or reload the original file. UI can query
+`stage_node.get_prim_activity(path)` and refresh on `prim_activity_changed`; the
+[binding guide](godot-binding.md#activity-status) describes the result. If an
+ancestor is inactive, restore that ancestor first.
+
+---
+
 ## Behavior, limitations & gaps
 
 ### By design (intended behavior)
 
-- **The placement root is display-only** — moving the `defaultPrim` (e.g. `/World`) is
-  a Godot-only gesture: a whole-stage/root move is not authored or synced (and so not
-  persisted) unless `author_placement_root` is on.
+- **The placement root is display-only by default** — moving the `defaultPrim`
+  (e.g. `/World`) is not authored unless `author_placement_root` is on. That option
+  permits local authoring but does not enable outgoing root-transform reports.
 - **Moving a reference/payload holder repositions the instance, not the sub-USD** — the
   edit lands on the holder in the referencing layer, not inside the referenced file.
 - **Session-layer edits are in-memory** — local and session authoring write the stage's
   session layer, which is non-destructive and not written back to disk on its own.
+- **Inactive content is retained and protected** — Delete/Restore changes activity
+  without removing and reconstructing the converted Godot nodes. These requests
+  do not save a file or commit a session.
 - **Multi-session is editor-tab-oriented** — in the editor it is one session per scene
   tab; at runtime there is no tab metaphor, so you track session ids yourself.
 
 ### Caveats / gotchas
 
 - **Enabling `local_authoring` does not author the current pose** — authoring is
-  triggered by a transform *change*, so a node moved before the checkbox is enabled
-  (or before a session arms) stays a Godot-only change; move it again to sync.
-- **Reload is unsafe during an active session** — the Inspector reload rebuilds the
-  stage from the committed file and drops uncommitted in-session edits (local and
-  peers'), so the view desyncs. Reload only outside a session, or commit first.
+  triggered by a transform *change*, so an unbound node moved before it is enabled
+  stays a Godot-only change; move it again to author. A bound stage may author
+  before transform sync arms, but those early changes are not queued for later sending.
+- **Reload is unsafe during an active session** — a full stage rebuild, such as
+  Inspector reload, re-downloads the committed root and discards the in-memory
+  session layer. Uncommitted in-session edits (local and peers') disappear from
+  the local view until a fresh edit or rejoin; the server still holds them. Reload
+  only outside a session. Ordinary tab re-entry retains a live stage handle,
+  including when its content is inactive, and does not require reconstruction.
 
 ### Current limitations
 
@@ -194,47 +247,51 @@ Client-side:
   single bearer token (a process-wide provider), so it is authenticated to one server
   at a time; logging into another server replaces the current auth. There is no
   simultaneous multi-server / multi-token access.
-- **Connection handling is happy-path** — the UI surfaces only *synced* / *syncing*
-  (join-snapshot catching up); it does not show *disconnected*, *offline*,
+- **The existing session indicators have limited connection status** — they surface
+  only *synced* / *syncing* (join-snapshot catching up); they do not show *disconnected*, *offline*,
   *reconnecting*, or *server unreachable*. The session socket auto-reconnects with a
   1-10s backoff but no overall timeout or attempt cap, so it keeps retrying
-  indefinitely. A dropped-then-reachable server recovers sync via a fresh join
-  snapshot, but a persistently unreachable server is not surfaced as an error state.
+  indefinitely. After reconnecting, the client receives a fresh join snapshot.
+  Runtime hosts can observe the socket error/disconnection signals.
 - **A failed stage load during session create leaks the session** — if the stage
   download/convert fails after a session was created, the wizard removes the node but
-  does not end the session, so the backend session and its socket stay alive until a
-  later import replaces them or an explicit `end_session`.
-- **Mid-session reload/rebuild drops uncommitted edits** — a full stage rebuild
-  (Inspector reload, and potentially a tab-switch/reconnect rebuild) re-downloads the
-  committed root and discards the in-memory session layer, so uncommitted in-session
-  edits (local and peers') disappear from the local view until a fresh edit or rejoin.
-  The server still holds them.
+  does not end the session, so the backend session and its socket stay alive until
+  explicit teardown such as `end_session`.
+- **Payload child edits have no outer-session path mapping** — references generally
+  compose into the outer stage namespace; unloaded payloads use separate nested
+  stage nodes. Moving a supported payload holder can sync its placement, but
+  editing a nested payload child does not automatically reach the outer session.
+- **Payload placement correction requires one nonanimated built-in `Xform` default
+  root** — any number of descendants is supported. Direct geometry roots, animated
+  roots and multiple converted roots keep their existing conversion behavior;
+  correct subsequent placement editing is not guaranteed for them.
+- **Explicit asset target selection is not supported** — core accepts suffixes
+  such as `./asset.usda</Asset/Part>`, but the client does not split a received
+  suffix into an asset identifier and `SdfPath`, or select the corresponding
+  payload subtree. Use assets with a defaultPrim.
+- **Structural requests require a live session** — Create/Delete/Restore enter
+  through `IdtxClient`. `local_authoring` enables transform authoring; it does not
+  provide standalone structural editing.
+- **Arbitrary editor operations are not synchronized** — native Scene-tree
+  additions, removals, reparenting and Inspector property changes are not generally
+  converted into USD/server requests. Activity protection covers the retained
+  nodes' transforms and runtime participation, not every editor action.
 
 Server-side / cross-component:
 
-- **A peer's commit of a prim you also moved may not appear until you rejoin** — if two
-  editors each moved prim P in their own session and one commits, the other receives a
-  broadcast but P does not visually update, because the receiver's own session-layer
-  opinion for P composes stronger than the just-committed root value. Clearing your
-  session (rejoin) resolves it; a client that never moved P sees the commit normally.
-- **A fresh session can load a stale baseline after a peer commit** — the join snapshot
-  carries only the session's uncommitted overrides, not the committed root state; the
-  committed baseline arrives via the downloaded file. The client force-re-downloads the
-  session root on open to avoid stale caches, but conditional revalidation depends on
-  server freshness headers that are not yet emitted on the download response.
-- **Editing a referenced child file in a separate session does not live-update
-  referencing sessions** — a USD that references/payloads other files loads each
-  referenced file as a nested stage; a commit to that child by someone editing it
-  directly is not propagated to sessions that merely reference it (the server matches
-  only same-file sessions, and there is no referenced-sublayer-changed notification).
-- **A server commit can rewrite relative payload/reference paths to absolute, breaking
-  downloads** — committing a session flattens the composed layer stack back into the
-  file. For a file whose payloads/references are authored as **relative** paths, the
-  flatten re-anchors them to **absolute** paths on the server's filesystem. The committed
-  file is then written with those absolute paths, overwriting the previously-relative
-  ones; a client that downloads it cannot resolve the payloads because the paths point at
-  a location on the server rather than inside the downloaded file set. Observed with
-  nested-payload scenes.
+- **Shared-source changes do not automatically refresh open stages** — core sends
+  `LayerReloaded` to affected live sessions, including sessions using the source
+  through composition, but the client does not process those notifications to
+  refresh their contents. Existing session opinions also compose stronger than
+  changed source values.
+- **A snapshot does not replace source-file freshness** — the client must load the
+  committed baseline as well as apply live snapshot state. The editor evicts the
+  downloaded root cache entry before opening a session, but this is not shared-layer
+  refresh for already open owners or nested assets.
+- **Commit paths and session placement are separate contracts** — current core
+  preserves relative reference/payload paths when committing. Created client arcs
+  still need the root anchoring described in [structural-edits.md](structural-edits.md), because live
+  authoring normally targets an anonymous session layer.
 
 ### Developer notes / technical debt
 

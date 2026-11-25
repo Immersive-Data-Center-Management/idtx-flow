@@ -14,6 +14,7 @@
  * runtime scripts.
  */
 
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
@@ -43,6 +44,16 @@ class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
     GDCLASS(IdtxClient, godot::Node)
 
   public:
+    /// Outgoing session request classification carried by ack_received.
+    enum RequestKind
+    {
+        REQUEST_KIND_UNKNOWN = static_cast<int>(idtxflow::net::model::RequestKind::Unknown),
+        REQUEST_KIND_TRANSFORM = static_cast<int>(idtxflow::net::model::RequestKind::Transform),
+        REQUEST_KIND_CREATE_PRIM = static_cast<int>(idtxflow::net::model::RequestKind::CreatePrim),
+        REQUEST_KIND_DELETE_PRIM = static_cast<int>(idtxflow::net::model::RequestKind::DeletePrim),
+        REQUEST_KIND_RESTORE_PRIM = static_cast<int>(idtxflow::net::model::RequestKind::RestorePrim)
+    };
+
     IdtxClient();
     ~IdtxClient() override;
 
@@ -154,6 +165,25 @@ class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
     // Does not end the session or close its socket (see end_session).
     void unbind_session(const godot::String& session_id);
 
+    // --- structural edits (per session) ---
+    //
+    // Results are async: a request returns immediately, scene changes arrive via the normal
+    // sync path, and accept/reject arrives on the `ack_received` signal.
+    // A positive return value is the submitted request ID; zero means not submitted.
+    // `ack_received` includes that ID and its kind in the result. Submission and
+    // acknowledgement do not mean that the scene has finished applying the broadcast.
+
+    /// Create a prim under `parent_path`. `spec`:
+    ///   { "type": String }                            built-in (e.g. "Cube"/"Plane")
+    ///   { "reference_path": String, "payload": bool }  reference/payload holder
+    ///   { "transform": Transform3D }                   optional initial placement
+    int64_t request_create_prim(const godot::String& session_id, const godot::String& parent_path,
+                                const godot::Dictionary& spec);
+    /// Soft-delete a prim (author active=false); return its submitted ID, or zero.
+    int64_t request_delete_prim(const godot::String& session_id, const godot::String& prim_path);
+    /// Restore a soft-deleted prim (author active=true); return its submitted ID, or zero.
+    int64_t request_restore_prim(const godot::String& session_id, const godot::String& prim_path);
+
     // --- CollabObserver ---
 
     void on_login_ok(const idtxflow::net::model::LoginResult& result) override;
@@ -175,7 +205,9 @@ class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
     void on_remote_edit(const std::string& session_id, const idtxflow::net::model::PrimEdit& edit,
                         const std::string& from_client_id) override;
     void on_snapshot_complete(const std::string& session_id) override;
-    void on_ack(const std::string& session_id, bool ok, const std::string& error) override;
+    /// Emit the correlated result; IDs outside Godot's positive integer range become zero/Unknown.
+    void on_ack(const std::string& session_id, uint64_t request_id, idtxflow::net::model::RequestKind request_kind,
+                bool ok, const std::string& error) override;
     void on_socket_error(const std::string& session_id, const std::string& code, const std::string& message) override;
     void on_disconnected(const std::string& session_id, idtxflow::net::model::CloseReason reason, int code,
                          const std::string& text) override;
@@ -248,3 +280,5 @@ class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
 
     idtxflow::net::CollabEngine engine_;
 };
+
+VARIANT_ENUM_CAST(IdtxClient::RequestKind);

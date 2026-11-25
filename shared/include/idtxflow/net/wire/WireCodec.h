@@ -85,6 +85,20 @@ bool decode(const std::string& bytes, DecodedMessage& out);
 std::string encode_transform_update(const std::string& session_id, const model::PrimEdit& edit,
                                     uint64_t base_server_seq, uint64_t request_id);
 
+/// Serialize a CreatePrimRequest BaseMessage. The edit's `prim_path` is the
+/// parent path the new prim is created under (the server assigns the child
+/// name); `prim_type` selects the built-in type, or `has_ref` + `reference_path`
+/// + `ref_kind` a reference/payload holder. An optional create transform fills
+/// the request's transform oneof verbatim. Shape dimensions are not sent — the
+/// server authors the type's schema defaults.
+std::string encode_create_prim_request(const std::string& session_id, const model::PrimEdit& edit,
+                                       uint64_t base_server_seq, uint64_t request_id);
+
+/// Serialize a SetPrimActiveRequest BaseMessage from the edit's `prim_path` and
+/// `active` (false = soft delete, true = restore).
+std::string encode_set_prim_active_request(const std::string& session_id, const model::PrimEdit& edit,
+                                           uint64_t base_server_seq, uint64_t request_id);
+
 /// Assert at startup that the linked protobuf runtime matches the headers the
 /// generated messages were compiled against, failing fast on a version skew
 /// instead of corrupting memory later. A no-op when versions agree.

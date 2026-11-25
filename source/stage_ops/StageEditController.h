@@ -2,6 +2,8 @@
 
 #include <godot_cpp/classes/node3d.hpp>
 
+class UsdStageNode3D;
+
 namespace idtxflow
 {
 namespace net
@@ -21,7 +23,7 @@ namespace collab
 class StageEditController
 {
   public:
-    explicit StageEditController(net::ports::IStageBridge* bridge);
+    StageEditController(UsdStageNode3D& owner, net::ports::IStageBridge* bridge);
 
     /// Author `child`'s transform into the stage. No-op when `child` has no
     /// prim path, or when neither a session drives the stage nor
@@ -30,6 +32,7 @@ class StageEditController
     void author_from_node(godot::Node3D* child, bool authoring_enabled, bool author_root);
 
   private:
+    UsdStageNode3D& owner_;
     net::ports::IStageBridge* bridge_ = nullptr; // non-owning; the node owns it
 };
 

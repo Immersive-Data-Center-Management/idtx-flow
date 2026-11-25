@@ -7,9 +7,10 @@ outside world only through *ports* (interfaces it requires) and reports every
 result back through a single *observer*. Any host engine reuses this core
 unchanged and provides only the engine-specific adapters.
 
-See [overview.md](overview.md) for the whole-system overview, and
+See [overview.md](overview.md) for the whole-system overview,
 [transform-sync-flow.md](transform-sync-flow.md) for the inbound/outbound
-transform-sync flows that build on this core.
+transform-sync flows, and [structural-edits.md](structural-edits.md) for
+Create/Delete/Restore requests and server policy.
 
 ---
 
@@ -36,17 +37,17 @@ never sees an engine type, a WebSocket library, or OpenUSD.
 
 | Layer | Files | Role |
 |---|---|---|
-| Core | `CollabEngine.cpp` | Orchestration, broadcast gate, session flow, arming, `poll()` |
+| Core | `CollabEngine.cpp` | Orchestration, transform and structural request gates, session flow, arming, `poll()` |
 | Protocol | `protocol/RestClient.cpp`, `protocol/SessionSocket.cpp` | REST orchestration; session WebSocket immediate send + dispatch |
 | Wire | `wire/WireCodec.cpp` | protobuf <-> model (the only protobuf code) |
-| Model + math | `model/Types.h`, `model/ConventionMath.h` | Plain data; wire<->USD matrix transpose |
+| Model + math | `model/Types.h`, `model/ConventionMath.h` | Plain data; engine column-vector basis <-> wire/USD row-vector matrix |
 | Ports | `ports/*.h` | The interfaces the core requires |
 | Adapters | `adapters/**` | Concrete port implementations (IX transport, token, clock, REST codec) |
 
 ```mermaid
 graph LR
     subgraph CORE["Core (agnostic)"]
-        ENGINE["CollabEngine"]
+        ENGINE["CollabEngine<br/>request gates and callback lifetimes"]
         PROTO["RestClient / SessionSocket"]
         WIRE["WireCodec"]
         MODEL["model + ConventionMath"]
@@ -85,14 +86,20 @@ engine objects. The once-per-frame `poll()` is driven by `IFrameTicker`; it
 advances the outbound-arming settle countdown (outbound edits are sent immediately
 in `on_stage_changed`, not flushed here).
 
+### Socket callback lifetime
+
+Queued socket events belong to one session membership. Leaving invalidates their
+delivery, so an old event cannot affect a replacement session with the same ID
+or access a destroyed engine.
+
 ---
 
 ## CollabEngine
 
 The orchestrator. It owns the protocol objects, holds the session/auth/sync
-state, and decides when a local edit is broadcast. Construction is cheap; real
-setup is `initialize(ports, observer)` and teardown is `shutdown()` (both
-idempotent).
+state, and decides when a local transform or structural request may be sent.
+Construction is cheap; real setup is `initialize(ports, observer)` and teardown is
+`shutdown()` (both idempotent).
 
 Its public surface, by area:
 
@@ -125,6 +132,13 @@ Its public surface, by area:
   protocol forbids sending before the snapshot. A reconnect re-gates on the snapshot
   only (the session disarms and clears `snapshot_complete`); the settle latch stays
   set, since a reconnect does not reconvert the stage.
+- **Structural requests** — `request_create_prim` and `request_set_prim_active`
+  send Create/Delete/Restore intent for a known remote session with a completed
+  snapshot and open socket. The stage changes only when the server broadcasts
+  the result. See [structural-edits.md](structural-edits.md) for caller contracts.
+
+Incoming transform, create and active-state broadcasts reach the bridge through
+`author_edit(edit, EditOrigin::External)`.
 
 The adapters the engine needs are passed in one struct:
 
@@ -160,6 +174,9 @@ background results through the dispatcher first).
 - **Socket lifecycle** — `on_socket_opened`, `on_handshake`, `on_remote_edit`,
   `on_ack`, `on_socket_error`, `on_disconnected`.
 
+`on_remote_edit` carries transform, create and active-state edits. Structural
+broadcasts have no originator ID and therefore report an empty `from_client_id`.
+
 `Op` (`Login`, `ListFiles`, `CreateSession`, `DeleteSession`, `Health`,
 `FetchThumbnail`, `ListSessions`, `GetSession`, `CommitSession`, `CheckDownload`,
 `CheckThumbnail`) tags a failed REST call so the host can route the error.
@@ -179,12 +196,13 @@ implementation. The core depends only on these.
 | `IFrameTicker` | run `poll()` once per frame | engine per-frame signal |
 | `IClock` | monotonic milliseconds to stamp edits | system wall clock |
 | `ITokenProvider` | read/set/clear the current bearer token | process-wide holder |
-| `IStageBridge` | author/apply/read prim transforms; report stage changes | engine + USD bridge |
+| `IStageBridge` | author transform/structural edits, read transforms and report stage changes | engine + USD bridge |
 | `ITransportFactory` | construct the HTTP / WebSocket transports | picks the concrete transport library |
 
-`IStageBridge` is the transform-sync seam: `author_local_edit` writes the live
-stage (the free local save), `apply_remote_edit` applies an inbound edit with
-loopback suppression, `read_prim` reads a transform, `set_on_changed` /
+`IStageBridge` is the stage-edit seam: `author_edit(edit, EditOrigin::Local)`
+writes the live stage (the free local save); `author_edit(edit, EditOrigin::External)`
+applies an inbound transform or structural edit with loopback suppression.
+`read_prim` reads a transform, `set_on_changed` /
 `has_on_changed` register and report the sink the bridge fires on stage-originated
 changes, and `is_stage_root` identifies the display-only placement root. The bridge
 is owned by the host stage node and borrowed by the engine — see
@@ -205,17 +223,17 @@ rotation takes effect without reconfiguring readers.
   the REST codec. Successful thumbnails are cached in-memory by `usd_file`.
 - **`protocol/SessionSocket`** — the session protocol over a WebSocket: inbound
   frame dispatch (handshake / remote edit / ack / error), **immediate outbound
-  send** with per-prim duplicate suppression (an edit identical, payload only, to
-  the last one sent for that prim is dropped), and disconnect classification. Holds
-  no transport or protobuf types. Outbound updates carry two ordering fields:
+  send** with per-prim duplicate suppression for transforms (an edit identical,
+  payload only, to the last one sent for that prim is dropped), and disconnect
+  classification. Holds no transport or protobuf types. Outbound updates carry two ordering fields:
   - **`server_seq`** — a per-session version counter the server increments once per
     applied stage change. Server messages that reflect state (broadcast, ack,
     `SnapshotComplete`) carry it so clients can order them; an outbound
     `TransformUpdate` carries, as its *base*, the highest `server_seq` the client had
     applied (captured at send time), and the server rejects the update if that base
     is stale.
-  - **`request_id`** — chosen by the client per `TransformUpdate` and echoed in the
-    matching **Ack**, purely so the client can correlate an ack to its update for
+  - **`request_id`** — chosen by the client per transform or structural request and
+    echoed in the matching **Ack**, purely so the client can correlate an ack to its update for
     diagnostics. Acks drive no client action: the client adopts the ack's
     `server_seq` (advancing its own base past its applied edit) and does not resend.
     The server resolves ordering — after a stale/invalid base it sends no correction
@@ -250,7 +268,7 @@ not yet driven from here.
 | `/api/v1/sessions/<id>` | Yes | GET | Retrieve details for a session. | ✅ `get_session` |
 | `/api/v1/sessions/<id>/commit` | Yes | POST | Commit session changes to the original USD file. | ✅ `commit_session` |
 | `/api/v1/sessions/<id>` | Yes | DELETE | Tear down a session and disconnect all clients. | ✅ `delete_session` |
-| `/ws?sid=<id>` | Yes | WebSocket | Session socket for real-time edits (protobuf binary frames). | ✅ `SessionSocket` |
+| `/ws?sid=<id>` | Yes | WebSocket | Session socket for transform updates, prim creation and Delete/Restore (protobuf). | ✅ `SessionSocket` |
 
 The authenticated endpoints take the JWT from `ITokenProvider` as a
 `Bearer` header (the WebSocket sends it on the upgrade). Session creation returns
@@ -266,15 +284,14 @@ the base URL to open the socket.
   translates the generated `BaseMessage` to/from the plain `model` types; the
   generated protobuf types never leak past this boundary.
 - **`model/Types`** — plain data: `Mat4` (row-major 4x4), `SeparateXform`
-  (T/R/S, Euler degrees USD convention), `PrimEdit` (one prim's transform edit),
+  (T/R/S, Euler degrees USD convention), `PrimEdit` (transform, create or active-state edit),
   `FileEntry`, `SessionInfo`, `LoginResult`, `RestError`, `HealthResult`,
   `ThumbnailResult`.
 - **`model/ConventionMath`** — the single source of truth for the two matrix
-  conventions: the **wire** matrix is row-major (stored verbatim), while the
-  **USD** matrix is the wire matrix with its rotation/scale 3x3 block transposed
-  (USD uses row-vector math, an engine Basis column-vector); the translation row
-  is unchanged. Pure functions, so wire/USD round-trips are testable without a
-  live stage.
+  conventions: an **engine column-vector basis** and the **wire/USD row-vector
+  matrix**. Wire and USD cells agree; conversion belongs at the engine binding's
+  transform codec. The helpers use plain arrays without Godot or OpenUSD
+  dependencies, so round-trips can be tested without a live stage.
 
 ---
 
@@ -343,6 +360,11 @@ So a second engine is that client class plus the genuinely engine-bound adapters
 the core logic and contracts do not move. The Godot side of that column is
 documented in [godot-binding.md](godot-binding.md).
 
+The shared OpenUSD-only `resolver/UsdAssetPath.h` helper can also be reused by an
+engine that uses USD; it is separate from the networking core. The current
+`StageBridge`, `StageActivityController` and `PayloadPlacement` implementations
+remain Godot-specific.
+
 ---
 
 ## Extending the system
@@ -383,7 +405,8 @@ void RestClient::get_foo(FooCb on_ok, ErrorCb on_err) {
   in `SessionSocket` and dispatch the new kind on receipt (drop a duplicate if it is
   high-frequency per-prim, as `send` does), surface it on the engine + observer, and
   expose it on the binding. Cover it with a codec round-trip test and a
-  fake-`IWebSocketTransport` dispatch test.
+  fake-`IWebSocketTransport` dispatch test. Distinct create requests must not be
+  collapsed by transform-style duplicate suppression.
 
 ```cpp
 // 1. shared/proto/idtxcore/session.proto — declare the wire message
