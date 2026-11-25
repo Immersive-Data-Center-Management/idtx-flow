@@ -17,7 +17,6 @@
 #include <cstdint>
 #include <map>
 #include <memory>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -38,6 +37,7 @@
 #include <idtxflow/net/ports/ITransportFactory.h>
 
 #include "Dispatcher.h"
+#include "stage_ops/StageReloadController.h"
 #include "Ticker.h"
 
 class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
@@ -241,16 +241,12 @@ class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
     void attach_bridge(const std::string& session_id);
     void detach_bridge(const std::string& session_id);
 
-    // Layer reload: rebuild one stage node of a session and count it until its
-    // load ends (stage_loading_finished or stage_loading_cancelled); once a
-    // session has none left, the engine asks the server for the session's edits
-    // again (CollabEngine::reload_complete).
-    void start_node_reload(const std::string& session_id, godot::Node* node);
+    // The stage node bound to @p session_id, or null.
+    godot::Node* bound_node(const std::string& session_id) const;
+    // Signal targets for the stage nodes reload_ rebuilds: Godot delivers signals
+    // only to Godot objects, so they forward to the controller.
     void _on_node_reload_finished(bool success, const godot::String& session_id, int64_t node_id);
     void _on_node_reload_cancelled(const godot::String& session_id, int64_t node_id);
-    // Per frame: complete every reload left with no stage node to wait for
-    // (the last one's load was cancelled).
-    void complete_idle_reloads();
 
     // Per-request completion queues (FIFO). A request enqueues its Callable (only
     // if valid) when issued; the matching observer result pops the front and
@@ -294,17 +290,11 @@ class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
     };
     std::map<std::string, SessionBinding> bindings_;
 
-    // Per-session layer reload in progress: the stage nodes (by ObjectID) being
-    // rebuilt, and those to rebuild once more when they finish because another
-    // file was reloaded meanwhile. Erased when a session has none left.
-    struct ReloadState
-    {
-        std::set<uint64_t> loading;
-        std::set<uint64_t> again;
-    };
-    std::map<std::string, ReloadState> reloads_;
-
     idtxflow::net::CollabEngine engine_;
+
+    // Rebuilds a session's stage nodes after a layer reload or a reconnect and
+    // reports when the engine may ask for the session's state again.
+    idtxflow::collab::StageReloadController reload_;
 };
 
 VARIANT_ENUM_CAST(IdtxClient::RequestKind);

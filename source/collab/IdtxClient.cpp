@@ -7,81 +7,24 @@
 #include <godot_cpp/core/object.hpp>
 #include <godot_cpp/variant/callable_method_pointer.hpp>
 
-#include <algorithm>
-#include <string>
-#include <vector>
-
-#include <pxr/usd/sdf/layer.h>
-#include <pxr/usd/usd/stage.h>
-
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
 
 #include "stage_ops/TransformCodec.h"
 #include <idtxflow/net/CollabComposition.h>
 #include <idtxflow/net/ports/IStageBridge.h>
-#include <idtxflow/resolver/UrlCanonical.h>
 
 using namespace godot;
 
 namespace gxform = idtxflow::collab::xform;
 
-namespace
-{
-// Whether @p stage composes the layer at @p canonical (root, sublayer,
-// reference or payload). Compared in the spelling the resolver gives layer
-// identifiers, so a server-sent URL matches however a reference spelled it.
-bool stage_uses(const pxr::UsdStageRefPtr& stage, const std::string& canonical)
-{
-    if (!stage) return false;
-    for (const pxr::SdfLayerHandle& layer: stage->GetUsedLayers())
-    {
-        if (layer && idtxflow::resolver::CanonicalUrl(layer->GetIdentifier()) == canonical) return true;
-    }
-    return false;
-}
-
-// Evict every remote (http/https) layer @p stage composes from the HTTP cache, so
-// the next load of any of them downloads it again. Local and anonymous layers
-// (the session layer) are not cached and are skipped.
-void evict_remote_layers(const pxr::UsdStageRefPtr& stage)
-{
-    if (!stage) return;
-    for (const pxr::SdfLayerHandle& layer: stage->GetUsedLayers())
-    {
-        if (!layer) continue;
-        const std::string& id = layer->GetIdentifier();
-        if (id.rfind("http://", 0) == 0 || id.rfind("https://", 0) == 0)
-        {
-            UsdStageNode3D::evict_http_cache_entry(String(id.c_str()));
-        }
-    }
-}
-
-// Every UsdStageNode3D in the subtree of @p node, @p node included, parents
-// before their children (nested payload stages are children of their holder).
-void collect_stage_nodes(Node* node, std::vector<UsdStageNode3D*>& out)
-{
-    if (node == nullptr) return;
-    if (UsdStageNode3D* stage_node = Object::cast_to<UsdStageNode3D>(node)) out.push_back(stage_node);
-    for (int i = 0; i < node->get_child_count(); ++i)
-    {
-        collect_stage_nodes(node->get_child(i), out);
-    }
-}
-
-bool is_below_any(const Node* node, const std::vector<UsdStageNode3D*>& ancestors)
-{
-    for (const Node* p = node->get_parent(); p != nullptr; p = p->get_parent())
-    {
-        if (std::find(ancestors.begin(), ancestors.end(), p) != ancestors.end()) return true;
-    }
-    return false;
-}
-} // namespace
-
 IdtxClient* IdtxClient::singleton_ = nullptr;
 
-IdtxClient::IdtxClient() = default;
+IdtxClient::IdtxClient()
+    : reload_(callable_mp(this, &IdtxClient::_on_node_reload_finished),
+              callable_mp(this, &IdtxClient::_on_node_reload_cancelled),
+              [this](const std::string& session_id) { engine_.reload_complete(session_id); })
+{
+}
 
 IdtxClient::~IdtxClient()
 {
@@ -168,7 +111,7 @@ void IdtxClient::_on_process_frame()
     // via the ticker: advances the auto-arm settle countdown. Outbound edits are
     // sent immediately in on_stage_changed, so there is no per-frame flush.
     if (ticker_) ticker_->fire();
-    complete_idle_reloads();
+    reload_.poll();
 }
 
 void IdtxClient::_bootstrap_ticker()
@@ -367,7 +310,7 @@ void IdtxClient::unbind_session(const String& session_id)
     bindings_.erase(sid);
     // Nothing reports a reload of the unbound nodes any more; end it so the
     // engine does not wait for it (no-op if the session itself has ended).
-    if (reloads_.erase(sid) > 0) engine_.reload_complete(sid);
+    if (reload_.forget(sid)) engine_.reload_complete(sid);
 }
 
 int64_t IdtxClient::request_create_prim(const String& session_id, const String& parent_path, const Dictionary& spec)
@@ -694,228 +637,29 @@ void IdtxClient::on_layer_reloaded(const std::string& session_id, const std::str
                                    const std::string& file_url)
 {
     emit_signal("layer_reloaded", String(session_id.c_str()), String(usd_path.c_str()));
-
-    // Every later fetch of the file downloads it again.
-    UsdStageNode3D::evict_http_cache_entry(String(file_url.c_str()));
-
-    ReloadState& state = reloads_[session_id];
-    const std::string wanted = idtxflow::resolver::CanonicalUrl(file_url);
-
-    // The session's stage nodes that compose the file: its root node, which
-    // references or sublayers it, or is it, and nested payload stages, which
-    // load it as their own root. A node below another affected one is rebuilt
-    // with it.
-    std::vector<UsdStageNode3D*> affected;
-    auto binding = bindings_.find(session_id);
-    if (binding != bindings_.end())
-    {
-        std::vector<UsdStageNode3D*> nodes;
-        collect_stage_nodes(Object::cast_to<Node>(ObjectDB::get_instance(binding->second.node_id)), nodes);
-        for (UsdStageNode3D* node: nodes)
-        {
-            const uint64_t id = node->get_instance_id();
-            if (state.loading.count(id) > 0)
-            {
-                // Mid-rebuild for an earlier file: it may already have fetched this
-                // one before the eviction above, so it is rebuilt once more.
-                state.again.insert(id);
-                continue;
-            }
-            if (is_below_any(node, affected)) continue;
-            if (stage_uses(node->get_stage(), wanted)) affected.push_back(node);
-        }
-    }
-
-    // Release every affected stage, and the stages nested below it, before any
-    // new load starts. As long as one stage still holds the old in-memory layer,
-    // the layer registry hands a new load that copy instead of the re-fetched
-    // file. Nested stages go first: removing them from the tree alone frees
-    // them only at the end of the frame.
-    for (UsdStageNode3D* node: affected)
-    {
-        std::vector<UsdStageNode3D*> subtree;
-        collect_stage_nodes(node, subtree);
-        for (auto it = subtree.rbegin(); it != subtree.rend(); ++it)
-        {
-            (*it)->unload_stage();
-        }
-    }
-    for (UsdStageNode3D* node: affected)
-    {
-        start_node_reload(session_id, node);
-    }
-
-    if (state.loading.empty())
-    {
-        // Nothing of this session uses the file (any more): nothing to wait for.
-        reloads_.erase(session_id);
-        engine_.reload_complete(session_id);
-    }
+    reload_.reload_file(session_id, bound_node(session_id), file_url);
 }
 
 void IdtxClient::on_reconnected(const std::string& session_id)
 {
-    ReloadState& state = reloads_[session_id];
-
-    auto binding = bindings_.find(session_id);
-    UsdStageNode3D* root = binding != bindings_.end()
-                               ? Object::cast_to<UsdStageNode3D>(ObjectDB::get_instance(binding->second.node_id))
-                               : nullptr;
-    if (root != nullptr)
-    {
-        std::vector<UsdStageNode3D*> subtree;
-        collect_stage_nodes(root, subtree);
-
-        // Any file the session's stages use may have changed while the socket was
-        // down; the LayerReloaded for it was lost with the connection.
-        for (UsdStageNode3D* node: subtree)
-        {
-            evict_remote_layers(node->get_stage());
-        }
-
-        const uint64_t root_id = root->get_instance_id();
-        if (state.loading.count(root_id) > 0 || root->is_loading())
-        {
-            // A load is in flight (a rebuild, or the stage's first load): it may
-            // have fetched files before the eviction above, so it is rebuilt once
-            // more when it finishes. start_node_reload only starts tracking it,
-            // since reload() does nothing while the node is loading.
-            start_node_reload(session_id, root);
-            state.again.insert(root_id);
-        }
-        else
-        {
-            // Release nested stages first, as for a reload: as long as one stage
-            // still holds an old in-memory layer, a new load is handed that copy
-            // instead of the re-fetched file. Rebuilding the root replaces every
-            // nested stage, so none of them is waited for any longer; unloading
-            // one still loading also reports it cancelled.
-            for (auto it = subtree.rbegin(); it != subtree.rend(); ++it)
-            {
-                state.loading.erase((*it)->get_instance_id());
-                state.again.erase((*it)->get_instance_id());
-                (*it)->unload_stage();
-            }
-            start_node_reload(session_id, root);
-        }
-    }
-
-    if (state.loading.empty())
-    {
-        // No stage to rebuild (not loaded or bound yet): just request the state.
-        reloads_.erase(session_id);
-        engine_.reload_complete(session_id);
-    }
+    reload_.rebuild_session(session_id, bound_node(session_id));
 }
 
-void IdtxClient::start_node_reload(const std::string& session_id, Node* node)
+Node* IdtxClient::bound_node(const std::string& session_id) const
 {
-    UsdStageNode3D* stage_node = Object::cast_to<UsdStageNode3D>(node);
-    if (stage_node == nullptr) return;
-
-    const uint64_t id = stage_node->get_instance_id();
-    // Every started load ends with exactly one of the two signals; whichever fires
-    // first disconnects the other.
-    const Callable done_cb = callable_mp(this, &IdtxClient::_on_node_reload_finished)
-                                 .bind(String(session_id.c_str()), static_cast<int64_t>(id));
-    const Callable cancel_cb = callable_mp(this, &IdtxClient::_on_node_reload_cancelled)
-                                   .bind(String(session_id.c_str()), static_cast<int64_t>(id));
-    if (!stage_node->is_connected("stage_loading_finished", done_cb))
-    {
-        stage_node->connect("stage_loading_finished", done_cb, Object::CONNECT_ONE_SHOT);
-    }
-    if (!stage_node->is_connected("stage_loading_cancelled", cancel_cb))
-    {
-        stage_node->connect("stage_loading_cancelled", cancel_cb, Object::CONNECT_ONE_SHOT);
-    }
-
-    // The file was evicted already; the node's own URL keeps its cache unless it is
-    // that file.
-    stage_node->reload(/*clear_http_cache=*/false);
-    if (stage_node->is_loading())
-    {
-        reloads_[session_id].loading.insert(id);
-        return;
-    }
-
-    // The node refused to load (not in the tree, no URI): nothing will finish.
-    if (stage_node->is_connected("stage_loading_finished", done_cb))
-    {
-        stage_node->disconnect("stage_loading_finished", done_cb);
-    }
-    if (stage_node->is_connected("stage_loading_cancelled", cancel_cb))
-    {
-        stage_node->disconnect("stage_loading_cancelled", cancel_cb);
-    }
+    auto binding = bindings_.find(session_id);
+    return binding != bindings_.end() ? Object::cast_to<Node>(ObjectDB::get_instance(binding->second.node_id))
+                                      : nullptr;
 }
 
 void IdtxClient::_on_node_reload_finished(bool success, const String& session_id, int64_t node_id)
 {
-    if (Node* node = Object::cast_to<Node>(ObjectDB::get_instance(static_cast<uint64_t>(node_id))))
-    {
-        const Callable cancel_cb = callable_mp(this, &IdtxClient::_on_node_reload_cancelled).bind(session_id, node_id);
-        if (node->is_connected("stage_loading_cancelled", cancel_cb))
-            node->disconnect("stage_loading_cancelled", cancel_cb);
-    }
-
-    const std::string sid = session_id.utf8().get_data();
-    auto it = reloads_.find(sid);
-    if (it == reloads_.end()) return;
-
-    const uint64_t id = static_cast<uint64_t>(node_id);
-    it->second.loading.erase(id);
-    if (!success)
-    {
-        IDTX_LOG(IDTX_WARN, "layer reload: rebuilding a stage node of session '{}' failed", sid);
-    }
-
-    if (it->second.again.erase(id) > 0)
-    {
-        start_node_reload(sid, Object::cast_to<Node>(ObjectDB::get_instance(id)));
-    }
-
-    auto state = reloads_.find(sid);
-    if (state != reloads_.end() && state->second.loading.empty())
-    {
-        reloads_.erase(state);
-        engine_.reload_complete(sid);
-    }
+    reload_.on_node_finished(success, session_id, node_id);
 }
 
 void IdtxClient::_on_node_reload_cancelled(const String& session_id, int64_t node_id)
 {
-    // The node's load was cut off (set_stage_uri, unload_stage, or the node being
-    // freed): stop waiting for it. Only forget it here, never reload it: during
-    // NOTIFICATION_PREDELETE a reload would start a load on a dying node. The
-    // reload completes in complete_idle_reloads, not here, so a reload still
-    // unloading nested stages during its own setup cannot complete early.
-    if (Node* node = Object::cast_to<Node>(ObjectDB::get_instance(static_cast<uint64_t>(node_id))))
-    {
-        const Callable done_cb = callable_mp(this, &IdtxClient::_on_node_reload_finished).bind(session_id, node_id);
-        if (node->is_connected("stage_loading_finished", done_cb)) node->disconnect("stage_loading_finished", done_cb);
-    }
-
-    auto it = reloads_.find(session_id.utf8().get_data());
-    if (it == reloads_.end()) return;
-    const uint64_t id = static_cast<uint64_t>(node_id);
-    it->second.loading.erase(id);
-    it->second.again.erase(id);
-}
-
-void IdtxClient::complete_idle_reloads()
-{
-    if (reloads_.empty()) return;
-
-    std::vector<std::string> done;
-    for (const auto& [sid, state]: reloads_)
-    {
-        if (state.loading.empty()) done.push_back(sid);
-    }
-    for (const std::string& sid: done)
-    {
-        reloads_.erase(sid);
-        engine_.reload_complete(sid);
-    }
+    reload_.on_node_cancelled(session_id, node_id);
 }
 
 void IdtxClient::on_ack(const std::string& session_id, uint64_t request_id,

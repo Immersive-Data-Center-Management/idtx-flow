@@ -141,7 +141,9 @@ Its public surface, by area:
   `LayerReloaded`. The engine puts the session into *reloading*: it disarms, clears
   `snapshot_complete`, and from then on ignores the session's stage frames (they are
   neither applied, buffered, nor counted towards the base), then reports
-  `on_layer_reloaded(session_id, usd_path, file_url)`. The host evicts the file from
+  `on_layer_reloaded(session_id, usd_path, file_url)`. In the Godot binding,
+  `IdtxClient` hands this to `StageReloadController` (`source/stage_ops/`), which
+  does the rest of this paragraph. The host evicts the file from
   the HTTP cache and finds the stage nodes that use it by the URL's canonical spelling
   (`idtxflow::resolver::CanonicalUrl`, which the resolver also gives every HTTP layer
   identifier and cache key), so a reference that spells the file differently

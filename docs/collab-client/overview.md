@@ -16,7 +16,7 @@ Everything engine- or library-specific lives in thin **adapters** behind the cor
 **ports**. The engine-specific part is the whole **Godot binding** — `source/collab/*`
 (`IdtxClient`, `Dispatcher`, `Ticker`), the node-owned stage authoring in
 `source/stage_ops/*` (`StageBridge`, `StageEditController`, `TransformCodec`,
-`PayloadPlacement`, `StageActivityController`), the USD nodes
+`PayloadPlacement`, `StageActivityController`, `StageReloadController`), the USD nodes
 in `source/nodes/*`, and module registration (`register_types.cpp`). Within that
 binding, `StageBridge` is where Godot and OpenUSD types meet for transform and
 structural authoring/reading (not the project's only such boundary — the USD converter and

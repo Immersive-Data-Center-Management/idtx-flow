@@ -11,7 +11,7 @@ It lives in:
 | Path | Contents |
 |---|---|
 | `source/collab/` | `IdtxClient`, `Dispatcher`, `Ticker` |
-| `source/stage_ops/` | `StageBridge`, `StageEditController`, `StageActivityController`, `PayloadPlacement`, `TransformCodec` (see [stage-authoring.md](stage-authoring.md)) |
+| `source/stage_ops/` | `StageBridge`, `StageEditController`, `StageActivityController`, `StageReloadController`, `PayloadPlacement`, `TransformCodec` (see [stage-authoring.md](stage-authoring.md); `StageReloadController` rebuilds a session's stage nodes on layer reload and reconnect, see [net-core.md](net-core.md)) |
 | `source/nodes/` | USD node types (`UsdStageNode3D` + converted prim nodes) |
 | `source/register_types.cpp` | Module boot: class registration, singleton, composition root |
 
