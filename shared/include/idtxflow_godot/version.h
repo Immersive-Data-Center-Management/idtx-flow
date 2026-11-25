@@ -9,7 +9,7 @@
 
 #define IDTXFLOW_GODOT_VERSION_MAJOR 0
 #define IDTXFLOW_GODOT_VERSION_MINOR 6
-#define IDTXFLOW_GODOT_VERSION_PATCH 1
+#define IDTXFLOW_GODOT_VERSION_PATCH 3
 
 /**
  * Encode version as a single integer for easy comparison.
