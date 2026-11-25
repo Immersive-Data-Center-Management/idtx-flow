@@ -77,17 +77,6 @@ bool is_below_any(const Node* node, const std::vector<UsdStageNode3D*>& ancestor
     }
     return false;
 }
-
-// Whether @p node is queued for deletion, itself or through an ancestor (a
-// node removed with its subtree, as _cleanup_nodes does, is freed with it).
-bool is_going_away(const Node* node)
-{
-    for (const Node* p = node; p != nullptr; p = p->get_parent())
-    {
-        if (p->is_queued_for_deletion()) return true;
-    }
-    return false;
-}
 } // namespace
 
 IdtxClient* IdtxClient::singleton_ = nullptr;
@@ -179,7 +168,7 @@ void IdtxClient::_on_process_frame()
     // via the ticker: advances the auto-arm settle countdown. Outbound edits are
     // sent immediately in on_stage_changed, so there is no per-frame flush.
     if (ticker_) ticker_->fire();
-    sweep_abandoned_reloads();
+    complete_idle_reloads();
 }
 
 void IdtxClient::_bootstrap_ticker()
@@ -789,9 +778,8 @@ void IdtxClient::on_reconnected(const std::string& session_id)
         {
             // A load is in flight (a rebuild, or the stage's first load): it may
             // have fetched files before the eviction above, so it is rebuilt once
-            // more when it finishes. While the node is loading, start_node_reload
-            // only starts tracking it (reload() does nothing then); a tracked node
-            // whose load was cut off is rebuilt right away instead.
+            // more when it finishes. start_node_reload only starts tracking it,
+            // since reload() does nothing while the node is loading.
             start_node_reload(session_id, root);
             state.again.insert(root_id);
         }
@@ -800,8 +788,8 @@ void IdtxClient::on_reconnected(const std::string& session_id)
             // Release nested stages first, as for a reload: as long as one stage
             // still holds an old in-memory layer, a new load is handed that copy
             // instead of the re-fetched file. Rebuilding the root replaces every
-            // nested stage, so none of them is waited for any longer (this also
-            // clears one whose load was cut off without a signal).
+            // nested stage, so none of them is waited for any longer; unloading
+            // one still loading also reports it cancelled.
             for (auto it = subtree.rbegin(); it != subtree.rend(); ++it)
             {
                 state.loading.erase((*it)->get_instance_id());
@@ -826,11 +814,19 @@ void IdtxClient::start_node_reload(const std::string& session_id, Node* node)
     if (stage_node == nullptr) return;
 
     const uint64_t id = stage_node->get_instance_id();
+    // Every started load ends with exactly one of the two signals; whichever fires
+    // first disconnects the other.
     const Callable done_cb = callable_mp(this, &IdtxClient::_on_node_reload_finished)
                                  .bind(String(session_id.c_str()), static_cast<int64_t>(id));
+    const Callable cancel_cb = callable_mp(this, &IdtxClient::_on_node_reload_cancelled)
+                                   .bind(String(session_id.c_str()), static_cast<int64_t>(id));
     if (!stage_node->is_connected("stage_loading_finished", done_cb))
     {
         stage_node->connect("stage_loading_finished", done_cb, Object::CONNECT_ONE_SHOT);
+    }
+    if (!stage_node->is_connected("stage_loading_cancelled", cancel_cb))
+    {
+        stage_node->connect("stage_loading_cancelled", cancel_cb, Object::CONNECT_ONE_SHOT);
     }
 
     // The file was evicted already; the node's own URL keeps its cache unless it is
@@ -847,10 +843,21 @@ void IdtxClient::start_node_reload(const std::string& session_id, Node* node)
     {
         stage_node->disconnect("stage_loading_finished", done_cb);
     }
+    if (stage_node->is_connected("stage_loading_cancelled", cancel_cb))
+    {
+        stage_node->disconnect("stage_loading_cancelled", cancel_cb);
+    }
 }
 
 void IdtxClient::_on_node_reload_finished(bool success, const String& session_id, int64_t node_id)
 {
+    if (Node* node = Object::cast_to<Node>(ObjectDB::get_instance(static_cast<uint64_t>(node_id))))
+    {
+        const Callable cancel_cb = callable_mp(this, &IdtxClient::_on_node_reload_cancelled).bind(session_id, node_id);
+        if (node->is_connected("stage_loading_cancelled", cancel_cb))
+            node->disconnect("stage_loading_cancelled", cancel_cb);
+    }
+
     const std::string sid = session_id.utf8().get_data();
     auto it = reloads_.find(sid);
     if (it == reloads_.end()) return;
@@ -875,45 +882,33 @@ void IdtxClient::_on_node_reload_finished(bool success, const String& session_id
     }
 }
 
-void IdtxClient::sweep_abandoned_reloads()
+void IdtxClient::_on_node_reload_cancelled(const String& session_id, int64_t node_id)
+{
+    // The node's load was cut off (set_stage_uri, unload_stage, or the node being
+    // freed): stop waiting for it. Only forget it here, never reload it: during
+    // NOTIFICATION_PREDELETE a reload would start a load on a dying node. The
+    // reload completes in complete_idle_reloads, not here, so a reload still
+    // unloading nested stages during its own setup cannot complete early.
+    if (Node* node = Object::cast_to<Node>(ObjectDB::get_instance(static_cast<uint64_t>(node_id))))
+    {
+        const Callable done_cb = callable_mp(this, &IdtxClient::_on_node_reload_finished).bind(session_id, node_id);
+        if (node->is_connected("stage_loading_finished", done_cb)) node->disconnect("stage_loading_finished", done_cb);
+    }
+
+    auto it = reloads_.find(session_id.utf8().get_data());
+    if (it == reloads_.end()) return;
+    const uint64_t id = static_cast<uint64_t>(node_id);
+    it->second.loading.erase(id);
+    it->second.again.erase(id);
+}
+
+void IdtxClient::complete_idle_reloads()
 {
     if (reloads_.empty()) return;
 
-    // A node freed before its rebuild finished never emits stage_loading_finished:
-    // NOTIFICATION_PREDELETE cancels its load silently. Waiting for it would keep
-    // the session from ever calling reload_complete, leaving it disarmed until a
-    // reconnect (on_reconnected stops waiting for the session's stages). This
-    // happens when an outer stage reloads over a nested one still rebuilding for
-    // an earlier file (_cleanup_nodes queues it via an ancestor), or when the node
-    // is freed otherwise (its scene closes, free()). A node that only left the
-    // tree is still counted: its load goes on and finishes outside the tree (the
-    // editor's "delete" keeps the node alive for undo).
-    //
-    // TODO: Not covered: a load cancelled without freeing the node and without a new
-    // load starting (set_stage_uri("") or a new URI while out of the tree, or a
-    // script calling unload_stage() mid-rebuild); the session stays disarmed then.
-    // Proper fix, in UsdStageNode3D: every started load must end with a signal.
-    // Track "load started, not finished" (is_loading_ is cleared on the worker
-    // thread before the deferred _convert_stage), and emit a distinct
-    // stage_loading_cancelled from set_stage_uri, unload_stage and PREDELETE when
-    // a load is cut off. Its handler here must only forget the node, never reload
-    // it again: during PREDELETE the derived class runs before Node leaves the
-    // tree, so reload() would start a load on a dying node. Then drop this sweep.
     std::vector<std::string> done;
-    for (auto& [sid, state]: reloads_)
+    for (const auto& [sid, state]: reloads_)
     {
-        for (auto it = state.loading.begin(); it != state.loading.end();)
-        {
-            const Node* node = Object::cast_to<Node>(ObjectDB::get_instance(*it));
-            if (node != nullptr && !is_going_away(node))
-            {
-                ++it;
-                continue;
-            }
-            IDTX_LOG(IDTX_WARN, "layer reload: a stage node of session '{}' was freed before it finished", sid);
-            state.again.erase(*it);
-            it = state.loading.erase(it);
-        }
         if (state.loading.empty()) done.push_back(sid);
     }
     for (const std::string& sid: done)

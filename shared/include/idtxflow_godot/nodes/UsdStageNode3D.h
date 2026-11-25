@@ -136,7 +136,11 @@ class UsdStageNode3D : public godot::Node3D, public IUsdNode3D
     }
 
     /**
-     * Check if the stage is currently being loaded asynchronously.
+     * Check if a started load has not ended yet. Main thread only. Every load
+     * that starts (stage_loading_started) ends with exactly one of
+     * stage_loading_finished or stage_loading_cancelled, and this stays true
+     * until then, including the time between the worker finishing and the
+     * deferred conversion running.
      */
     bool is_loading() const
     {
@@ -249,6 +253,31 @@ class UsdStageNode3D : public godot::Node3D, public IUsdNode3D
     void _load_converted_stage();
 
     /**
+     * Called via call_deferred when the async worker could not open the stage: ends the load with
+     * stage_loading_finished(false), unless the load was cut off meanwhile.
+     */
+    void _finish_failed_load();
+
+    /**
+     * Take the worker's result for the current load. False when the load was cut off (cancelled or
+     * replaced) after the deferred call was queued: the caller then drops it, since the cut-off
+     * already ended the load with stage_loading_cancelled.
+     */
+    bool take_load_result(idtxflow::async::StageLoadResult& out);
+
+    /**
+     * Cut off a load in flight: stale worker results are dropped from now on. Returns whether a load
+     * was in flight; the caller then emits stage_loading_cancelled once its teardown is done.
+     */
+    bool cancel_load();
+
+    /**
+     * End the load of @p generation with stage_loading_finished(@p success), unless it was cut off
+     * (stage_loading_cancelled) in the meantime.
+     */
+    void finish_load(uint64_t generation, bool success);
+
+    /**
      * Finalize the conversion of the usdPrims->godotNodes while recursively setting the owner of each node
      * as well as the reference to their outermost StageNode3D reference
      * @param node Node to configure (and all the children)
@@ -320,10 +349,17 @@ class UsdStageNode3D : public godot::Node3D, public IUsdNode3D
     // The async stage load task (single-use per load operation)
     std::unique_ptr<idtxflow::async::StageLoadTask> pending_load_task_;
 
-    // The result from the worker thread, protected by result_mutex_
+    // The result from the worker thread, protected by result_mutex_, together
+    // with the load generation it belongs to.
     idtxflow::async::StageLoadResult pending_result_;
+    uint64_t pending_generation_ = 0;
     std::mutex result_mutex_;
 
-    // Whether an async load is currently in progress
+    // Bumped (under result_mutex_) when a load starts or is cut off. A worker
+    // result or deferred call from an older generation belongs to a load that
+    // already ended and is dropped.
+    uint64_t load_generation_ = 0;
+
+    // A started load has not ended yet (see is_loading()). Main thread only.
     bool is_loading_ = false;
 };
