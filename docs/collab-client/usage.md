@@ -118,7 +118,10 @@ Binding wires a live session to a loaded stage node so transforms and structural
 broadcasts apply to it. `bind_session`
 requires the node to be an already-constructed `UsdStageNode3D`; it attaches (or
 rebuilds, on reload) the node's authoring bridge and follows the node's
-`stage_loading_finished` / `stage_unloading` lifecycle.
+`stage_loading_finished` / `stage_unloading` lifecycle. Every load that starts
+(`stage_loading_started`) ends with exactly one of `stage_loading_finished` or
+`stage_loading_cancelled`; the latter when the load is cut off by `set_stage_uri`,
+`unload_stage`/`reload` or the node being freed.
 
 Order of operations:
 
@@ -251,7 +254,8 @@ Client-side:
   only *synced* / *syncing* (join-snapshot catching up); they do not show *disconnected*, *offline*,
   *reconnecting*, or *server unreachable*. The session socket auto-reconnects with a
   1-10s backoff but no overall timeout or attempt cap, so it keeps retrying
-  indefinitely. After reconnecting, the client receives a fresh join snapshot.
+  indefinitely. After reconnecting, the client rebuilds the session's stage from
+  re-fetched files and requests the session's state, as after a layer reload.
   Runtime hosts can observe the socket error/disconnection signals.
 - **A failed stage load during session create leaks the session** — if the stage
   download/convert fails after a session was created, the wizard removes the node but

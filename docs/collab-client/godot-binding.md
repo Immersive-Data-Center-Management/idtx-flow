@@ -11,7 +11,7 @@ It lives in:
 | Path | Contents |
 |---|---|
 | `source/collab/` | `IdtxClient`, `Dispatcher`, `Ticker` |
-| `source/stage_ops/` | `StageBridge`, `StageEditController`, `StageActivityController`, `PayloadPlacement`, `TransformCodec` (see [stage-authoring.md](stage-authoring.md)) |
+| `source/stage_ops/` | `StageBridge`, `StageEditController`, `StageActivityController`, `StageReloadController`, `PayloadPlacement`, `TransformCodec` (see [stage-authoring.md](stage-authoring.md); `StageReloadController` rebuilds a session's stage nodes on layer reload and reconnect, see [net-core.md](net-core.md)) |
 | `source/nodes/` | USD node types (`UsdStageNode3D` + converted prim nodes) |
 | `source/register_types.cpp` | Module boot: class registration, singleton, composition root |
 
@@ -148,9 +148,10 @@ Signal handlers still accept all five arguments; name an unused ID `_request_id`
 For per-action results, match the signal's ID to the returned ID within the same
 session membership.
 Its `request_kind` uses the `IdtxClient` constants `REQUEST_KIND_UNKNOWN`,
-`REQUEST_KIND_TRANSFORM`, `REQUEST_KIND_CREATE_PRIM`, `REQUEST_KIND_DELETE_PRIM`
-and `REQUEST_KIND_RESTORE_PRIM` (values 0–4). References and payloads use the create
-kind. A kind can be unknown when native tracking metadata is unavailable; a valid
+`REQUEST_KIND_TRANSFORM`, `REQUEST_KIND_CREATE_PRIM`, `REQUEST_KIND_DELETE_PRIM`,
+`REQUEST_KIND_RESTORE_PRIM` and `REQUEST_KIND_SNAPSHOT` (values 0–5). References and
+payloads use the create kind; the snapshot kind is the request the client sends
+itself after rebuilding a stage (layer reload or reconnect). A kind can be unknown when native tracking metadata is unavailable; a valid
 ID can still match a caller's own pending request. An Ack does not confirm
 scene conversion completion.
 See [structural-edits.md](structural-edits.md)

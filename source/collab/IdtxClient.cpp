@@ -19,7 +19,12 @@ namespace gxform = idtxflow::collab::xform;
 
 IdtxClient* IdtxClient::singleton_ = nullptr;
 
-IdtxClient::IdtxClient() = default;
+IdtxClient::IdtxClient()
+    : reload_(callable_mp(this, &IdtxClient::_on_node_reload_finished),
+              callable_mp(this, &IdtxClient::_on_node_reload_cancelled),
+              [this](const std::string& session_id) { engine_.reload_complete(session_id); })
+{
+}
 
 IdtxClient::~IdtxClient()
 {
@@ -106,6 +111,7 @@ void IdtxClient::_on_process_frame()
     // via the ticker: advances the auto-arm settle countdown. Outbound edits are
     // sent immediately in on_stage_changed, so there is no per-frame flush.
     if (ticker_) ticker_->fire();
+    reload_.poll();
 }
 
 void IdtxClient::_bootstrap_ticker()
@@ -302,6 +308,9 @@ void IdtxClient::unbind_session(const String& session_id)
     }
 
     bindings_.erase(sid);
+    // Nothing reports a reload of the unbound nodes any more; end it so the
+    // engine does not wait for it (no-op if the session itself has ended).
+    if (reload_.forget(sid)) engine_.reload_complete(sid);
 }
 
 int64_t IdtxClient::request_create_prim(const String& session_id, const String& parent_path, const Dictionary& spec)
@@ -619,9 +628,38 @@ void IdtxClient::on_remote_edit(const std::string& session_id, const idtxflow::n
 
 void IdtxClient::on_snapshot_complete(const std::string& session_id)
 {
-    // The join snapshot's prim edits were already applied via on_remote_edit; this
+    // The snapshot's prim edits were already applied via on_remote_edit; this
     // marks the boundary at which the stage holds the full current server state.
     emit_signal("snapshot_complete", String(session_id.c_str()));
+}
+
+void IdtxClient::on_layer_reloaded(const std::string& session_id, const std::string& usd_path,
+                                   const std::string& file_url)
+{
+    emit_signal("layer_reloaded", String(session_id.c_str()), String(usd_path.c_str()));
+    reload_.reload_file(session_id, bound_node(session_id), file_url);
+}
+
+void IdtxClient::on_reconnected(const std::string& session_id)
+{
+    reload_.rebuild_session(session_id, bound_node(session_id));
+}
+
+Node* IdtxClient::bound_node(const std::string& session_id) const
+{
+    auto binding = bindings_.find(session_id);
+    return binding != bindings_.end() ? Object::cast_to<Node>(ObjectDB::get_instance(binding->second.node_id))
+                                      : nullptr;
+}
+
+void IdtxClient::_on_node_reload_finished(bool success, const String& session_id, int64_t node_id)
+{
+    reload_.on_node_finished(success, session_id, node_id);
+}
+
+void IdtxClient::_on_node_reload_cancelled(const String& session_id, int64_t node_id)
+{
+    reload_.on_node_cancelled(session_id, node_id);
 }
 
 void IdtxClient::on_ack(const std::string& session_id, uint64_t request_id,
@@ -660,6 +698,7 @@ void IdtxClient::_bind_methods()
     BIND_ENUM_CONSTANT(REQUEST_KIND_CREATE_PRIM);
     BIND_ENUM_CONSTANT(REQUEST_KIND_DELETE_PRIM);
     BIND_ENUM_CONSTANT(REQUEST_KIND_RESTORE_PRIM);
+    BIND_ENUM_CONSTANT(REQUEST_KIND_SNAPSHOT);
 
     ClassDB::bind_method(D_METHOD("set_base_url", "url"), &IdtxClient::set_base_url);
     ClassDB::bind_method(D_METHOD("get_base_url"), &IdtxClient::get_base_url);
@@ -718,6 +757,8 @@ void IdtxClient::_bind_methods()
                           PropertyInfo(Variant::STRING, "prim_path"), PropertyInfo(Variant::TRANSFORM3D, "xform"),
                           PropertyInfo(Variant::STRING, "from_client_id")));
     ADD_SIGNAL(MethodInfo("snapshot_complete", PropertyInfo(Variant::STRING, "session_id")));
+    ADD_SIGNAL(MethodInfo("layer_reloaded", PropertyInfo(Variant::STRING, "session_id"),
+                          PropertyInfo(Variant::STRING, "usd_path")));
     ADD_SIGNAL(MethodInfo("ack_received", PropertyInfo(Variant::STRING, "session_id"),
                           PropertyInfo(Variant::INT, "request_id"), PropertyInfo(Variant::INT, "request_kind"),
                           PropertyInfo(Variant::BOOL, "ok"), PropertyInfo(Variant::STRING, "error")));

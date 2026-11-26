@@ -129,13 +129,46 @@ Its public surface, by area:
   remote edit* (loopback suppression); otherwise the edit is dropped. Arming requires
   two gates: a short post-attach settle (so USD conversion-time writes do not
   phantom-broadcast) **and** the join snapshot completing (`SnapshotComplete`) — the
-  protocol forbids sending before the snapshot. A reconnect re-gates on the snapshot
-  only (the session disarms and clears `snapshot_complete`); the settle latch stays
-  set, since a reconnect does not reconvert the stage.
+  protocol forbids sending before the snapshot. A reconnect is handled like a layer
+  reload (below): the session disarms, the host rebuilds its stage nodes, and the
+  rebuilt stage's attach restarts the settle countdown.
 - **Structural requests** — `request_create_prim` and `request_set_prim_active`
   send Create/Delete/Restore intent for a known remote session with a completed
   snapshot and open socket. The stage changes only when the server broadcasts
   the result. See [structural-edits.md](structural-edits.md) for caller contracts.
+- **Layer reload** — `reload_complete(session_id)`. When a file the session's stage
+  uses changes on the server (a commit, or an upload replacing it), the server sends
+  `LayerReloaded`. The engine puts the session into *reloading*: it disarms, clears
+  `snapshot_complete`, and from then on ignores the session's stage frames (they are
+  neither applied, buffered, nor counted towards the base), then reports
+  `on_layer_reloaded(session_id, usd_path, file_url)`. In the Godot binding,
+  `IdtxClient` hands this to `StageReloadController` (`source/stage_ops/`), which
+  does the rest of this paragraph. The host evicts the file from
+  the HTTP cache and finds the stage nodes that use it by the URL's canonical spelling
+  (`idtxflow::resolver::CanonicalUrl`, which the resolver also gives every HTTP layer
+  identifier and cache key), so a reference that spells the file differently
+  (`./a.usda`, `my%20a.usda`) is still matched. It releases those nodes (nested ones
+  first), reloads them, and calls `reload_complete` once all have finished. Every
+  started load ends with exactly one of `stage_loading_finished` or
+  `stage_loading_cancelled` (the load cut off by `set_stage_uri`, `unload_stage` or
+  the node being freed), so a node whose rebuild is cut off is no longer waited for
+  and cannot keep the session disarmed. The engine then sends a
+  `SnapshotRequest` and re-arms only on the `SnapshotComplete` that echoes that
+  request's id: the re-fetched file plus that snapshot supersede every frame it
+  ignored. A further `LayerReloaded` during the rebuild is reported the same way; the
+  host rebuilds the nodes concerned once more before completing.
+- **Reconnect** — every socket open after a session's first (the transport's
+  automatic reconnect) puts the session into *reloading* the same way and reports
+  `on_reconnected(session_id)` right after `on_socket_opened`. The join snapshot
+  only replays onto a freshly loaded stage (it re-creates prims and replays
+  deactivations, but cannot undo state a kept stage still holds, e.g. a restore made
+  meanwhile), and any `LayerReloaded` sent while the socket was down is lost. So the
+  host evicts every remote file the session's stage nodes use, rebuilds them, and
+  calls `reload_complete`; the join snapshot is ignored and the requested snapshot
+  replaces it. A fresh transport (re-entering a session) is a join, not a reconnect.
+  If the server rejects the request with a not-ok `Ack` that echoes its id, the engine
+  sends it again after a short delay when the error is `queue_full`, and gives up
+  otherwise (`session_closing`: the session is going away).
 
 Incoming transform, create and active-state broadcasts reach the bridge through
 `author_edit(edit, EditOrigin::External)`.
@@ -240,10 +273,16 @@ rotation takes effect without reconfiguring readers.
     (the newer state is already on its way), and an un-appliable edit draws a server
     *correction* broadcast that re-syncs the client.
   - **On disconnect** — any edit authored while the socket is down is dropped; the
-    last-sent cache is cleared. On reconnect the client re-arms after the fresh
-    `SnapshotComplete` and the join snapshot is authoritative (the client has no
-    knowledge of intervening server state, so replaying local edits ahead of the
-    snapshot would diverge from the server).
+    last-sent cache is cleared. On reconnect the client rebuilds its stage nodes and
+    re-arms after the `SnapshotComplete` of the snapshot it requests afterwards; that
+    snapshot is authoritative (the client has no knowledge of intervening server
+    state, so replaying local edits ahead of it would diverge from the server).
+  - **`SnapshotRequest`** — sent by the client after a layer reload (see
+    CollabEngine above), with a `request_id` from the same per-connection counter as
+    updates. The server answers with the same snapshot a joining client gets, and its
+    `SnapshotComplete` echoes the `request_id` (a join's carries 0), so the client can
+    tell the answer to its request from any other snapshot. Sending it also clears the
+    last-sent cache, since the rebuilt stage starts again from the snapshot.
 
 ---
 

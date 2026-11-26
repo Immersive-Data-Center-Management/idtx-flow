@@ -120,7 +120,16 @@ void SessionSocket::handle_binary(const std::string& bytes)
             std::lock_guard<std::mutex> lock(mutex_);
             callback = on_snapshot_complete_;
         }
-        if (callback) callback(decoded.server_seq);
+        if (callback) callback(decoded.server_seq, decoded.request_id);
+        break;
+    }
+    case wire::DecodedMessage::Kind::LayerReloaded: {
+        LayerReloadedCb callback;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            callback = on_layer_reloaded_;
+        }
+        if (callback) callback(decoded.layer_reloaded.usd_path, decoded.layer_reloaded.usd_uri, decoded.server_seq);
         break;
     }
     default:
@@ -261,6 +270,25 @@ uint64_t SessionSocket::send_set_prim_active(const model::PrimEdit& edit)
         IDTX_LOG(IDTX_DEBUG, "send_set_prim_active prim='{}' active={} base_seq={} req_id={}", edit.prim_path,
                  edit.active, base_server_seq_, request_id);
         bytes = wire::encode_set_prim_active_request(session_id_, edit, base_server_seq_, request_id);
+    }
+    ws_->send_binary(bytes);
+    return request_id;
+}
+
+uint64_t SessionSocket::send_snapshot_request()
+{
+    uint64_t request_id;
+    std::string bytes;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!is_open_) return 0;
+        request_id = register_request(model::RequestKind::Snapshot);
+        if (!request_id) return 0;
+        IDTX_LOG(IDTX_DEBUG, "send snapshot request session='{}' req_id={}", session_id_, request_id);
+        bytes = wire::encode_snapshot_request(session_id_, request_id);
+        // The snapshot resets every prim it covers; an edit equal to one sent before
+        // the rebuild must go out again rather than be dropped as a duplicate.
+        last_sent_.clear();
     }
     ws_->send_binary(bytes);
     return request_id;

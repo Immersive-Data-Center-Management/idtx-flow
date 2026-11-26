@@ -185,16 +185,15 @@ void UsdStageNode3D::_notification(int p_what)
     // double-frees them -> crash on shutdown).
     if (p_what == NOTIFICATION_PREDELETE)
     {
-        if (pending_load_task_)
-        {
-            pending_load_task_->Cancel();
-            is_loading_ = false;
-        }
+        const bool cut_off = cancel_load();
         // Notify listeners that our stage is going away, so they can detach before the handle is released.
         if (stage_handle_) emit_signal("stage_unloading");
         bridge_.reset(); // before stage_handle_.reset(): ~bridge revokes its TfNotice on a live stage
         if (activity_) activity_->reset();
         stage_handle_.reset();
+        // A load waited on (e.g. a layer reload) must not wait forever for a node that is going away.
+        // Listeners must only forget the node here, never start a load on it.
+        if (cut_off) emit_signal("stage_loading_cancelled");
     }
     else if (p_what == NOTIFICATION_TRANSFORM_CHANGED)
     {
@@ -230,13 +229,9 @@ void UsdStageNode3D::set_stage_uri(const String& path)
     _cleanup_nodes();
 
     // Cancel any in-flight async load
-    if (pending_load_task_)
-    {
-        pending_load_task_->Cancel();
-        pending_load_task_.reset();
-    }
-
-    is_loading_ = false;
+    const bool cut_off = cancel_load();
+    pending_load_task_.reset();
+    if (cut_off) emit_signal("stage_loading_cancelled");
 
     // if the new uri is empty, there nothing more todo
     if (stage_uri_.is_empty()) return;
@@ -272,6 +267,13 @@ void UsdStageNode3D::reload(bool clear_http_cache)
     // Tear down like a URI change, then force the convert path (not
     // _reconstruct_node) so the cached .scn is bypassed; the stale .scn is left
     // in place — _convert_stage ignores it and overwrites it on success.
+    unload_stage();
+
+    open_stage_and_then("_convert_stage");
+}
+
+void UsdStageNode3D::unload_stage()
+{
     cached_scene_name_ = "";
     if (stage_handle_) emit_signal("stage_unloading");
     bridge_.reset(); // before stage_handle_.reset(): ~bridge revokes its TfNotice on a live stage
@@ -279,14 +281,51 @@ void UsdStageNode3D::reload(bool clear_http_cache)
     stage_handle_.reset();
     _cleanup_nodes();
 
-    if (pending_load_task_)
+    const bool cut_off = cancel_load();
+    pending_load_task_.reset();
+    if (cut_off) emit_signal("stage_loading_cancelled");
+}
+
+bool UsdStageNode3D::cancel_load()
+{
+    if (pending_load_task_) pending_load_task_->Cancel();
+    if (!is_loading_) return false;
     {
-        pending_load_task_->Cancel();
-        pending_load_task_.reset();
+        // From now on the worker's result and any deferred call already queued
+        // for it belong to an older generation and are dropped.
+        std::lock_guard<std::mutex> lock(result_mutex_);
+        ++load_generation_;
+        pending_result_ = {};
     }
     is_loading_ = false;
+    return true;
+}
 
-    open_stage_and_then("_convert_stage");
+bool UsdStageNode3D::take_load_result(idtxflow::async::StageLoadResult& out)
+{
+    std::lock_guard<std::mutex> lock(result_mutex_);
+    if (!is_loading_ || pending_generation_ != load_generation_) return false;
+    out = std::move(pending_result_);
+    pending_result_ = {};
+    return true;
+}
+
+void UsdStageNode3D::_finish_failed_load()
+{
+    idtxflow::async::StageLoadResult result;
+    if (!take_load_result(result)) return;
+    finish_load(load_generation_, false);
+}
+
+void UsdStageNode3D::finish_load(uint64_t generation, bool success)
+{
+    // A load cut off while it was being converted (a handler calling
+    // unload_stage or set_stage_uri) already ended with stage_loading_cancelled.
+    // load_generation_ is only written on the main thread, so reading it here
+    // needs no lock.
+    if (!is_loading_ || generation != load_generation_) return;
+    is_loading_ = false;
+    emit_signal("stage_loading_finished", success);
 }
 
 void UsdStageNode3D::open_stage_and_then(const godot::StringName& next_method_name)
@@ -301,6 +340,11 @@ void UsdStageNode3D::open_stage_and_then(const godot::StringName& next_method_na
     }
 
     is_loading_ = true;
+    uint64_t generation;
+    {
+        std::lock_guard<std::mutex> lock(result_mutex_);
+        generation = ++load_generation_;
+    }
     emit_signal("stage_loading_started");
 
     // Build the async request from the node's current state
@@ -321,37 +365,33 @@ void UsdStageNode3D::open_stage_and_then(const godot::StringName& next_method_na
     // Launch async stage open on a worker thread.
     // The callback fires on the worker thread - we use call_deferred to marshal the result back to the main thread
     // for scene tree operations.
-    pending_load_task_->LoadAsync(std::move(request), [&, next_method_name](idtxflow::async::StageLoadResult result) {
-        // Store the result in a thread-safe manner
+    auto on_loaded = [this, next_method_name, generation](idtxflow::async::StageLoadResult result) {
+        const bool opened = result.success() && result.stage;
+        const std::string error = result.error_message;
         {
+            // Store the result in a thread-safe manner. A load cut off meanwhile
+            // already ended (stage_loading_cancelled): drop its result.
             std::lock_guard<std::mutex> lock(result_mutex_);
+            if (generation != load_generation_) return;
             pending_result_ = std::move(result);
-            is_loading_ = false;
+            pending_generation_ = generation;
         }
 
-        // NOTE: this callback runs on the worker thread. Godot's
-        // emit_signal touches per-node dispatch structures that are not
-        // thread-safe, so any signal we emit from here must be marshalled
-        // to the main thread via call_deferred("emit_signal", ...).
-        // Otherwise Godot rejects the dispatch with a
-        // "Caller thread can't call this function in this node" error
-        // and GDScript subscribers never receive the failure notification.
-        if (!pending_result_.success())
+        // NOTE: this callback runs on the worker thread. Godot's emit_signal touches
+        // per-node dispatch structures that are not thread-safe, so the load is
+        // finished on the main thread via call_deferred. The deferred methods check
+        // the generation again: the load can still be cut off before they run.
+        if (!opened)
         {
-            IDTX_LOGF(IDTX_ERROR, "Unable to open Stage. Error: '{}'", result.error_message.c_str());
-            call_deferred("emit_signal", "stage_loading_finished", false);
-            return;
-        }
-
-        if (!pending_result_.stage)
-        {
-            call_deferred("emit_signal", "stage_loading_finished", false);
+            if (!error.empty()) IDTX_LOGF(IDTX_ERROR, "Unable to open Stage. Error: '{}'", error.c_str());
+            call_deferred("_finish_failed_load");
             return;
         }
 
         // Marshal to main thread via call_deferred
         call_deferred(next_method_name);
-    });
+    };
+    pending_load_task_->LoadAsync(std::move(request), std::move(on_loaded));
 }
 
 void UsdStageNode3D::_reconstruct_node()
@@ -389,13 +429,13 @@ void UsdStageNode3D::_reconstruct_node()
 
 void UsdStageNode3D::_convert_stage()
 {
-    // Retrieve the result (written by the worker thread)
+    // Retrieve the result (written by the worker thread). A load cut off after
+    // this call was queued already ended with stage_loading_cancelled.
     idtxflow::async::StageLoadResult result;
-    {
-        std::lock_guard<std::mutex> lock(result_mutex_);
-        result = std::move(pending_result_);
-    }
-    is_loading_ = false;
+    if (!take_load_result(result)) return;
+    // The load stays in flight until finish_load below: a node freed or cut off
+    // during conversion ends it with stage_loading_cancelled instead.
+    const uint64_t generation = load_generation_;
 
     // instantiate the stage converter and convert the contents of the stage into Godot Node3D entities
     auto stage_converter =
@@ -408,7 +448,7 @@ void UsdStageNode3D::_convert_stage()
     {
         if (auto* bridge = get_or_create_bridge()) bridge->build_index();
         get_activity_controller().reconcile();
-        emit_signal("stage_loading_finished", true);
+        finish_load(generation, true);
         return;
     }
 
@@ -436,18 +476,18 @@ void UsdStageNode3D::_convert_stage()
 
     call_deferred("_pack_and_save_cached_scene");
 
-    emit_signal("stage_loading_finished", true);
+    finish_load(generation, true);
 }
 
 void UsdStageNode3D::_load_converted_stage()
 {
-    // Retrieve the result (written by the worker thread)
+    // Retrieve the result (written by the worker thread). A load cut off after
+    // this call was queued already ended with stage_loading_cancelled.
     idtxflow::async::StageLoadResult result;
-    {
-        std::lock_guard<std::mutex> lock(result_mutex_);
-        result = std::move(pending_result_);
-    }
-    is_loading_ = false;
+    if (!take_load_result(result)) return;
+    // The load stays in flight until finish_load below: a node freed or cut off
+    // during conversion ends it with stage_loading_cancelled instead.
+    const uint64_t generation = load_generation_;
 
     // store the stage handle
     stage_handle_ = std::make_unique<idtxflow::converter::StageHandle>(std::move(result.stage));
@@ -509,7 +549,7 @@ void UsdStageNode3D::_load_converted_stage()
         idtxflow::exec::ExecBridgeManager::Instance().ActivateBridge(bridge);
     }
 
-    emit_signal("stage_loading_finished", true);
+    finish_load(generation, true);
 }
 
 void UsdStageNode3D::_configure_nodes_recursive(godot::Node3D* node, godot::Node* owner, bool register_compute)
@@ -714,6 +754,7 @@ void UsdStageNode3D::_bind_methods()
     // Internal deferred callbacks invoked after async stage loading (not exposed to user scripts)
     ClassDB::bind_method(D_METHOD("_convert_stage"), &UsdStageNode3D::_convert_stage);
     ClassDB::bind_method(D_METHOD("_load_converted_stage"), &UsdStageNode3D::_load_converted_stage);
+    ClassDB::bind_method(D_METHOD("_finish_failed_load"), &UsdStageNode3D::_finish_failed_load);
 
     ClassDB::bind_method(D_METHOD("get_prim_activity", "prim_path"), &UsdStageNode3D::get_prim_activity);
     ClassDB::bind_method(D_METHOD("get_default_prim_path"), &UsdStageNode3D::get_default_prim_path);
@@ -725,6 +766,9 @@ void UsdStageNode3D::_bind_methods()
     // Signals for async loading lifecycle
     ADD_SIGNAL(MethodInfo("stage_loading_started"));
     ADD_SIGNAL(MethodInfo("stage_loading_finished", PropertyInfo(Variant::BOOL, "success")));
+    // Emitted instead of stage_loading_finished when a started load is cut off (set_stage_uri,
+    // unload_stage/reload, or the node being freed). Every started load ends with exactly one of the two.
+    ADD_SIGNAL(MethodInfo("stage_loading_cancelled"));
 
     // Emitted right before the stage handle and converted child nodes are torn down, so listeners can drop
     // references to this stage (set_stage_uri + NOTIFICATION_PREDELETE)

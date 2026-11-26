@@ -42,7 +42,10 @@ class SessionSocket
                                      model::RequestKind request_kind)>;
     using ErrorCb = std::function<void(const std::string& code, const std::string& message)>;
     using DisconnectCb = std::function<void(model::CloseReason reason, int code, const std::string& text)>;
-    using SnapshotCompleteCb = std::function<void(uint64_t server_seq)>;
+    // request_id: the SnapshotRequest this snapshot answers, 0 after a join.
+    using SnapshotCompleteCb = std::function<void(uint64_t server_seq, uint64_t request_id)>;
+    using LayerReloadedCb =
+        std::function<void(const std::string& usd_path, const std::string& usd_uri, uint64_t server_seq)>;
 
     SessionSocket(ports::IWebSocketTransport* ws, ports::IClock* clock)
         : ws_(ws),
@@ -96,6 +99,12 @@ class SessionSocket
     /// Returns the submitted ID, or 0 when closed or IDs are exhausted.
     uint64_t send_set_prim_active(const model::PrimEdit& edit);
 
+    /// Ask the server for a snapshot of the session's current state (after a
+    /// rebuilt stage lost the session's edits). Returns the request id its
+    /// SnapshotComplete will echo, or 0 if the socket is closed and nothing was
+    /// sent (the reconnect rebuilds the stage and requests one again).
+    uint64_t send_snapshot_request();
+
     void on_opened(OpenedCb cb)
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -131,6 +140,11 @@ class SessionSocket
         std::lock_guard<std::mutex> lock(mutex_);
         on_snapshot_complete_ = std::move(cb);
     }
+    void on_layer_reloaded(LayerReloadedCb cb)
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        on_layer_reloaded_ = std::move(cb);
+    }
 
   private:
     IDTX_LOG_CATEGORY("SessionSocket")
@@ -150,8 +164,9 @@ class SessionSocket
     bool is_open_ = false;
     // Base server_seq carried on outbound updates (engine keeps it current).
     uint64_t base_server_seq_ = 0;
-    // Monotonic across reconnects of this socket. 1..INT64_MAX are valid so all
-    // bindings can report positive IDs; the exhausted counter never wraps.
+    // Monotonic across reconnects of this socket, shared by outbound updates and
+    // snapshot requests. 1..INT64_MAX are valid so all bindings can report
+    // positive IDs; the exhausted counter never wraps.
     uint64_t next_request_id_ = 1;
     std::map<uint64_t, model::RequestKind> pending_requests_;
 
@@ -167,6 +182,7 @@ class SessionSocket
     ErrorCb on_error_;
     DisconnectCb on_disconnected_;
     SnapshotCompleteCb on_snapshot_complete_;
+    LayerReloadedCb on_layer_reloaded_;
 };
 
 } // namespace net

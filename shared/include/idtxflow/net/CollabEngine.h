@@ -199,6 +199,20 @@ class CollabEngine
     // Returns the submitted ID, or 0 when not submitted.
     uint64_t request_set_prim_active(const std::string& session_id, const std::string& prim_path, bool active);
 
+    // --- layer reload ---
+    //
+    // A LayerReloaded for a session puts it into "reloading": the engine
+    // disarms it, reports on_layer_reloaded so the host rebuilds the stage
+    // nodes that use the file, and ignores the session's stage frames until
+    // then (the snapshot requested afterwards supersedes them). The host calls
+    // reload_complete() once every rebuild it started has finished; the engine
+    // then sends a SnapshotRequest and re-arms when that snapshot's
+    // SnapshotComplete arrives. A reconnect (every socket open after the
+    // session's first) does the same, reported as on_reconnected: the stage kept
+    // across the drop is rebuilt instead of patched by the join snapshot.
+    // No-op if the id is unknown or not reloading.
+    void reload_complete(const std::string& session_id);
+
     /// Advance each session's auto-arm settle countdown. Driven by the frame
     /// ticker. Outbound edits are sent immediately in on_stage_changed, not here.
     void poll();
@@ -245,6 +259,20 @@ class CollabEngine
         // carry it as their base (the server's stale check); advanced from every
         // ordered server message (broadcast/ack/snapshot). 0 = no state yet.
         uint64_t server_seq = 0;
+        // Between a LayerReloaded (or a reconnect) and reload_complete(): the host
+        // is rebuilding stage nodes, and the session's stage frames are ignored
+        // (not applied, not buffered, not counted towards server_seq).
+        bool reloading = false;
+        // The session's socket has been open before, so the next open is a
+        // reconnect.
+        bool opened_before = false;
+        // Request id of the SnapshotRequest sent after a reload, until its
+        // SnapshotComplete arrives; 0 = none pending. A SnapshotComplete with
+        // another id (an earlier join snapshot) does not end the wait.
+        uint64_t snapshot_request_id = 0;
+        // Frames left until a SnapshotRequest the server rejected with
+        // "queue_full" is sent again; -1 = no retry pending. Counted down in poll().
+        int snapshot_retry_countdown = -1;
     };
 
     // Invoked by a session's stage bridge when its live stage changes; sends the

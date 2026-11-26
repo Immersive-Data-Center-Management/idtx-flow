@@ -15,6 +15,9 @@ namespace
 // Frames to wait after a remote stage attaches before auto-arming outbound
 // broadcasting, so USD conversion-time transform writes settle first.
 constexpr int kArmAfterTicks = 3;
+// Frames to wait before re-sending a SnapshotRequest the server rejected
+// because the session's command queue was full (about half a second at 60 fps).
+constexpr int kSnapshotRetryTicks = 30;
 } // namespace
 
 CollabEngine::~CollabEngine()
@@ -399,6 +402,9 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
         s.socket.reset();
     }
     s.ws.reset();
+    // A fresh transport's first open is a join (the host loads the stage for it);
+    // only the transport re-opening after a drop is a reconnect.
+    s.opened_before = false;
     s.callback_lifetime = std::make_shared<SessionCallbackLifetime>();
     const std::weak_ptr<SessionCallbackLifetime> weak_lifetime = s.callback_lifetime;
     ports::IMainThreadDispatcher* dispatcher = ports_.dispatcher;
@@ -429,13 +435,31 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
     s.socket->on_opened([this, post, session_id] {
         post([this, session_id](Session& session, const auto&) {
             // A (re)connect restarts the snapshot handshake: clear the latch and
-            // disarm so we never broadcast on a stale base. Only snapshot_complete
-            // re-gates — settle_done stays latched from the original attach, since a
-            // reconnect does not reconvert the stage (clearing it would strand the
-            // session un-armed, as nothing restarts the settle countdown).
+            // disarm so we never broadcast on a stale base.
+            const bool reconnect = session.opened_before;
+            session.opened_before = true;
             session.snapshot_complete = false;
             session.armed = false;
+            // A request sent on the old connection is never answered; the join
+            // snapshot of the new one (or, after a reconnect, the request sent once
+            // the stage is rebuilt) replaces it, and so does no retry.
+            session.snapshot_request_id = 0;
+            session.snapshot_retry_countdown = -1;
+            if (reconnect)
+            {
+                // The join snapshot only replays onto a freshly loaded stage: it
+                // re-creates prims and replays deactivations, but cannot undo state
+                // the kept stage still holds (a restore made meanwhile stays
+                // missing). A LayerReloaded sent while disconnected was lost as
+                // well. So rebuild like after a reload: ignore the join snapshot,
+                // let the host rebuild from re-fetched files, and request the
+                // session's state once it calls reload_complete(). The rebuilt
+                // stage's attach restarts the settle countdown.
+                session.reloading = true;
+                session.pending_remote.clear(); // superseded by the requested snapshot
+            }
             if (observer_) observer_->on_socket_opened(session_id);
+            if (reconnect && observer_) observer_->on_reconnected(session_id);
         });
     });
     s.socket->on_handshake([this, post](const std::string& sid, const std::string& path, const std::string& uri) {
@@ -451,6 +475,15 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
                 // Apply inbound to the stage with loopback suppression (so our author
                 // isn't re-broadcast), then report. The broadcast's server_seq (incl. a
                 // correction sent only to us) becomes our base, keeping updates non-stale.
+                if (session.reloading)
+                {
+                    // The stage is being rebuilt from a re-fetched file; the snapshot
+                    // requested afterwards supersedes this frame, so it is neither
+                    // applied, buffered nor counted towards the base.
+                    IDTX_LOG(IDTX_DEBUG, "ignoring remote edit while reloading session='{}' prim='{}'", session_id,
+                             edit.prim_path);
+                    return;
+                }
                 if (session.stage)
                 {
                     session.applying_remote = true;
@@ -473,15 +506,43 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
                 if (observer_) observer_->on_remote_edit(session_id, edit, from);
             });
         });
-    s.socket->on_snapshot_complete([this, post, session_id](uint64_t server_seq) {
-        post([this, session_id, server_seq](Session& session, const auto&) {
+    s.socket->on_snapshot_complete([this, post, session_id](uint64_t server_seq, uint64_t request_id) {
+        post([this, session_id, server_seq, request_id](Session& session, const auto&) {
+            // Only the snapshot the session is waiting for ends the wait: none while
+            // reloading (its frames were ignored, a request follows), and after a
+            // request only the SnapshotComplete that echoes its id.
+            if (session.reloading || (session.snapshot_request_id != 0 && request_id != session.snapshot_request_id))
+            {
+                IDTX_LOG(IDTX_DEBUG, "ignoring snapshot complete session='{}' req_id={} awaited={} reloading={}",
+                         session_id, request_id, session.snapshot_request_id, session.reloading);
+                return;
+            }
             // Latch so a late reader (is_snapshot_complete) sees it, then report.
+            session.snapshot_request_id = 0;
             session.snapshot_complete = true;
             advance_server_seq(session, server_seq);
             try_arm(session); // snapshot gate satisfied; arm if settle also done
             if (observer_) observer_->on_snapshot_complete(session_id);
         });
     });
+    s.socket->on_layer_reloaded(
+        [this, post, session_id](const std::string& usd_path, const std::string& usd_uri, uint64_t server_seq) {
+            post([this, session_id, usd_path, usd_uri, server_seq](Session& session, const auto&) {
+                IDTX_LOG(IDTX_INFO, "layer reloaded session='{}' usd_path='{}' server_seq={}", session_id, usd_path,
+                         server_seq);
+                // Stop sending and stop applying until the host has rebuilt and the
+                // requested snapshot has arrived. The reload's server_seq is not adopted:
+                // the client has not applied that state yet; the snapshot carries it.
+                session.reloading = true;
+                session.snapshot_complete = false;
+                session.armed = false;
+                session.snapshot_request_id = 0;
+                session.snapshot_retry_countdown = -1; // reload_complete sends a new request
+                session.pending_remote.clear();        // superseded by the snapshot as well
+                const std::string file_url = usd_uri.empty() ? download_url(usd_path) : base_url() + usd_uri;
+                if (observer_) observer_->on_layer_reloaded(session_id, usd_path, file_url);
+            });
+        });
     s.socket->on_ack([this, post, session_id](bool ok, const std::string& error, uint64_t request_id,
                                               uint64_t server_seq, model::RequestKind request_kind) {
         post([this, session_id, ok, error, request_id, server_seq, request_kind](Session& session, const auto&) {
@@ -490,8 +551,26 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
             // The ack also carries server progress: adopt its server_seq so this author's base
             // advances past its own applied edit (otherwise the next local edit on
             // the same prim would fail the server's stale check), log it, and
-            // notify. The server resolves ordering — this handler does not retry rejected requests.
+            // notify. The server resolves ordering, so a rejected update is not resent;
+            // the one exception is the SnapshotRequest sent after a reload (below).
             advance_server_seq(session, server_seq);
+            if (!ok && request_id != 0 && request_id == session.snapshot_request_id)
+            {
+                // The server refused the SnapshotRequest sent after a reload, so
+                // no SnapshotComplete follows and the session would never re-arm.
+                // A full queue is transient: ask again shortly. Any other reason
+                // ("session_closing") means the session is going away.
+                session.snapshot_request_id = 0;
+                if (error == "queue_full")
+                {
+                    IDTX_LOG(IDTX_WARN, "snapshot request rejected (queue_full) session='{}', retrying", session_id);
+                    session.snapshot_retry_countdown = kSnapshotRetryTicks;
+                }
+                else
+                {
+                    IDTX_LOG(IDTX_WARN, "snapshot request rejected session='{}' error='{}'", session_id, error);
+                }
+            }
             // Keep notification last: observers may end this membership or destroy the engine.
             if (observer_) observer_->on_ack(session_id, request_id, request_kind, ok, error);
         });
@@ -505,9 +584,10 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
     s.socket->on_disconnected([this, post, session_id](model::CloseReason reason, int code, const std::string& text) {
         post([this, session_id, reason, code, text](Session& session, const auto&) {
             // Disarm and drop the snapshot latch so a transport-level drop cannot
-            // leave the session armed; a reconnect then re-gates on the fresh
-            // snapshot. The socket drops its last-sent cache as it goes down, so later
-            // edits are not deduplicated against pre-disconnect values. The join snapshot is authoritative.
+            // leave the session armed; a reconnect then rebuilds the stage and
+            // re-gates on the snapshot it requests. The socket drops its last-sent cache
+            // as it goes down, so later edits are not deduplicated against
+            // pre-disconnect values. That snapshot is authoritative.
             session.snapshot_complete = false;
             session.armed = false;
             if (observer_) observer_->on_disconnected(session_id, reason, code, text);
@@ -587,6 +667,18 @@ void CollabEngine::arm_sync(const std::string& session_id)
     // auto-arm countdown.
     s->armed = true;
     s->arm_countdown = -1;
+}
+
+void CollabEngine::reload_complete(const std::string& session_id)
+{
+    Session* s = find_session(session_id);
+    if (!s || !s->reloading) return;
+
+    s->reloading = false;
+    // The rebuilt stage no longer holds the session's edits: ask for them. If the
+    // socket is closed nothing is sent; the reconnect rebuilds and asks again.
+    s->snapshot_request_id = s->socket ? s->socket->send_snapshot_request() : 0;
+    IDTX_LOG(IDTX_INFO, "reload complete session='{}' snapshot req_id={}", session_id, s->snapshot_request_id);
 }
 
 void CollabEngine::advance_server_seq(Session& s, uint64_t server_seq)
@@ -711,6 +803,17 @@ void CollabEngine::poll()
                 s.arm_countdown = -1;
                 s.settle_done = true;
                 try_arm(s);
+            }
+        }
+        if (s.snapshot_retry_countdown > 0 && --s.snapshot_retry_countdown == 0)
+        {
+            s.snapshot_retry_countdown = -1;
+            // Not while reloading or after a snapshot arrived; a closed socket
+            // sends nothing, and its reconnect rebuilds the stage and asks again.
+            if (!s.reloading && !s.snapshot_complete && s.socket)
+            {
+                s.snapshot_request_id = s.socket->send_snapshot_request();
+                IDTX_LOG(IDTX_INFO, "retry snapshot request session='{}' req_id={}", id, s.snapshot_request_id);
             }
         }
     }

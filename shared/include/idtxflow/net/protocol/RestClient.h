@@ -118,7 +118,9 @@ class RestClient
     // request as authenticated.
     bool attach_auth(ports::IHttpTransport::Request& req, const ErrorCb& on_err);
 
-    static std::string url_encode(const std::string& s);
+    // Percent-encode everything but unreserved characters; with keep_slash,
+    // '/' stays too, for a file path placed in a URL path.
+    static std::string url_encode(const std::string& s, bool keep_slash = false);
 
     ports::IHttpTransport* http_;
     ports::ITokenProvider* token_;

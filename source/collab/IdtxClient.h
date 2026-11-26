@@ -37,6 +37,7 @@
 #include <idtxflow/net/ports/ITransportFactory.h>
 
 #include "Dispatcher.h"
+#include "stage_ops/StageReloadController.h"
 #include "Ticker.h"
 
 class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
@@ -51,7 +52,8 @@ class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
         REQUEST_KIND_TRANSFORM = static_cast<int>(idtxflow::net::model::RequestKind::Transform),
         REQUEST_KIND_CREATE_PRIM = static_cast<int>(idtxflow::net::model::RequestKind::CreatePrim),
         REQUEST_KIND_DELETE_PRIM = static_cast<int>(idtxflow::net::model::RequestKind::DeletePrim),
-        REQUEST_KIND_RESTORE_PRIM = static_cast<int>(idtxflow::net::model::RequestKind::RestorePrim)
+        REQUEST_KIND_RESTORE_PRIM = static_cast<int>(idtxflow::net::model::RequestKind::RestorePrim),
+        REQUEST_KIND_SNAPSHOT = static_cast<int>(idtxflow::net::model::RequestKind::Snapshot)
     };
 
     IdtxClient();
@@ -205,6 +207,9 @@ class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
     void on_remote_edit(const std::string& session_id, const idtxflow::net::model::PrimEdit& edit,
                         const std::string& from_client_id) override;
     void on_snapshot_complete(const std::string& session_id) override;
+    void on_layer_reloaded(const std::string& session_id, const std::string& usd_path,
+                           const std::string& file_url) override;
+    void on_reconnected(const std::string& session_id) override;
     /// Emit the correlated result; IDs outside Godot's positive integer range become zero/Unknown.
     void on_ack(const std::string& session_id, uint64_t request_id, idtxflow::net::model::RequestKind request_kind,
                 bool ok, const std::string& error) override;
@@ -235,6 +240,13 @@ class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
     // is the general "start the bridge" step; detach_bridge is its inverse.
     void attach_bridge(const std::string& session_id);
     void detach_bridge(const std::string& session_id);
+
+    // The stage node bound to @p session_id, or null.
+    godot::Node* bound_node(const std::string& session_id) const;
+    // Signal targets for the stage nodes reload_ rebuilds: Godot delivers signals
+    // only to Godot objects, so they forward to the controller.
+    void _on_node_reload_finished(bool success, const godot::String& session_id, int64_t node_id);
+    void _on_node_reload_cancelled(const godot::String& session_id, int64_t node_id);
 
     // Per-request completion queues (FIFO). A request enqueues its Callable (only
     // if valid) when issued; the matching observer result pops the front and
@@ -279,6 +291,10 @@ class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
     std::map<std::string, SessionBinding> bindings_;
 
     idtxflow::net::CollabEngine engine_;
+
+    // Rebuilds a session's stage nodes after a layer reload or a reconnect and
+    // reports when the engine may ask for the session's state again.
+    idtxflow::collab::StageReloadController reload_;
 };
 
 VARIANT_ENUM_CAST(IdtxClient::RequestKind);
