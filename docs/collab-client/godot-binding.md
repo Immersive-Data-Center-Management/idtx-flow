@@ -111,6 +111,7 @@ so a host tracking multiple concurrent sessions can route each event to the righ
 | `transform_broadcast_received(session_id, prim_path, xform, from_client_id)` | a transform broadcast arrived; structural broadcasts do not emit this signal |
 | `snapshot_complete(session_id)` | the server snapshot boundary arrived; stage loading/conversion may still be pending |
 | `ack_received(session_id, request_id, request_kind, ok, error)` | server result with the request ID and its locally tracked kind |
+| `prim_created(session_id, prim_path, request_id)` | a prim was created in the live session; `request_id` is the ID `request_create_prim` returned for this client's create, 0 for another client's. Emitted after the prim's node was added under the stage node. Creates replayed by a snapshot (join, reconnect) are not reported |
 | `socket_error(session_id, code, message)` | protocol-level socket error |
 | `socket_disconnected(session_id, reason, code, text)` | socket closed/dropped |
 

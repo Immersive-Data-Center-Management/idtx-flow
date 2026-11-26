@@ -100,6 +100,10 @@ class CollabObserver
     /// completed scene conversion; untracked request metadata has kind Unknown.
     virtual void on_ack(const std::string& session_id, uint64_t request_id, model::RequestKind request_kind, bool ok,
                         const std::string& error) = 0;
+    /// A prim was created in the live session (not replayed by a snapshot), by this client or another one. Reported
+    /// after the create was applied to the attached stage. `request_id` is the id request_create_prim returned when
+    /// this client made the create, 0 for another client's create.
+    virtual void on_prim_created(const std::string& session_id, const std::string& prim_path, uint64_t request_id) = 0;
     virtual void on_socket_error(const std::string& session_id, const std::string& code,
                                  const std::string& message) = 0;
     virtual void on_disconnected(const std::string& session_id, model::CloseReason reason, int code,

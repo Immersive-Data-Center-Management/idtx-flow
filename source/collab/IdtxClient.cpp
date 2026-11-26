@@ -676,6 +676,13 @@ void IdtxClient::on_ack(const std::string& session_id, uint64_t request_id,
                 static_cast<int64_t>(request_kind), ok, String(error.c_str()));
 }
 
+void IdtxClient::on_prim_created(const std::string& session_id, const std::string& prim_path, uint64_t request_id)
+{
+    if (request_id > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) request_id = 0;
+    emit_signal("prim_created", String(session_id.c_str()), String(prim_path.c_str()),
+                static_cast<int64_t>(request_id));
+}
+
 void IdtxClient::on_socket_error(const std::string& session_id, const std::string& code, const std::string& message)
 {
     emit_signal("socket_error", String(session_id.c_str()), String(code.c_str()), String(message.c_str()));
@@ -762,6 +769,8 @@ void IdtxClient::_bind_methods()
     ADD_SIGNAL(MethodInfo("ack_received", PropertyInfo(Variant::STRING, "session_id"),
                           PropertyInfo(Variant::INT, "request_id"), PropertyInfo(Variant::INT, "request_kind"),
                           PropertyInfo(Variant::BOOL, "ok"), PropertyInfo(Variant::STRING, "error")));
+    ADD_SIGNAL(MethodInfo("prim_created", PropertyInfo(Variant::STRING, "session_id"),
+                          PropertyInfo(Variant::STRING, "prim_path"), PropertyInfo(Variant::INT, "request_id")));
     ADD_SIGNAL(MethodInfo("socket_error", PropertyInfo(Variant::STRING, "session_id"),
                           PropertyInfo(Variant::STRING, "code"), PropertyInfo(Variant::STRING, "message")));
     ADD_SIGNAL(MethodInfo("socket_disconnected", PropertyInfo(Variant::STRING, "session_id"),
