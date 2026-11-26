@@ -38,8 +38,12 @@ the session is live, by this client or another. For this client's create,
 `ack_received`; for another client's create it is 0. It is emitted after the
 prim's node was converted and added under the stage node, so the node can be
 looked up right away; for a payload, the asset's contents may still be loading.
-Prims replayed by a snapshot (join, reconnect) are not reported: they are part of
-the state the stage holds once `snapshot_complete` fires.
+Prims replayed by the join snapshot are not reported: they are part of the state
+the stage holds once `snapshot_complete` fires. While the session is not live
+(rebuilding after a layer reload or reconnect, or waiting for the requested
+snapshot), a prim this membership has not seen before is reported once the
+session is live again, so a create made meanwhile, or while disconnected, still
+reaches the listener; its own request keeps its `request_id`.
 
 ## Creating primitives and assets
 

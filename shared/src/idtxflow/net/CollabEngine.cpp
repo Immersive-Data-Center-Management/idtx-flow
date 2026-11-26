@@ -405,6 +405,10 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
     // A fresh transport's first open is a join (the host loads the stage for it);
     // only the transport re-opening after a drop is a reconnect.
     s.opened_before = false;
+    s.has_baseline = false;
+    s.known_creates.clear();
+    s.window_creates.clear();
+    s.window_acks.clear();
     s.callback_lifetime = std::make_shared<SessionCallbackLifetime>();
     const std::weak_ptr<SessionCallbackLifetime> weak_lifetime = s.callback_lifetime;
     ports::IMainThreadDispatcher* dispatcher = ports_.dispatcher;
@@ -475,6 +479,16 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
                 // Apply inbound to the stage with loopback suppression (so our author
                 // isn't re-broadcast), then report. The broadcast's server_seq (incl. a
                 // correction sent only to us) becomes our base, keeping updates non-stale.
+                if (edit.kind == model::PrimEdit::Kind::CreatePrim)
+                {
+                    // A create the session cannot report as live now (rebuilding, or
+                    // waiting for a snapshot) is new if this membership never saw the
+                    // prim: report it when the session is live again. A snapshot
+                    // replays known prims too; those are not new.
+                    const bool unseen = session.known_creates.insert(edit.prim_path).second;
+                    if (unseen && session.has_baseline && !session.snapshot_complete)
+                        session.window_creates.push_back({edit.prim_path, server_seq});
+                }
                 if (session.reloading)
                 {
                     // The stage is being rebuilt from a re-fetched file; the snapshot
@@ -528,9 +542,22 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
             // Latch so a late reader (is_snapshot_complete) sees it, then report.
             session.snapshot_request_id = 0;
             session.snapshot_complete = true;
+            session.has_baseline = true;
             advance_server_seq(session, server_seq);
             try_arm(session); // snapshot gate satisfied; arm if settle also done
+            // Prims created while the session was not live: their nodes exist now
+            // that the snapshot is applied. An Ack seen meanwhile names this
+            // client's own.
+            std::vector<std::pair<std::string, uint64_t>> created;
+            for (const auto& c: session.window_creates)
+            {
+                const auto acked = session.window_acks.find(c.server_seq);
+                created.emplace_back(c.prim_path, acked != session.window_acks.end() ? acked->second : 0);
+            }
+            session.window_creates.clear();
+            session.window_acks.clear();
             if (observer_) observer_->on_snapshot_complete(session_id);
+            report_creates(session_id, std::move(created));
         });
     });
     s.socket->on_layer_reloaded(
@@ -726,6 +753,9 @@ void CollabEngine::on_live_create(Session& s, const std::string& prim_path, uint
 void CollabEngine::on_create_ack(Session& s, uint64_t request_id, bool ok, uint64_t server_seq)
 {
     s.outstanding_creates.erase(request_id);
+    // Not live: the create's broadcast was recorded for the window (if new);
+    // remember which request it answers.
+    if (ok && !s.snapshot_complete) s.window_acks[server_seq] = request_id;
 
     // The server sends a create's broadcast and then its Ack, both stamped with the
     // creation's server_seq. Only an accepted create has a broadcast: a rejected

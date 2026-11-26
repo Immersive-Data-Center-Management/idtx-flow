@@ -185,6 +185,12 @@ class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
     int64_t request_delete_prim(const godot::String& session_id, const godot::String& prim_path);
     /// Restore a soft-deleted prim (author active=true); return its submitted ID, or zero.
     int64_t request_restore_prim(const godot::String& session_id, const godot::String& prim_path);
+    // `prim_created(session_id, prim_path, request_id)` reports every prim created in the
+    // live session, by this client (request_id = the id request_create_prim returned) or
+    // another one (request_id = 0). Prims replayed by the join snapshot are not reported; a
+    // prim created while the session was rebuilding or disconnected is reported once it is
+    // live again. It is emitted after the prim's node was converted and added under the
+    // stage node; for a payload, the asset's contents may still be loading then.
 
     // --- CollabObserver ---
 

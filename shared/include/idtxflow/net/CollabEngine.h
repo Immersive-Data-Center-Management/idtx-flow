@@ -289,6 +289,17 @@ class CollabEngine
         // Live creates buffered in pending_remote; reported after attach_stage
         // replays them.
         std::vector<LiveCreate> creates_before_attach;
+        // Whether this membership has seen a complete snapshot, i.e. has a state
+        // to compare later snapshots against.
+        bool has_baseline = false;
+        // Prims this membership saw created, live or replayed by a snapshot.
+        std::set<std::string> known_creates;
+        // New prims seen while the session was not live (rebuilding, waiting for
+        // a snapshot, reconnecting); reported once it is live again.
+        std::vector<LiveCreate> window_creates;
+        // server_seq -> request id of this client's accepted creates whose Ack
+        // arrived while the session was not live.
+        std::map<uint64_t, uint64_t> window_acks;
     };
 
     // A prim was created live: report it now, or hold it until this client's
