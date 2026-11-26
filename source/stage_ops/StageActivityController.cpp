@@ -1,5 +1,6 @@
 #include "StageActivityController.h"
 
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -73,14 +74,18 @@ struct Target
     String path;
 };
 
-Dictionary activity(const std::shared_ptr<Lifetime>& lifetime, const String& requested, bool require_tree = true)
+/// The payload holders containing a stage node, innermost first. It depends only on
+/// where the stage node sits, not on the prim asked about, so a pass over many prims
+/// resolves it once.
+struct Containers
 {
-    UsdStageNode3D* owner = owner_of(lifetime);
-    if (!owner || !owner->get_stage() || (require_tree && (!lifetime->in_tree || !owner->is_inside_tree())))
-        return result("unavailable", 0, {}, "The owning stage is unavailable.");
-    if (!valid_path(requested)) return result("unavailable", 0, {}, "An absolute USD prim path is required.");
+    std::vector<Target> holders;
+    bool available = true;
+};
 
-    std::vector<Target> targets{{owner, requested}};
+Containers containers_of(UsdStageNode3D* owner, bool require_tree)
+{
+    Containers out;
     for (UsdStageNode3D* nested = owner; UsdStageNode3D* outer = containing_stage(*nested); nested = outer)
     {
         // An ordinary nested scene has no implicit mapping into a containing USD namespace.
@@ -88,9 +93,28 @@ Dictionary activity(const std::shared_ptr<Lifetime>& lifetime, const String& req
         if (holder.is_empty()) break;
         if (!valid_path(holder) || nested->get_stage_node() != outer || outer->find_prim_node(holder) != nested ||
             !outer->get_stage() || (require_tree && !outer->is_inside_tree()))
-            return result("unavailable", 0, {}, "The containing payload representation is unavailable.");
-        targets.push_back({outer, holder});
+        {
+            out.available = false;
+            break;
+        }
+        out.holders.push_back({outer, holder});
     }
+    return out;
+}
+
+Dictionary activity(const std::shared_ptr<Lifetime>& lifetime, const String& requested, bool require_tree = true,
+                    const Containers* resolved = nullptr)
+{
+    UsdStageNode3D* owner = owner_of(lifetime);
+    if (!owner || !owner->get_stage() || (require_tree && (!lifetime->in_tree || !owner->is_inside_tree())))
+        return result("unavailable", 0, {}, "The owning stage is unavailable.");
+    if (!valid_path(requested)) return result("unavailable", 0, {}, "An absolute USD prim path is required.");
+
+    const Containers containers = resolved ? *resolved : containers_of(owner, require_tree);
+    if (!containers.available)
+        return result("unavailable", 0, {}, "The containing payload representation is unavailable.");
+    std::vector<Target> targets{{owner, requested}};
+    targets.insert(targets.end(), containers.holders.begin(), containers.holders.end());
 
     // Prefixes remain queryable when an inactive ancestor removes its descendants from composition.
     for (auto item = targets.rbegin(); item != targets.rend(); ++item)
@@ -141,6 +165,41 @@ struct ContentNode
     bool is_prim;
     bool nested_stage;
 };
+
+struct StringHash
+{
+    size_t operator()(const String& value) const
+    {
+        return value.hash();
+    }
+};
+
+/// For every prim path below @p owner, the node find_prim_node would return for it:
+/// the same traversal (last child first, nested stage nodes not entered), keeping the
+/// first match. Stored by ObjectID, so a node freed meanwhile is never dereferenced.
+using PrimNodeIndex = std::unordered_map<String, uint64_t, StringHash>;
+
+PrimNodeIndex prim_node_index(const UsdStageNode3D& owner)
+{
+    PrimNodeIndex index;
+    std::vector<Node*> stack;
+    for (int i = 0; i < owner.get_child_count(); ++i)
+        stack.push_back(owner.get_child(i));
+    while (!stack.empty())
+    {
+        Node* node = stack.back();
+        stack.pop_back();
+        if (IUsdNode3D* usd = IUsdNode3D::from_node(node))
+        {
+            const String path = usd->get_prim_path();
+            if (!path.is_empty() && Object::cast_to<Node3D>(node)) index.emplace(path, node->get_instance_id());
+        }
+        if (Object::cast_to<UsdStageNode3D>(node) != nullptr) continue;
+        for (int i = 0; i < node->get_child_count(); ++i)
+            stack.push_back(node->get_child(i));
+    }
+    return index;
+}
 
 String inherited_path(Node* parent, UsdStageNode3D& owner)
 {
@@ -205,6 +264,62 @@ struct StageActivityController::State
     std::unordered_set<uint64_t> corrections;
     bool queued = false;
 
+    // Lookups for one pass over many nodes (refresh, reconcile, flush), so a node costs
+    // no search of the whole stage. Valid while the pass runs: a pass changes
+    // presentation, never which node represents a prim or where the stage node sits.
+    const PrimNodeIndex* pass_index = nullptr;
+    const Containers* pass_containers = nullptr;
+
+    struct Pass
+    {
+        State& state;
+        bool owns = false;
+        PrimNodeIndex index;
+        Containers containers;
+        explicit Pass(State& s)
+            : state(s)
+        {
+            auto* owner = owner_of(state.lifetime);
+            if (!owner || state.pass_index) return; // an enclosing pass provides them
+            index = prim_node_index(*owner);
+            containers = containers_of(owner, true);
+            state.pass_index = &index;
+            state.pass_containers = &containers;
+            owns = true;
+        }
+        ~Pass()
+        {
+            if (!owns) return;
+            state.pass_index = nullptr;
+            state.pass_containers = nullptr;
+        }
+        Pass(const Pass&) = delete;
+        Pass& operator=(const Pass&) = delete;
+    };
+
+    // Whether @p node is what find_prim_node(path) returns; from the pass table when
+    // a pass runs.
+    bool is_current_node(UsdStageNode3D& owner, const String& path, Node* node) const
+    {
+        if (!pass_index) return owner.find_prim_node(path) == node;
+        const auto found = pass_index->find(path);
+        return found != pass_index->end() && found->second == node->get_instance_id();
+    }
+
+    // The node find_prim_node(path) returns, from the pass table; without a pass, the
+    // node itself (a single node refreshed as it enters the tree).
+    Node* display_node(const ContentNode& content, Node* node) const
+    {
+        if (!pass_index) return node;
+        const auto found = pass_index->find(content.path);
+        return found != pass_index->end() ? node_of(lifetime, found->second) : nullptr;
+    }
+
+    Dictionary activity_of(const String& path) const
+    {
+        return activity(lifetime, path, true, pass_containers);
+    }
+
     void connect_tree()
     {
         auto* owner = owner_of(lifetime);
@@ -239,15 +354,17 @@ struct StageActivityController::State
         if (!content.is_prim) return inherited_path(node->get_parent(), *owner) == content.path;
         auto* usd = IUsdNode3D::from_node(node);
         return usd && usd->get_stage_node() == owner && usd->get_prim_path() == content.path &&
-               owner->find_prim_node(content.path) == node;
+               is_current_node(*owner, content.path, node);
     }
 
-    bool read_display(const ContentNode& content, Transform3D& display)
+    // @p node is the node representing content.path (see display_node).
+    bool read_display(const ContentNode& content, Node* node, Transform3D& display)
     {
         auto* owner = owner_of(lifetime);
-        if (!owner || !content.is_prim) return false;
+        auto* node3d = Object::cast_to<Node3D>(node);
+        if (!owner || !content.is_prim || !node3d) return false;
         auto* bridge = static_cast<StageBridge*>(owner->get_or_create_bridge());
-        return bridge && bridge->read_display_transform(std::string(content.path.utf8().get_data()), display);
+        return bridge && bridge->read_display_transform(std::string(content.path.utf8().get_data()), node3d, display);
     }
 
     void remember_authoritative(Retained& saved, const Transform3D& display)
@@ -322,6 +439,8 @@ struct StageActivityController::State
     {
         const auto guard = lifetime;
         const uint64_t expected_generation = guard->generation;
+        std::optional<Pass> pass;
+        if (nodes.size() > 1) pass.emplace(*this);
         for (const auto& content: nodes)
         {
             Node* node = node_of(guard, content.identity);
@@ -343,11 +462,11 @@ struct StageActivityController::State
                     saved.has_confirmed = true;
                 }
             }
-            else if (read_display(content, display))
+            else if (read_display(content, display_node(content, node), display))
             {
                 remember_authoritative(saved, display);
             }
-            const bool active = String(activity(guard, content.path)["status"]) == "active";
+            const bool active = String(activity_of(content.path)["status"]) == "active";
             if (!active)
             {
                 corrections.insert(content.identity);
@@ -374,7 +493,7 @@ struct StageActivityController::State
         auto found = retained.find(content.identity);
         if (found == retained.end()) return true;
         Transform3D display;
-        if (read_display(content, display))
+        if (read_display(content, node, display))
         {
             remember_authoritative(found->second, display);
         }
@@ -394,6 +513,7 @@ struct StageActivityController::State
         const uint64_t expected_generation = guard->generation;
         auto* owner = owner_of(guard, expected_generation);
         if (!owner || !guard->in_tree) return;
+        Pass pass(*this);
         const auto nodes = collect(*owner);
         if (!refresh(nodes, false)) return;
         std::unordered_set<uint64_t> present;
@@ -419,6 +539,7 @@ struct StageActivityController::State
         auto* owner = owner_of(guard, expected_generation);
         if (!owner || generation != guard->generation || !guard->in_tree || !owner->is_inside_tree()) return;
         queued = false;
+        Pass pass(*this);
         const auto nodes = collect(*owner);
         if (!refresh(nodes, false)) return;
         {
@@ -448,7 +569,7 @@ struct StageActivityController::State
                 if (!owner_of(guard, expected_generation)) return;
             }
             for (const auto& content: nodes)
-                if (owns_current(content) && String(activity(guard, content.path)["status"]) == "active" &&
+                if (owns_current(content) && String(activity_of(content.path)["status"]) == "active" &&
                     !restore(content.identity))
                     return;
         }
@@ -483,7 +604,7 @@ void StageActivityController::reject_node(Node3D* node)
     auto& saved = state_->retained[identity];
     saved.path = usd->get_prim_path();
     Transform3D display;
-    if (state_->read_display({identity, saved.path, true, false}, display))
+    if (state_->read_display({identity, saved.path, true, false}, node, display))
     {
         state_->remember_authoritative(saved, display);
     }
@@ -503,7 +624,7 @@ void StageActivityController::confirm_node(Node3D* node, bool authoritative)
     saved.path = usd->get_prim_path();
     Transform3D display;
     if (authoritative) saved.preserve_display_placement = false;
-    if (state_->read_display({identity, saved.path, true, false}, display))
+    if (state_->read_display({identity, saved.path, true, false}, node, display))
         state_->remember_authoritative(saved, display);
     if (!authoritative)
     {

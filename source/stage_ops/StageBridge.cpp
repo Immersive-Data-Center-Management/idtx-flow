@@ -774,9 +774,13 @@ bool StageBridge::read_prim_transform(const std::string& prim_path, Transform3D&
 
 bool StageBridge::read_display_transform(const std::string& prim_path, Transform3D& out) const
 {
-    if (!stage_node_ || !stage_ || !read_prim_transform(prim_path, out)) return false;
-    Node3D* node = stage_node_->find_prim_node(String(prim_path.c_str()));
-    if (!node) return false;
+    if (!stage_node_) return false;
+    return read_display_transform(prim_path, stage_node_->find_prim_node(String(prim_path.c_str())), out);
+}
+
+bool StageBridge::read_display_transform(const std::string& prim_path, Node3D* node, Transform3D& out) const
+{
+    if (!stage_node_ || !stage_ || !node || !read_prim_transform(prim_path, out)) return false;
     if (auto* carrier = Object::cast_to<UsdStageNode3D>(node);
         carrier && gpayload::is_builtin_payload_carrier(*carrier))
     {
@@ -791,7 +795,7 @@ bool StageBridge::read_display_transform(const std::string& prim_path, Transform
         out = Transform3D(static_cast<Basis>(placement["presentation"]), Vector3());
         return true;
     }
-    out.basis = gxform::apply_spine_axis(out.basis, spine_axis_for(prim_path));
+    out.basis = gxform::apply_spine_axis(out.basis, spine_axis_for(prim_path, node));
     if (node->get_parent() != stage_node_) return true;
 
     // Stage conversion rotates/scales root bases while retaining their authored local origins.
@@ -828,8 +832,12 @@ xform::SpineAxis StageBridge::spine_axis_for(const std::string& prim_path) const
     // Schema identity also covers colliders, payload carriers and custom representations.
     // Only a marked built-in visual permits inversion of a node-axis rotation.
     if (!stage_ || !stage_node_) return xform::SpineAxis::None;
-    const Node3D* node = stage_node_->find_prim_node(String(prim_path.c_str()));
-    if (!node) return xform::SpineAxis::None;
+    return spine_axis_for(prim_path, stage_node_->find_prim_node(String(prim_path.c_str())));
+}
+
+xform::SpineAxis StageBridge::spine_axis_for(const std::string& prim_path, const Node3D* node) const
+{
+    if (!stage_ || !stage_node_ || !node) return xform::SpineAxis::None;
     const Variant presentation = node->get_meta(IUsdNode3D::BUILTIN_SPINE_AXIS_META, false);
     if (presentation.get_type() != Variant::BOOL || !static_cast<bool>(presentation)) return xform::SpineAxis::None;
 
