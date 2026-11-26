@@ -46,6 +46,7 @@
 #include <pxr/usd/usdGeom/capsule.h>
 #include <pxr/usd/usdGeom/plane.h>
 #include <pxr/usd/usdGeom/mesh.h>
+#include <pxr/usd/usdPhysics/collisionAPI.h>
 #include <pxr/usd/pcp/layerStack.h>
 #include <pxr/usd/pcp/layerStackIdentifier.h>
 
@@ -694,30 +695,60 @@ class UsdStageConverter
         UsdMaterialConverter<TargetEngine> materialConverter;
         UsdMeshConverter<TargetEngine> meshConverter;
         std::optional<typename Types::Material> material = ConvertMaterial(meshConverter.GetUsdMaterial(usdGprim));
+
         pxr::UsdPrim usdPrim = usdGprim.GetPrim();
 
-        // Handle colliders
-        if (usdPrim.HasAPI<pxr::IDTXCollisionAPI>())
-        {
-            pxr::IDTXCollisionAPI collisionAPI(usdPrim);
+        pxr::TfToken purpose;
 
-            pxr::UsdAttribute shapeAttribute = collisionAPI.GetCollisionShapeAttr();
-            pxr::UsdAttribute typeAttribute = collisionAPI.GetCollisionInteractionTypesAttr();
+        // Handle colliders for prims with purpose `guide`, which are not rendered visually.
+        // only UsdGeomImageable and those inheriting from it, like UsdGeomGprim, have GetPurposeAttr(),
+        // so the usdGprim variable is used here
+        if (usdPrim.HasAPI<pxr::UsdPhysicsCollisionAPI>() && usdGprim.GetPurposeAttr().Get(&purpose) &&
+            purpose == pxr::UsdGeomTokens->guide)
+        {
             pxr::UsdAttribute axisAttribute = usdPrim.GetAttribute(pxr::UsdGeomTokens->axis);
             pxr::UsdAttribute heightAttribute = usdPrim.GetAttribute(pxr::UsdGeomTokens->height);
             pxr::UsdAttribute radiusAttribute = usdPrim.GetAttribute(pxr::UsdGeomTokens->radius);
+            pxr::UsdAttribute sizeAttribute = usdPrim.GetAttribute(pxr::UsdGeomTokens->size);
 
             pxr::TfToken shape;
-            pxr::VtArray<pxr::TfToken> types;
+            pxr::VtTokenArray types = pxr::VtArray{pxr::IDTXTokens->Collide};
             pxr::TfToken axis;
             double height;
             double radius;
+            double size;
 
-            if (!shapeAttribute.Get(&shape)) shape = pxr::TfToken("Cube");
-            if (!typeAttribute.Get(&types)) types = pxr::VtArray{pxr::TfToken("NOT_VALID")};
+            if (usdPrim.IsA<pxr::UsdGeomCube>())
+            {
+                shape = pxr::UsdGeomTokens->Cube;
+            }
+            else if (usdPrim.IsA<pxr::UsdGeomCylinder>())
+            {
+                shape = pxr::UsdGeomTokens->Cylinder;
+            }
+            else if (usdPrim.IsA<pxr::UsdGeomSphere>())
+            {
+                shape = pxr::UsdGeomTokens->Sphere;
+            }
+            else if (usdPrim.IsA<pxr::UsdGeomCapsule>())
+            {
+                shape = pxr::UsdGeomTokens->Capsule;
+            }
+            else if (usdPrim.IsA<pxr::UsdGeomPlane>())
+            {
+                shape = pxr::UsdGeomTokens->Plane;
+            }
+            else
+            {
+                IDTX_LOG(IDTX_WARN, "Prim {} with `guide` purpose has unsupported collision shape",
+                         usdPrim.GetPath().GetText());
+                return nullptr;
+            }
+
             if (!axisAttribute.Get(&axis)) axis = pxr::TfToken("");
             if (!radiusAttribute.Get(&radius)) radius = 0.0;
             if (!heightAttribute.Get(&height)) height = 0.0;
+            if (!sizeAttribute.Get(&size)) size = 0.0;
 
             pxr::GfVec3f main_axis = pxr::GfVec3f(0);
 
@@ -735,7 +766,8 @@ class UsdStageConverter
                 main_axis = pxr::GfVec3f::ZAxis();
             }
 
-            return ConvertCollision(TypeConverter::toTransform(matrix), shape, types, main_axis, height, radius);
+            return ConvertCollision(TypeConverter::toTransform(matrix, axis), shape, types, main_axis, height, radius,
+                                    size);
         }
         // Convert to visual representation
         else if (usdPrim.IsA<pxr::UsdGeomCube>())
@@ -1003,12 +1035,13 @@ class UsdStageConverter
      * @param axis The authored main axis
      * @param height The shape height
      * @param radius The shape radius (if applicable)
+     * @param radius The shape size (if applicable)
      * @return
      */
     typename Types::ConvertedEntity* ConvertCollision(const typename Types::Transform& transform,
                                                       const pxr::TfToken shape, const pxr::VtArray<pxr::TfToken> types,
-                                                      const pxr::GfVec3f axis, const double height,
-                                                      const double radius);
+                                                      const pxr::GfVec3f axis, const double height, const double radius,
+                                                      const double size);
 
     /**
      * Convert a Mesh

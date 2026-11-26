@@ -11,10 +11,14 @@
 #include <godot_cpp/classes/standard_material3d.hpp>
 #include <godot_cpp/classes/skin.hpp>
 #include <godot_cpp/classes/skeleton3d.hpp>
+#include <godot_cpp/classes/collision_shape3d.hpp>
+#include <godot_cpp/classes/static_body3d.hpp>
+#include <godot_cpp/classes/world_boundary_shape3d.hpp>
 
 #include <pxr/base/tf/token.h>
 #include <pxr/usd/usdGeom/tokens.h>
 #include <pxr/usd/usdGeom/xformCache.h>
+#include <pxr/usd/usdPhysics/collisionAPI.h>
 
 #include <idtx/datasource.h>
 #include <idtx/mockDatasource_RandomFloat.h>
@@ -531,7 +535,7 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCollis
 template <>
 inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCollision(
     const godot::Transform3D& transform, const pxr::TfToken shape, const pxr::VtArray<pxr::TfToken> types,
-    const pxr::GfVec3f axis, const double height, const double radius)
+    const pxr::GfVec3f axis, const double height, const double radius, const double size)
 {
     UsdStaticBodyNode3D* collisionNode = memnew(UsdStaticBodyNode3D);
 
@@ -558,6 +562,10 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCollis
     if (radius)
     {
         collisionNode->set_radius(radius);
+    }
+    if (size)
+    {
+        collisionNode->set_size(size);
     }
 
     return collisionNode;
@@ -974,6 +982,71 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertPrimPo
     usd_node->set_prim_path(usd_prim.GetPath().GetText());
     usd_node->set_prim_type(usd_prim.GetTypeName().GetText());
     usd_node->set_stage_path(Stage->GetRootLayer()->GetRealPath().c_str());
+
+    // Convert collision
+    pxr::TfToken purpose;
+    if (usd_prim.IsA<pxr::UsdGeomGprim>() &&
+        !(pxr::UsdSkelRoot::Find(usd_prim) && pxr::UsdSkelBindingAPI(usd_prim).GetJointWeightsPrimvar().HasValue()) &&
+        usd_prim.HasAPI<pxr::UsdPhysicsCollisionAPI>())
+    {
+
+        pxr::UsdGeomGprim usdGprim = pxr::UsdGeomGprim(usd_prim);
+        // if the prim is authored with purpose `guide` it is not visually rendered and instead only used as a collider
+        // at this stage if the usd_prim has purpose `guide` it is assumed to be converted already and should
+        // not require this step
+        if (!usdGprim.GetPurposeAttr().Get(&purpose) || purpose != pxr::UsdGeomTokens->guide)
+        {
+            pxr::TfToken shape = pxr::TfToken("NONE");
+
+            // set the shape according to the currently supported collision shapes
+            if (usd_prim.IsA<pxr::UsdGeomCube>())
+            {
+                shape = pxr::UsdGeomTokens->Cube;
+            }
+            else if (usd_prim.IsA<pxr::UsdGeomCylinder>())
+            {
+                shape = pxr::UsdGeomTokens->Cylinder;
+            }
+            else if (usd_prim.IsA<pxr::UsdGeomSphere>())
+            {
+                shape = pxr::UsdGeomTokens->Sphere;
+            }
+            else if (usd_prim.IsA<pxr::UsdGeomCapsule>())
+            {
+                shape = pxr::UsdGeomTokens->Capsule;
+            }
+            else if (usd_prim.IsA<pxr::UsdGeomPlane>())
+            {
+                shape = pxr::UsdGeomTokens->Plane;
+            }
+
+            if (shape == "NONE")
+            {
+                IDTX_LOG(IDTX_WARN, "Prim {} has unsupported collision shape", usd_prim.GetPath().GetText());
+            }
+            else
+            {
+                pxr::VtTokenArray interaction_types = pxr::VtArray{pxr::IDTXTokens->Collide};
+
+                double height;
+                double radius;
+                double size;
+                if (!usd_prim.GetAttribute(pxr::UsdGeomTokens->height).Get(&height)) height = 0.0f;
+                if (!usd_prim.GetAttribute(pxr::UsdGeomTokens->radius).Get(&radius)) radius = 0.0f;
+                if (!usd_prim.GetAttribute(pxr::UsdGeomTokens->size).Get(&size)) size = 0.0f;
+                godot::Node3D* converted_node = ConvertCollision(godot::Transform3D(), shape, interaction_types,
+                                                                 pxr::GfVec3f(0), height, radius, size);
+
+                // cast to custom UsdStaticBodyNode3D* required for set_stage_path() method
+                UsdStaticBodyNode3D* collision_node = static_cast<UsdStaticBodyNode3D*>(converted_node);
+
+                // stage path must be set, otherwise the node will get discarded and not be added to the scene tree
+                // which prevents the collision shape being created
+                collision_node->set_stage_path(Stage->GetRootLayer()->GetRealPath().c_str());
+                converted_prim->add_child(collision_node);
+            }
+        }
+    }
 
     return converted_prim;
 }

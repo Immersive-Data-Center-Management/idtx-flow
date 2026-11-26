@@ -7,6 +7,7 @@
 #include <godot_cpp/classes/sphere_shape3d.hpp>
 #include <godot_cpp/classes/cylinder_shape3d.hpp>
 #include <godot_cpp/classes/capsule_shape3d.hpp>
+#include <godot_cpp/classes/world_boundary_shape3d.hpp>
 #include <godot_cpp/classes/collision_object3d.hpp>
 #include <godot_cpp/classes/collision_shape3d.hpp>
 #include <godot_cpp/classes/scene_tree.hpp>
@@ -30,6 +31,7 @@ static const std::unordered_map<std::string, UsdStaticBodyNode3D::ShapeType> kSh
     {"Sphere", UsdStaticBodyNode3D::ShapeType::SHAPE_SPHERE},
     {"Capsule", UsdStaticBodyNode3D::ShapeType::SHAPE_CAPSULE},
     {"Cylinder", UsdStaticBodyNode3D::ShapeType::SHAPE_CYLINDER},
+    {"Plane", UsdStaticBodyNode3D::ShapeType::SHAPE_WORLD_BOUNDARY},
     // At the moment only simple primitives are supported. Mesh colliders are currently out of scope.
 };
 
@@ -50,6 +52,9 @@ void UsdStaticBodyNode3D::set_collision_shape_int(const int shape)
     case 3:
         set_collision_shape("Cylinder");
         break;
+    case 4:
+        set_collision_shape("Plane");
+        break;
     default:
         IDTX_LOG(IDTX_WARN, "Could not create collision shape since it looks to be unsupported!");
     }
@@ -66,6 +71,12 @@ void UsdStaticBodyNode3D::_enter_tree()
     Node3D::_enter_tree();
 
     set_position(transform_data_.get_origin());
+}
+
+void UsdStaticBodyNode3D::_ready()
+{
+    Node3D::_ready();
+
     create_collision_static(transform_data_);
 }
 
@@ -99,14 +110,13 @@ void UsdStaticBodyNode3D::set_collision_shape(const std::string& shape)
 
 Ref<Shape3D> UsdStaticBodyNode3D::create_collision_shape(const ShapeType& shape) const
 {
-    Vector3 scale = transform_data_.basis.get_scale_abs();
 
     switch (shape)
     {
     case SHAPE_CUBE: {
         Ref<BoxShape3D> box_shape;
         box_shape.instantiate();
-        box_shape->set_size(scale);
+        box_shape->set_size(Vector3(size_, size_, size_));
         box_shape->set_local_to_scene(true);
         box_shape->set_name(box_shape->get_scene_unique_id());
         return box_shape;
@@ -139,6 +149,17 @@ Ref<Shape3D> UsdStaticBodyNode3D::create_collision_shape(const ShapeType& shape)
         cylinder_shape->set_local_to_scene(true);
         cylinder_shape->set_name(cylinder_shape->get_scene_unique_id());
         return cylinder_shape;
+    }
+
+    // the world boundary shape is an infinite half-space volume collider shape in godot and
+    // equivalent to the infinite half-space collider which is used during simulation in the
+    // USD standard for plane prims authored with PhysicsCollisionAPI
+    case SHAPE_WORLD_BOUNDARY: {
+        Ref<WorldBoundaryShape3D> world_boundary_shape;
+        world_boundary_shape.instantiate();
+        world_boundary_shape->set_local_to_scene(true);
+        world_boundary_shape->set_name(world_boundary_shape->get_scene_unique_id());
+        return world_boundary_shape;
     }
 
     default:
@@ -186,18 +207,6 @@ void UsdStaticBodyNode3D::create_collision_static(const godot::Transform3D& tran
     // Set collision shape
     Ref<Shape3D> collider_shape = create_collision_shape(collision_shape_);
     collider->set_shape(collider_shape);
-
-    // Resolve major axis orientation
-    if (axis_ != Vector3(0.0f, 0.0f, 0.0f))
-    {
-        Transform3D t = get_global_transform();
-        Vector3 up = Vector3(0.0f, 0.0f, 1.0f); // Z up in USD
-        t = t.looking_at(t.origin + axis_, up);
-
-        Basis axis_correction = Basis(Vector3(1.0f, 0.0f, 0.0f), Math_PI / 2.0f);
-        t.basis = t.basis * axis_correction;
-        set_global_transform(t);
-    }
 }
 
 void UsdStaticBodyNode3D::_bind_methods()
@@ -215,8 +224,9 @@ void UsdStaticBodyNode3D::_bind_methods()
     // Bind enums via wrapper
     ClassDB::bind_method(D_METHOD("_set_collision_shape_int", "shape"), &UsdStaticBodyNode3D::set_collision_shape_int);
     ClassDB::bind_method(D_METHOD("_get_collision_shape_int"), &UsdStaticBodyNode3D::get_collision_shape_int);
-    ADD_PROPERTY(PropertyInfo(Variant::INT, "collision_shape_", PROPERTY_HINT_ENUM, "Box,Sphere,Capsule,Cylinder"),
-                 "_set_collision_shape_int", "_get_collision_shape_int");
+    ADD_PROPERTY(
+        PropertyInfo(Variant::INT, "collision_shape_", PROPERTY_HINT_ENUM, "Box,Sphere,Capsule,Cylinder,Plane"),
+        "_set_collision_shape_int", "_get_collision_shape_int");
 
     ClassDB::bind_method(D_METHOD("set_collision_type", "type"), &UsdStaticBodyNode3D::set_collision_type);
     ClassDB::bind_method(D_METHOD("get_collision_type"), &UsdStaticBodyNode3D::get_collision_type);
@@ -240,4 +250,10 @@ void UsdStaticBodyNode3D::_bind_methods()
     ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "radius", PROPERTY_HINT_NONE, "",
                               PROPERTY_USAGE_READ_ONLY | PROPERTY_USAGE_DEFAULT),
                  "set_radius", "get_radius");
+
+    ClassDB::bind_method(D_METHOD("set_size", "size"), &UsdStaticBodyNode3D::set_size);
+    ClassDB::bind_method(D_METHOD("get_size"), &UsdStaticBodyNode3D::get_size);
+    ADD_PROPERTY(
+        PropertyInfo(Variant::FLOAT, "size", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_READ_ONLY | PROPERTY_USAGE_DEFAULT),
+        "set_size", "get_size");
 }

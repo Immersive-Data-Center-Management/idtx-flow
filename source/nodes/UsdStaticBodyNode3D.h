@@ -29,7 +29,8 @@ class UsdStaticBodyNode3D : public godot::StaticBody3D, public IUsdNode3D
         SHAPE_CUBE,
         SHAPE_SPHERE,
         SHAPE_CAPSULE,
-        SHAPE_CYLINDER
+        SHAPE_CYLINDER,
+        SHAPE_WORLD_BOUNDARY
     };
 
     enum InteractionType
@@ -51,6 +52,8 @@ class UsdStaticBodyNode3D : public godot::StaticBody3D, public IUsdNode3D
     int get_collision_shape_int() const;
 
     void _enter_tree() override;
+
+    void _ready() override;
 
     /**
      * Sets the world transform data for this object.
@@ -101,6 +104,23 @@ class UsdStaticBodyNode3D : public godot::StaticBody3D, public IUsdNode3D
     float get_radius() const
     {
         return radius_;
+    }
+
+    /**
+     * Sets the size value used by the collision shape.
+     * @param size Size of the shape.
+     */
+    void set_size(const float& size)
+    {
+        size_ = size;
+    }
+    /**
+     * Returns the current size value.
+     * @return Size of the shape.
+     */
+    float get_size() const
+    {
+        return size_;
     }
 
     /**
@@ -176,6 +196,7 @@ class UsdStaticBodyNode3D : public godot::StaticBody3D, public IUsdNode3D
     godot::Transform3D transform_data_;
     float height_;
     float radius_;
+    float size_;
     godot::Vector3 axis_;
     godot::Color collider_color_;
     // Defaults for when the shape token is unrecognised / no interaction type is set.
