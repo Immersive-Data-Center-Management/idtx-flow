@@ -150,7 +150,10 @@ String inherited_path(Node* parent, UsdStageNode3D& owner)
     return {};
 }
 
-std::vector<ContentNode> collect(UsdStageNode3D& owner, Node* root = nullptr, Node* parent = nullptr)
+// The content nodes of @p owner: all of them, or with @p root the subtree at @p root
+// (below @p parent). @p descend = false yields @p root alone.
+std::vector<ContentNode> collect(UsdStageNode3D& owner, Node* root = nullptr, Node* parent = nullptr,
+                                 bool descend = true)
 {
     struct Pending
     {
@@ -175,7 +178,7 @@ std::vector<ContentNode> collect(UsdStageNode3D& owner, Node* root = nullptr, No
         const bool nested = Object::cast_to<UsdStageNode3D>(node) != nullptr;
         if (!next.inherited.is_empty()) nodes.push_back({node->get_instance_id(), next.inherited, is_prim, nested});
         // The containing controller owns a carrier, while its controller owns the nested content.
-        if (nested) continue;
+        if (nested || !descend) continue;
         for (int index = node->get_child_count() - 1; index >= 0; --index)
             pending.push_back({node->get_child(index), next.inherited});
     }
@@ -524,7 +527,10 @@ void StageActivityController::node_added(Node* node)
     const auto guard = state_->lifetime;
     auto* owner = owner_of(guard);
     if (!node || !owner || !guard->in_tree || node == owner || containing_stage(*node) != owner) return;
-    if (state_->refresh(collect(*owner, node, node->get_parent()), true)) state_->schedule();
+    // The tree reports every node of an added subtree, parents first, so refreshing
+    // just this node covers the subtree; collecting it here as well would refresh a
+    // node once per ancestor.
+    if (state_->refresh(collect(*owner, node, node->get_parent(), /*descend=*/false), true)) state_->schedule();
 }
 void StageActivityController::enter_tree()
 {
