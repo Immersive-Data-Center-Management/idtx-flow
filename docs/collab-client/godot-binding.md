@@ -132,7 +132,8 @@ For creation, `spec` contains either `type` (`Xform`, `Cube`, `Sphere`, `Cone`,
 `Cylinder`, `Capsule`, or `Plane`) or `reference_path` with optional `payload`
 (`false` for a reference, `true` for a payload). An optional `transform: Transform3D`
 supplies initial placement. The server assigns the child name and default
-dimensions; size/radius/height fields are not exposed by this GDScript method.
+dimensions. Optional typed `attributes` supply initial defaults atomically;
+see [the Create dictionary contract](structural-edits.md#creating-primitives-and-assets).
 
 These methods return an integer request ID: `0` means not submitted; a positive
 ID means submitted to the transport, not confirmed delivery or acceptance. They
@@ -159,6 +160,13 @@ See [structural-edits.md](structural-edits.md)
 for path rules, current server policies, examples, and the request/broadcast flow.
 
 ---
+
+## Creation-spec capture
+
+`UsdStageNode3D.get_prim_create_spec(prim_path)` is a read-only query on a loaded
+stage, available without a session. It returns creation data for the existing
+`IdtxClient.request_create_prim` API. Callers own any clipboard and Copy/Paste
+interaction. See the [capture contract](structural-edits.md#capturing-a-creation-spec).
 
 ## Engine-specific ports (the adapters this binding implements)
 

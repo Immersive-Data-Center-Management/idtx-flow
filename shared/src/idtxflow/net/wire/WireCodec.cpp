@@ -1,6 +1,7 @@
 #include <idtxflow/net/wire/WireCodec.h>
 #include <idtxflow/utils/Logger.h>
 #include <google/protobuf/unknown_field_set.h>
+#include <set>
 
 #include "base.pb.h"
 #include "transform.pb.h"
@@ -16,6 +17,35 @@ namespace wire
 namespace
 {
 IDTX_LOG_CATEGORY("WireCodec")
+
+// Keep wire extraction independent of USD. Schema/type interpretation belongs to the stage codec.
+bool decode_attributes(const google::protobuf::RepeatedPtrField<idtxcore::PrimAttribute>& attributes,
+                       std::vector<model::PrimAttribute>& out)
+{
+    std::vector<model::PrimAttribute> values;
+    std::set<std::string> names;
+    for (const auto& source: attributes)
+    {
+        if (!source.has_value() || source.name().empty() || source.type_name().empty() ||
+            !names.insert(source.name()).second || source.name() == "xformOpOrder" ||
+            source.name().rfind("xformOp:", 0) == 0)
+            return false;
+        model::PrimAttribute attribute;
+        attribute.name = source.name();
+        attribute.type_name = source.type_name();
+        auto& value = attribute.value;
+        const auto& wire = source.value();
+        value.is_array = wire.is_array();
+        value.doubles.assign(wire.doubles().begin(), wire.doubles().end());
+        value.ints.assign(wire.ints().begin(), wire.ints().end());
+        value.uints.assign(wire.uints().begin(), wire.uints().end());
+        value.bools.assign(wire.bools().begin(), wire.bools().end());
+        value.strings.assign(wire.strings().begin(), wire.strings().end());
+        values.push_back(std::move(attribute));
+    }
+    out = std::move(values);
+    return true;
+}
 
 // Map the wire PrimType enum onto the USD schema type token the converter and
 // stage bridge understand. Mirrors idtx-core's PrimDispatcher type mapping.
@@ -149,6 +179,11 @@ bool decode(const std::string& bytes, DecodedMessage& out)
     }
     case idtxcore::BaseMessage::kCreatePrimBroadcast: {
         const auto& b = msg.create_prim_broadcast();
+        if (!decode_attributes(b.attributes(), out.remote_edit.edit.attributes))
+        {
+            IDTX_LOG(IDTX_DEBUG, "Ignoring invalid create attributes: bytes={}", bytes.size());
+            return false;
+        }
 
         // A REF prim is a typeless reference/payload holder, so it has no schema
         // type token; every other type must resolve to one or the frame is
@@ -244,6 +279,18 @@ bool decode(const std::string& bytes, DecodedMessage& out)
             edit.create_separate.scale[1] = s.scale().y();
             edit.create_separate.scale[2] = s.scale().z();
         }
+        return true;
+    }
+    case idtxcore::BaseMessage::kSetPrimAttributesBroadcast: {
+        const auto& b = msg.set_prim_attributes_broadcast();
+        if (!decode_attributes(b.attributes(), out.remote_edit.edit.attributes))
+        {
+            IDTX_LOG(IDTX_DEBUG, "Ignoring invalid attribute broadcast: bytes={}", bytes.size());
+            return false;
+        }
+        out.kind = DecodedMessage::Kind::RemoteEdit;
+        out.remote_edit.edit.kind = model::PrimEdit::Kind::SetAttributes;
+        out.remote_edit.edit.prim_path = b.prim_path();
         return true;
     }
     case idtxcore::BaseMessage::kSetPrimActiveBroadcast: {
@@ -417,6 +464,24 @@ std::string encode_create_prim_request(const std::string& session_id, const mode
     }
 
     fill_create_transform(req, edit);
+    for (const auto& attribute: edit.attributes)
+    {
+        auto* wire = req->add_attributes();
+        wire->set_name(attribute.name);
+        wire->set_type_name(attribute.type_name);
+        auto* value = wire->mutable_value();
+        value->set_is_array(attribute.value.is_array);
+        for (double component: attribute.value.doubles)
+            value->add_doubles(component);
+        for (int64_t component: attribute.value.ints)
+            value->add_ints(component);
+        for (uint64_t component: attribute.value.uints)
+            value->add_uints(component);
+        for (bool component: attribute.value.bools)
+            value->add_bools(component);
+        for (const auto& component: attribute.value.strings)
+            value->add_strings(component);
+    }
 
     std::string bytes;
     msg.SerializeToString(&bytes);

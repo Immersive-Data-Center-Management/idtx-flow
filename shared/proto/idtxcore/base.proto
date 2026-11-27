@@ -3,6 +3,7 @@ syntax = "proto3";
 package idtxcore;
 
 import "transform.proto";
+import "attribute.proto";
 import "session.proto";
 import "prim.proto";
 
@@ -89,6 +90,9 @@ message BaseMessage {
     SetPrimActiveBroadcast set_prim_active_broadcast = 13;
     LayerReloaded layer_reloaded = 14;
     SnapshotRequest snapshot_request = 15;
+    SetPrimAttributesRequest set_prim_attributes = 16;
+    SetPrimAttributesBroadcast set_prim_attributes_broadcast = 17;
+    SetPrimAttributesAck set_prim_attributes_ack = 18;
   }
   uint64 request_id = 8;
   uint64 server_seq = 9;

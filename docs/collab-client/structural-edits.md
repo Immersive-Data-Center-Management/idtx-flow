@@ -58,6 +58,7 @@ there. It assigns the child name; callers must not predict that name.
 | `reference_path: String` | Selects asset creation when present, taking precedence over `type` |
 | `payload: bool` | For assets: `true` creates a payload, `false` or omission creates a reference |
 | `transform: Transform3D` | Optional local placement relative to the requested parent |
+| `attributes: Array` | Optional typed initial defaults, applied atomically with creation |
 
 Here `client` is the existing `IdtxClient`, `session_id` names the ready session,
 and `parent_path` is an eligible USD parent in its stage. Each call creates a child.
@@ -79,13 +80,43 @@ client.request_create_prim(session_id, parent_path, {
 })
 ```
 
-The server supplies each shape's schema defaults; this API has no custom dimension
-controls, and scaling the placement changes the transform rather than those values.
+Initial attributes override defaults atomically with creation:
+
+```gdscript
+client.request_create_prim(session_id, parent_path, {
+    "type": "Cube",
+    "attributes": [{
+        "name": "size", "type_name": "double",
+        "value": {"is_array": false, "doubles": [4.0]}
+    }]
+})
+```
+
+Each entry has a unique `name`, scalar `type_name` and `value` with explicit
+`is_array` and a matching component Array: `doubles`, `ints`, `uints`, `bools` or
+`strings`. Unsigned components use decimal Strings. Vectors/matrices/quaternions
+use flat components; matrices are row-major and quaternions are real, i, j, k.
+Values use USD units; send transforms separately (`xformOp:*` and `xformOpOrder`
+are excluded). Missing/empty attributes retain defaults. Malformed input returns
+`0`; server rejection with `invalid_attribute` creates no partial prim.
 
 Omitting `transform` supplies no placement override; pass a `Transform3D` in
 parent-local coordinates to request one.
 For an asset whose composed root is not transformable, core may create the asset
 without the requested placement.
+
+## Capturing a creation spec
+
+`UsdStageNode3D.get_prim_create_spec(prim_path)` is a read-only, main-thread query
+on a loaded stage; no session is required. It returns
+`{ok, error, message, spec, warnings}`. On success, pass `spec` to
+`request_create_prim(session_id, parent_path, spec)`; inspect warnings for omissions
+and `message` on failure.
+
+The spec captures supported defaults and direct overrides on one prim, plus its optional
+local USD transform stored as Transform3D relative to the USD parent for reuse by Create.
+Reuse it within the same stage/root context; a different parent can change the world pose.
+References and payloads retain their asset arc; additional children and overrides on descendants are not copied.
 
 ## Request and broadcast flow
 
@@ -110,6 +141,9 @@ sequenceDiagram
 
 The broadcast applies the change; an acknowledgement does not replace it.
 See [stage-authoring.md](stage-authoring.md) for USD authoring and conversion.
+
+Create broadcasts apply initial attributes before conversion. Snapshots and
+subsequent changes replay defaults through separate attribute broadcasts.
 
 ## Delete and Restore
 
@@ -153,6 +187,10 @@ Supply an uploads-root path from the authenticated server file list, such as
 stage's root layer; see
 [stage-authoring.md](stage-authoring.md#structural-broadcasts-and-asset-paths).
 
-The examples use each asset's defaultPrim. For payload placement, nested edits
-and explicit target selection, see
+The examples use each asset's defaultPrim. A caller can supply a source prim with
+core's explicit-target spelling, such as `/kit/asset.usda</Kit/Chair>`. The client
+separates the asset identifier and source target when authoring a reference or
+payload arc.
+
+For payload-conversion, placement and nested-edit limitations, see
 [Behavior, limitations & gaps](usage.md#behavior-limitations--gaps).

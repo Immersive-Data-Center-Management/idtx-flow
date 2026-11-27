@@ -172,6 +172,14 @@ Created reference/payload paths are anchored against the owning root layer throu
 See [structural-edits.md](structural-edits.md) for request fields, path forms,
 server defaults and restrictions.
 
+## Authoritative attribute defaults
+
+StageBridge applies authoritative typed defaults from Create, attribute broadcasts
+and snapshots to USD without sending them back. Supported geometry and fallback
+materials refresh on existing nodes using the same rules as initial conversion.
+Payload-holder defaults also propagate into nested overlays, including during
+loading.
+
 ## Inactive prims and retained runtime state
 
 `StageActivityController` runs automatically for each stage. Inactive content keeps

@@ -66,7 +66,8 @@ For an experimental editor demonstration of the API, open
 `addons/IDTXFlow/editor/editor_prim_tools/run_prim_tools.gd` in Godot's Script editor
 and choose **File > Run** while a live-session tab is active. Select a converted
 USD prim to use **Create child**, **Add asset** (Reference/Payload), **Delete
-selected**, or **Restore selected**. See the
+selected**, or **Restore selected**. **Copy selected** captures one supported
+prim; select its destination parent and use **Paste child** to create a copy. See the
 [demo README](../../addons/IDTXFlow/editor/editor_prim_tools/README.md).
 
 ---
@@ -187,7 +188,8 @@ The [structural edit guide](structural-edits.md) contains the GDScript examples,
 supported types, reference/payload paths and server validation rules.
 
 Creation uses the exact selected USD parent path. The server chooses the name
-and default shape dimensions; the request can optionally supply a `Transform3D`.
+and default shape dimensions; optional typed `attributes` can override initial
+defaults atomically. The request can also supply a parent-local `Transform3D`.
 Requests do not immediately create/remove nodes: server broadcasts apply the result.
 Each request returns `0` when not submitted, or a positive request ID after
 transport submission. Optionally match it with
@@ -195,6 +197,11 @@ transport submission. Optionally match it with
 acceptance or rejection for the original action. If you track pending actions,
 keep them across selection changes and clear them when their session context ends or disconnects.
 An accepted Ack does not mean the scene has finished updating.
+
+`UsdStageNode3D.get_prim_create_spec(source_path)` captures reusable Create input,
+even without a session. The GDScript demo uses this query and the existing live
+Create API to implement Copy/Paste. See the
+[capture contract](structural-edits.md#capturing-a-creation-spec).
 
 Delete sets `active=false`; it does not erase the USD data or remove the retained
 Godot nodes. Native activity handling hides blocked content, disables processing
@@ -206,9 +213,9 @@ updates remain accepted.
 Restore requests `active=true`. Once its broadcast arrives, the native controller
 uses the current live USD state and restores saved runtime settings. It does not
 request another snapshot or reload the original file. UI can query
-`stage_node.get_prim_activity(path)` and refresh on `prim_activity_changed`; the
-[binding guide](godot-binding.md#activity-status) describes the result. If an
-ancestor is inactive, restore that ancestor first.
+`stage_node.get_prim_activity(path)` and refresh on `prim_activity_changed`. See
+[activity handling](stage-authoring.md#inactive-prims-and-retained-runtime-state)
+for details. If an ancestor is inactive, restore that ancestor first.
 
 ---
 
@@ -246,6 +253,21 @@ ancestor is inactive, restore that ancestor first.
 
 Client-side:
 
+- **Received attributes have a limited visual mapping** — typed defaults are
+  mirrored into USD. Existing Cube, Sphere, Cylinder, Cone, Capsule and Plane
+  visuals refresh their dimensions/axis and constant display colour/opacity
+  fallback material; explicit materials retain precedence. Mesh topology, shaders,
+  visibility and animation are not refreshed by these messages. Initial attributes
+  can be sent with Create; there is no public request API for standalone attribute
+  edits on existing prims.
+
+- **Creation-spec capture rejects locally authored variants** — variant selections,
+  inherits and specializes cause `unsupported_source`, even on supported types
+  such as Cube. Capturing only the selected variant's values is not implemented.
+  Preserving variant sets/selections requires protocol and client/server
+  extensions. Variants supplied by a reused reference/payload asset remain in
+  that asset.
+
 - **One server / one token at a time** — the client holds a single base URL and a
   single bearer token (a process-wide provider), so it is authenticated to one server
   at a time; logging into another server replaces the current auth. There is no
@@ -269,10 +291,14 @@ Client-side:
   root** — any number of descendants is supported. Direct geometry roots, animated
   roots and multiple converted roots keep their existing conversion behavior;
   correct subsequent placement editing is not guaranteed for them.
-- **Explicit asset target selection is not supported** — core accepts suffixes
-  such as `./asset.usda</Asset/Part>`, but the client does not split a received
-  suffix into an asset identifier and `SdfPath`, or select the corresponding
-  payload subtree. Use assets with a defaultPrim.
+- **Explicit targets are preserved in USD arcs** — core's
+  `./asset.usda</Asset/Part>` spelling supplies separate asset and source-prim
+  fields to USD. Ordinary references compose the selected subtree. The nested
+  payload importer still converts the source stage without restricting it to
+  that subtree, so unselected content can appear and placement retains the
+  limitations above. Payloads inside referenced assets have the same limitation.
+  Payload assets with a different up-axis can also display differently from
+  standard USD composition. Creation-spec capture does not change this behavior.
 - **Structural requests require a live session** — Create/Delete/Restore enter
   through `IdtxClient`. `local_authoring` enables transform authoring; it does not
   provide standalone structural editing.

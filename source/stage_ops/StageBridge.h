@@ -19,6 +19,7 @@
  */
 
 #include <memory>
+#include <map>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -161,6 +162,8 @@ class StageBridge : public net::ports::IStageBridge, public pxr::TfWeakBase
     void author_transform(const net::model::PrimEdit& edit, bool external);
     void author_create(const net::model::PrimEdit& edit);
     void author_set_active(const net::model::PrimEdit& edit);
+    void author_attributes(const net::model::PrimEdit& edit);
+    void refresh_attributes(const std::string& path, const std::set<std::string>& names);
 
     // Create missing Godot nodes and reconcile retained activity after the USD write.
     // External edits must also update the scene without being sent back out.
@@ -194,6 +197,8 @@ class StageBridge : public net::ports::IStageBridge, public pxr::TfWeakBase
     std::shared_ptr<DispatchState> dispatch_state_ = std::make_shared<DispatchState>();
     std::set<pxr::SdfPath> pending_resyncs_;
     std::set<std::string> pending_transforms_;
+    std::map<std::string, std::set<std::string>> pending_attributes_;
+    std::map<std::string, std::set<std::string>> inactive_attributes_;
 
     pxr::TfNotice::Key notice_key_;
     bool listening_ = false;

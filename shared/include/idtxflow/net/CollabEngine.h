@@ -193,7 +193,8 @@ class CollabEngine
     // Acceptance is reported separately; the return value does not imply delivery.
     uint64_t request_create_prim(const std::string& session_id, const std::string& parent_path,
                                  const std::string& prim_type, bool is_reference, bool is_payload,
-                                 const std::string& reference_path, bool has_transform, const model::Mat4& transform);
+                                 const std::string& reference_path, bool has_transform, const model::Mat4& transform,
+                                 const std::vector<model::PrimAttribute>& attributes = {});
 
     // Ask the server to change a prim's active state (false = soft delete, true =
     // restore). Same session preconditions as request_create_prim.

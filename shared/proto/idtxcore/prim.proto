@@ -3,6 +3,7 @@ syntax = "proto3";
 package idtxcore;
 
 import "transform.proto";
+import "attribute.proto";
 
 // Built-in USD prim types a client may ask the server to create. The numeric
 // values are wire-stable; append new types, never renumber. UNSPECIFIED (0) is
@@ -47,6 +48,13 @@ message CreatePrimRequest {
     SeparateTransform seperate = 6;
     Matrix4dTransform matrix = 7;
   }
+  // Optional attributes authored on the new prim together with its creation,
+  // e.g. the dimensions or colour of a built-in prim, or the attributes of a
+  // prim being duplicated. Same rules as SetPrimAttributesRequest (no xformOp:*;
+  // use the transform above). They override the defaults the server authors.
+  // The creation is atomic: if any attribute cannot be authored, nothing is
+  // created and the Ack reports "invalid_attribute".
+  repeated PrimAttribute attributes = 8;
 }
 
 // Server -> all clients (including the originator) and replayed in the join
@@ -56,6 +64,8 @@ message CreatePrimRequest {
 // (has-field semantics via proto3 optional): Cube -> size; Sphere -> radius;
 // Cone/Cylinder/Capsule -> height, radius, axis; Plane -> width, length, axis;
 // Xform -> none; REF -> ref_type, reference_path.
+// Built-in prims are authored with 1 m based dimensions in the stage's units
+// unless the request's attributes set them.
 message CreatePrimBroadcast {
   string parent_path = 1;
   string prim_name = 2;
@@ -81,6 +91,9 @@ message CreatePrimBroadcast {
     SeparateTransform seperate = 12;
     Matrix4dTransform matrix = 13;
   }
+  // The request's attributes, as authored. In the join snapshot they arrive as
+  // a SetPrimAttributesBroadcast after the creation instead.
+  repeated PrimAttribute attributes = 14;
 }
 
 // Client -> server. Ask the server to change a prim's active state (soft delete

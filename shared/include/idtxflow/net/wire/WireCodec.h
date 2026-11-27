@@ -99,8 +99,9 @@ std::string encode_transform_update(const std::string& session_id, const model::
 /// parent path the new prim is created under (the server assigns the child
 /// name); `prim_type` selects the built-in type, or `has_ref` + `reference_path`
 /// + `ref_kind` a reference/payload holder. An optional create transform fills
-/// the request's transform oneof verbatim. Shape dimensions are not sent — the
-/// server authors the type's schema defaults.
+/// the request's transform oneof verbatim. Initial attributes are encoded in the
+/// same request, preserving type roles, array identity and numeric lanes.
+/// Shape dimensions can be supplied as typed attributes; otherwise defaults are used.
 std::string encode_create_prim_request(const std::string& session_id, const model::PrimEdit& edit,
                                        uint64_t base_server_seq, uint64_t request_id);
 

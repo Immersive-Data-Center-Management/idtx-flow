@@ -15,6 +15,8 @@ var _editor: Object
 var _plugin: Object
 var _client: Object
 var _context: Dictionary = {}
+var _clipboard: Dictionary = {}
+var _clipboard_context: Dictionary = {}
 var _selected_ids: Array[int] = []
 var _generation := 0
 var _closed := false
@@ -40,6 +42,8 @@ var _create_button: Button
 var _delete_button: Button
 var _restore_button: Button
 var _asset_button: Button
+var _copy_button: Button
+var _paste_button: Button
 var _delete_dialog: ConfirmationDialog
 var _delete_ticket: Dictionary = {}
 var _asset_dialog: ConfirmationDialog
@@ -59,6 +63,7 @@ func setup(editor: Object, plugin: Object, client: Object = null) -> void:
 	_observe_stage(null)
 	_invalidate_actions()
 	_context.clear()
+	_clear_clipboard()
 	_selected_ids.clear()
 	_closed = false
 	_editor = editor
@@ -78,6 +83,7 @@ func setup(editor: Object, plugin: Object, client: Object = null) -> void:
 		_subscribe(_client, "snapshot_complete", _on_connection_changed, _subscriptions)
 		_subscribe(_client, "session_closed", _on_session_closed, _subscriptions)
 		_subscribe(_client, "ack_received", _on_ack, _subscriptions)
+		_subscribe(_client, "prim_created", _on_prim_created, _subscriptions)
 		_subscribe(_client, "socket_error", _on_socket_error, _subscriptions)
 		_subscribe(_client, "socket_disconnected", _on_disconnected, _subscriptions)
 	set_process(true)
@@ -98,6 +104,49 @@ func capture_action() -> Dictionary:
 	return {"generation": _generation, "session_id": state.session_id, "stage_id": state.stage_id,
 		"node_id": state.node_id, "prim_path": state.prim_path, "server_url": _context.get("server_url", ""),
 		"source_uri": _context.get("source_uri", ""), "scene_path": _context.get("scene_path", "")}
+
+
+## Capture the selected prim as frozen Create data for this session context.
+func copy_selected() -> bool:
+	var state := get_action_state()
+	if not state.copy_enabled:
+		return false
+	var identity := _clipboard_identity(_context)
+	var stage := instance_from_id(_stage_id) as Node
+	var result: Dictionary = stage.call("get_prim_create_spec", String(state.prim_path))
+	_sync_context()
+	if _closed or identity != _clipboard_identity(_context):
+		return false
+	if not bool(result.get("ok", false)):
+		_set_status("Copy failed: " + String(result.get("message", "The selected prim cannot be captured.")))
+		return false
+	_clipboard = Dictionary(result.spec).duplicate(true)
+	_clipboard_context = identity
+	var warnings := PackedStringArray(result.get("warnings", []))
+	_update_controls()
+	_set_status("Copied %s. Select a parent and use Paste child.%s" % [state.prim_path,
+		(" " + " ".join(warnings)) if not warnings.is_empty() else ""])
+	print("[PrimTools] copied prim_path=%s" % state.prim_path)
+	return true
+
+
+## Submit the captured spec beneath the currently selected eligible parent.
+func paste_child() -> bool:
+	var state := get_action_state()
+	if not state.paste_enabled:
+		return false
+	return _submit_request("request_create_prim", [String(state.session_id), String(state.prim_path), _clipboard.duplicate(true)],
+		"Paste under", String(state.prim_path))
+
+
+func _clipboard_identity(context: Dictionary) -> Dictionary:
+	return {"session_id": context.get("session_id", ""), "stage_id": context.get("stage_id", 0),
+		"server_url": context.get("server_url", ""), "source_uri": context.get("source_uri", "")}
+
+
+func _clear_clipboard() -> void:
+	_clipboard.clear()
+	_clipboard_context.clear()
 
 
 ## Submit a supported primitive under the exact current USD selection.
@@ -293,6 +342,8 @@ func _sync_context() -> void:
 					next.clear()
 					_context_reason = "More than one session is registered for this scene."
 	if next != _context:
+		if _clipboard_identity(next) != _clipboard_context:
+			_clear_clipboard()
 		var stage_changed := int(next.get("stage_id", 0)) != _stage_id
 		var source_changed := String(next.get("source_uri", "")) != String(_context.get("source_uri", ""))
 		_invalidate_actions()
@@ -333,7 +384,8 @@ func _evaluate_state() -> Dictionary:
 	var state := {"ready": false, "target_valid": false, "session_id": _context.get("session_id", ""),
 		"stage_id": _context.get("stage_id", 0), "node_id": 0, "prim_path": "", "reason": "",
 		"children_allowed": false, "gprim_ancestor": "", "create_enabled": false, "delete_enabled": false,
-		"restore_enabled": false, "asset_enabled": false, "create_reason": "", "delete_reason": "", "restore_reason": "", "asset_reason": ""}
+		"restore_enabled": false, "asset_enabled": false, "copy_enabled": false, "paste_enabled": false,
+		"create_reason": "", "delete_reason": "", "restore_reason": "", "asset_reason": "", "copy_reason": "", "paste_reason": ""}
 	var stage := instance_from_id(_stage_id) as Node
 	if _closed or _context.is_empty(): state.reason = _context_reason
 	elif not is_instance_valid(_plugin) or not is_instance_valid(_client): state.reason = "The editor session connection is unavailable."
@@ -365,6 +417,7 @@ func _evaluate_state() -> Dictionary:
 					match String(activity.get("status", "unavailable")):
 						"active":
 							state.target_valid = true
+							state.copy_enabled = stage.has_method("get_prim_create_spec")
 							state.delete_reason = _delete_reason(stage, path)
 							state.delete_enabled = String(state.delete_reason).is_empty()
 							state.children_allowed = not node.is_class("UsdStageNode3D")
@@ -382,7 +435,14 @@ func _evaluate_state() -> Dictionary:
 							state.reason = "Inactive ancestor %s blocks this prim. Select that ancestor to restore it first." % String(activity.get("blocker_path", ""))
 						_:
 							state.reason = String(activity.get("reason", "USD activity is unavailable."))
-	for action: String in ["create", "delete", "restore", "asset"]:
+	if _clipboard.is_empty():
+		state.paste_reason = "Copy a supported prim first, then select its destination parent."
+	elif _clipboard_context == _clipboard_identity(_context) and state.ready and state.children_allowed:
+		var is_xform := not _clipboard.has("reference_path") and String(_clipboard.get("type", "")) == "Xform"
+		state.paste_enabled = is_xform or String(state.gprim_ancestor).is_empty()
+		if not state.paste_enabled:
+			state.paste_reason = "The copied geometry or asset needs a parent without a geometry ancestor."
+	for action: String in ["create", "delete", "restore", "asset", "copy", "paste"]:
 		if not bool(state[action + "_enabled"]) and String(state[action + "_reason"]).is_empty():
 			state[action + "_reason"] = state.reason
 	if state.target_valid and not state.restore_enabled and String(state.restore_reason).is_empty():
@@ -552,6 +612,7 @@ func _on_connection_changed(session_id: String) -> void:
 
 func _on_session_closed(session_id: String) -> void:
 	if session_id != String(_context.get("session_id", "")): return
+	_clear_clipboard()
 	_invalidate_actions()
 	_settle_remaining = SETTLE_FRAMES
 	refresh_context()
@@ -565,6 +626,13 @@ func _on_ack(session_id: String, _request_id: int, _request_kind: int, ok: bool,
 		if error == "not_deletable":
 			explanation = ". The server protects the stage's defaultPrim and can reject deletion of prims with opinions from outside the root and session layers, such as a sublayer or an ancestor's reference/payload. A locally defined asset holder can still be deleted as a whole."
 		_set_status("A session edit was rejected: " + error + explanation)
+
+
+## Log native creation notifications for the window's current session.
+func _on_prim_created(session_id: String, prim_path: String, request_id: int) -> void:
+	_sync_context()
+	if _closed or session_id != String(_context.get("session_id", "")): return
+	print("[PrimTools] prim_created session_id=%s prim_path=%s request_id=%d" % [session_id, prim_path, request_id])
 
 
 func _on_socket_error(session_id: String, code: String, message: String) -> void:
@@ -703,6 +771,8 @@ func _submit_request(method: String, arguments: Array, operation: String, target
 	if not submitted:
 		_set_status("%s %s: request not submitted. Check session readiness and request values." % [operation, target])
 		return false
+	if method == "request_create_prim":
+		print("[PrimTools] create submitted session_id=%s parent_path=%s request_id=%d" % [arguments[0], target, result])
 	_update_controls()
 	_set_status("%s %s: request submitted. The scene updates from server broadcasts." % [operation, target])
 	return true
@@ -726,14 +796,16 @@ func _update_controls() -> void:
 	_delete_button.disabled = not state.delete_enabled
 	_restore_button.disabled = not state.restore_enabled
 	_asset_button.disabled = not state.asset_enabled
-	for pair: Array in [[_create_button, "create"], [_delete_button, "delete"], [_restore_button, "restore"], [_asset_button, "asset"]]:
+	_copy_button.disabled = not state.copy_enabled
+	_paste_button.disabled = not state.paste_enabled
+	for pair: Array in [[_create_button, "create"], [_delete_button, "delete"], [_restore_button, "restore"], [_asset_button, "asset"], [_copy_button, "copy"], [_paste_button, "paste"]]:
 		pair[0].tooltip_text = String(state[pair[1] + "_reason"])
 
 
 func _build_ui() -> void:
 	if is_instance_valid(_session_label): return
 	title = "IDTXFlow Live Primitive Tools"
-	size = Vector2i(530, 310)
+	size = Vector2i(530, 350)
 	min_size = Vector2i(430, 260)
 	close_requested.connect(close_tools)
 	var margin := MarginContainer.new()
@@ -762,6 +834,12 @@ func _build_ui() -> void:
 	_delete_button.pressed.connect(begin_delete)
 	_restore_button = _button("RestoreButton", "Restore selected", actions)
 	_restore_button.pressed.connect(func(): submit_restore(capture_action()))
+	var clipboard_actions := HBoxContainer.new()
+	layout.add_child(clipboard_actions)
+	_copy_button = _button("CopyButton", "Copy selected", clipboard_actions)
+	_copy_button.pressed.connect(copy_selected)
+	_paste_button = _button("PasteButton", "Paste child", clipboard_actions)
+	_paste_button.pressed.connect(paste_child)
 	_reason_label = _label("ReasonLabel", "", layout)
 	_status_label = _label("StatusLabel", "", layout)
 	_label("UsageLabel", "Experimental editor example. Use the scene tree to select a USD prim; use existing gizmos after creation.", layout)
@@ -798,6 +876,7 @@ func _cleanup() -> void:
 	_disconnect_all(_stage_subscriptions)
 	_invalidate_actions()
 	_context.clear()
+	_clear_clipboard()
 	_selected_ids.clear()
 	_editor = null
 	_plugin = null

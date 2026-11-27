@@ -197,6 +197,10 @@ class UsdStageNode3D : public godot::Node3D, public IUsdNode3D
     /// Empty when the stage is unavailable or the metadata is unset/invalid; never loads or authors USD.
     godot::String get_default_prim_path() const;
 
+    /// Capture one supported prim as detached Create fields at default time.
+    /// Returns {ok, error, message, spec, warnings}; failure leaves spec empty.
+    godot::Dictionary get_prim_create_spec(const godot::String& prim_path) const;
+
     /// Borrow this node's runtime activity controller; it owns no USD or collaboration session.
     idtxflow::collab::StageActivityController& get_activity_controller();
 
