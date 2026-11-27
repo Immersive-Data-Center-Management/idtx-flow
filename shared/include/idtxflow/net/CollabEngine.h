@@ -12,6 +12,7 @@
  */
 
 #include <map>
+#include <set>
 #include <memory>
 #include <string>
 #include <vector>
@@ -273,7 +274,41 @@ class CollabEngine
         // Frames left until a SnapshotRequest the server rejected with
         // "queue_full" is sent again; -1 = no retry pending. Counted down in poll().
         int snapshot_retry_countdown = -1;
+
+        // A prim created live (after the snapshot), not reported yet.
+        struct LiveCreate
+        {
+            std::string prim_path;
+            uint64_t server_seq = 0;
+        };
+        // Create requests this client sent that have no Ack yet.
+        std::set<uint64_t> outstanding_creates;
+        // Live creates held while a create request is outstanding: its Ack (sent
+        // right after its broadcast, same server_seq) tells whether one is ours.
+        std::vector<LiveCreate> held_creates;
+        // Live creates buffered in pending_remote; reported after attach_stage
+        // replays them.
+        std::vector<LiveCreate> creates_before_attach;
+        // Whether this membership has seen a complete snapshot, i.e. has a state
+        // to compare later snapshots against.
+        bool has_baseline = false;
+        // Prims this membership saw created, live or replayed by a snapshot.
+        std::set<std::string> known_creates;
+        // New prims seen while the session was not live (rebuilding, waiting for
+        // a snapshot, reconnecting); reported once it is live again.
+        std::vector<LiveCreate> window_creates;
+        // server_seq -> request id of this client's accepted creates whose Ack
+        // arrived while the session was not live.
+        std::map<uint64_t, uint64_t> window_acks;
     };
+
+    // A prim was created live: report it now, or hold it until this client's
+    // outstanding create request is acknowledged.
+    void on_live_create(Session& s, const std::string& prim_path, uint64_t server_seq);
+    // A create Ack: name the held create it belongs to, release the others.
+    void on_create_ack(Session& s, uint64_t request_id, bool ok, uint64_t server_seq);
+    // Report @p creates through on_prim_created (request_id 0 unless given).
+    void report_creates(const std::string& session_id, std::vector<std::pair<std::string, uint64_t>> creates);
 
     // Invoked by a session's stage bridge when its live stage changes; sends the
     // edit immediately for that session when it is armed + remote, snapshot-complete,

@@ -185,6 +185,12 @@ class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
     int64_t request_delete_prim(const godot::String& session_id, const godot::String& prim_path);
     /// Restore a soft-deleted prim (author active=true); return its submitted ID, or zero.
     int64_t request_restore_prim(const godot::String& session_id, const godot::String& prim_path);
+    // `prim_created(session_id, prim_path, request_id)` reports every prim created in the
+    // live session, by this client (request_id = the id request_create_prim returned) or
+    // another one (request_id = 0). Prims replayed by the join snapshot are not reported; a
+    // prim created while the session was rebuilding or disconnected is reported once it is
+    // live again. It is emitted after the prim's node was converted and added under the
+    // stage node; for a payload, the asset's contents may still be loading then.
 
     // --- CollabObserver ---
 
@@ -213,6 +219,8 @@ class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
     /// Emit the correlated result; IDs outside Godot's positive integer range become zero/Unknown.
     void on_ack(const std::string& session_id, uint64_t request_id, idtxflow::net::model::RequestKind request_kind,
                 bool ok, const std::string& error) override;
+    /// Emit prim_created; IDs outside Godot's positive integer range become zero.
+    void on_prim_created(const std::string& session_id, const std::string& prim_path, uint64_t request_id) override;
     void on_socket_error(const std::string& session_id, const std::string& code, const std::string& message) override;
     void on_disconnected(const std::string& session_id, idtxflow::net::model::CloseReason reason, int code,
                          const std::string& text) override;

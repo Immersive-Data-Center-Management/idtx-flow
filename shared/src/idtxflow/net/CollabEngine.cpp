@@ -405,6 +405,10 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
     // A fresh transport's first open is a join (the host loads the stage for it);
     // only the transport re-opening after a drop is a reconnect.
     s.opened_before = false;
+    s.has_baseline = false;
+    s.known_creates.clear();
+    s.window_creates.clear();
+    s.window_acks.clear();
     s.callback_lifetime = std::make_shared<SessionCallbackLifetime>();
     const std::weak_ptr<SessionCallbackLifetime> weak_lifetime = s.callback_lifetime;
     ports::IMainThreadDispatcher* dispatcher = ports_.dispatcher;
@@ -475,6 +479,16 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
                 // Apply inbound to the stage with loopback suppression (so our author
                 // isn't re-broadcast), then report. The broadcast's server_seq (incl. a
                 // correction sent only to us) becomes our base, keeping updates non-stale.
+                if (edit.kind == model::PrimEdit::Kind::CreatePrim)
+                {
+                    // A create the session cannot report as live now (rebuilding, or
+                    // waiting for a snapshot) is new if this membership never saw the
+                    // prim: report it when the session is live again. A snapshot
+                    // replays known prims too; those are not new.
+                    const bool unseen = session.known_creates.insert(edit.prim_path).second;
+                    if (unseen && session.has_baseline && !session.snapshot_complete)
+                        session.window_creates.push_back({edit.prim_path, server_seq});
+                }
                 if (session.reloading)
                 {
                     // The stage is being rebuilt from a re-fetched file; the snapshot
@@ -484,6 +498,8 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
                              edit.prim_path);
                     return;
                 }
+                // A create after the snapshot is a new prim; one inside the snapshot is replayed history.
+                const bool live_create = edit.kind == model::PrimEdit::Kind::CreatePrim && session.snapshot_complete;
                 if (session.stage)
                 {
                     session.applying_remote = true;
@@ -502,8 +518,14 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
                     // This buffer also retains live updates received before attachment.
                     session.pending_remote.push_back(edit);
                     advance_server_seq(session, server_seq);
+                    if (live_create) session.creates_before_attach.push_back({edit.prim_path, server_seq});
                 }
                 if (observer_) observer_->on_remote_edit(session_id, edit, from);
+                if (!lifetime->active) return;
+                Session* current = find_session(session_id);
+                if (!current || current->callback_lifetime != lifetime) return;
+                // Reported once applied, so the prim's node exists for the listener.
+                if (live_create && current->stage) on_live_create(*current, edit.prim_path, server_seq);
             });
         });
     s.socket->on_snapshot_complete([this, post, session_id](uint64_t server_seq, uint64_t request_id) {
@@ -520,9 +542,22 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
             // Latch so a late reader (is_snapshot_complete) sees it, then report.
             session.snapshot_request_id = 0;
             session.snapshot_complete = true;
+            session.has_baseline = true;
             advance_server_seq(session, server_seq);
             try_arm(session); // snapshot gate satisfied; arm if settle also done
+            // Prims created while the session was not live: their nodes exist now
+            // that the snapshot is applied. An Ack seen meanwhile names this
+            // client's own.
+            std::vector<std::pair<std::string, uint64_t>> created;
+            for (const auto& c: session.window_creates)
+            {
+                const auto acked = session.window_acks.find(c.server_seq);
+                created.emplace_back(c.prim_path, acked != session.window_acks.end() ? acked->second : 0);
+            }
+            session.window_creates.clear();
+            session.window_acks.clear();
             if (observer_) observer_->on_snapshot_complete(session_id);
+            report_creates(session_id, std::move(created));
         });
     });
     s.socket->on_layer_reloaded(
@@ -545,7 +580,8 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
         });
     s.socket->on_ack([this, post, session_id](bool ok, const std::string& error, uint64_t request_id,
                                               uint64_t server_seq, model::RequestKind request_kind) {
-        post([this, session_id, ok, error, request_id, server_seq, request_kind](Session& session, const auto&) {
+        post([this, session_id, ok, error, request_id, server_seq, request_kind](Session& session,
+                                                                                 const auto& lifetime) {
             IDTX_LOG(IDTX_DEBUG, "Acknowledgement received session='{}' ok={} error='{}' req_id={} server_seq={}",
                      session_id, ok, error, request_id, server_seq);
             // The ack also carries server progress: adopt its server_seq so this author's base
@@ -571,8 +607,12 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
                     IDTX_LOG(IDTX_WARN, "snapshot request rejected session='{}' error='{}'", session_id, error);
                 }
             }
-            // Keep notification last: observers may end this membership or destroy the engine.
+            // Notify before naming a held create: a listener matching prim_created to
+            // its request has seen the Ack by then.
             if (observer_) observer_->on_ack(session_id, request_id, request_kind, ok, error);
+            if (request_kind != model::RequestKind::CreatePrim || !lifetime->active) return;
+            Session* current = find_session(session_id);
+            if (current && current->callback_lifetime == lifetime) on_create_ack(*current, request_id, ok, server_seq);
         });
     });
     s.socket->on_error([this, post, session_id](const std::string& code, const std::string& message) {
@@ -590,7 +630,15 @@ void CollabEngine::open_session_socket(Session& s, const std::string& ws_url)
             // pre-disconnect values. That snapshot is authoritative.
             session.snapshot_complete = false;
             session.armed = false;
+            // No Ack for an outstanding create arrives on a new connection: report
+            // the held creates without a request id.
+            session.outstanding_creates.clear();
+            std::vector<std::pair<std::string, uint64_t>> held;
+            for (const auto& c: session.held_creates)
+                held.emplace_back(c.prim_path, 0);
+            session.held_creates.clear();
             if (observer_) observer_->on_disconnected(session_id, reason, code, text);
+            report_creates(session_id, std::move(held));
         });
     });
 
@@ -640,6 +688,16 @@ void CollabEngine::attach_stage(const std::string& session_id, ports::IStageBrid
             s->applying_remote = false;
             s->pending_remote.clear();
         }
+
+        // Live creates that arrived before the stage: their nodes exist now.
+        std::vector<Session::LiveCreate> buffered = std::move(s->creates_before_attach);
+        s->creates_before_attach.clear();
+        for (const auto& c: buffered)
+        {
+            Session* current = find_session(session_id);
+            if (!current || !current->stage) return;
+            on_live_create(*current, c.prim_path, c.server_seq);
+        }
     }
 }
 
@@ -679,6 +737,58 @@ void CollabEngine::reload_complete(const std::string& session_id)
     // socket is closed nothing is sent; the reconnect rebuilds and asks again.
     s->snapshot_request_id = s->socket ? s->socket->send_snapshot_request() : 0;
     IDTX_LOG(IDTX_INFO, "reload complete session='{}' snapshot req_id={}", session_id, s->snapshot_request_id);
+}
+
+void CollabEngine::on_live_create(Session& s, const std::string& prim_path, uint64_t server_seq)
+{
+    // Without an outstanding request of ours, it is another client's create.
+    if (s.outstanding_creates.empty())
+    {
+        report_creates(s.id, {{prim_path, 0}});
+        return;
+    }
+    s.held_creates.push_back({prim_path, server_seq});
+}
+
+void CollabEngine::on_create_ack(Session& s, uint64_t request_id, bool ok, uint64_t server_seq)
+{
+    s.outstanding_creates.erase(request_id);
+    // Not live: the create's broadcast was recorded for the window (if new);
+    // remember which request it answers.
+    if (ok && !s.snapshot_complete) s.window_acks[server_seq] = request_id;
+
+    // The server sends a create's broadcast and then its Ack, both stamped with the
+    // creation's server_seq. Only an accepted create has a broadcast: a rejected
+    // one's Ack carries the current server_seq, which may be another client's create.
+    std::vector<std::pair<std::string, uint64_t>> report;
+    std::vector<Session::LiveCreate> keep;
+    for (const auto& c: s.held_creates)
+    {
+        if (ok && c.server_seq == server_seq)
+            report.emplace_back(c.prim_path, request_id);
+        else if (c.server_seq <= server_seq || s.outstanding_creates.empty())
+            report.emplace_back(c.prim_path, 0); // arrived before this Ack: not ours
+        else
+            keep.push_back(c);
+    }
+    s.held_creates = std::move(keep);
+    report_creates(s.id, std::move(report));
+}
+
+void CollabEngine::report_creates(const std::string& session_id, std::vector<std::pair<std::string, uint64_t>> creates)
+{
+    if (creates.empty() || !observer_) return;
+    Session* s = find_session(session_id);
+    if (!s || !s->callback_lifetime) return;
+    const std::shared_ptr<SessionCallbackLifetime> lifetime = s->callback_lifetime;
+    for (const auto& [prim_path, request_id]: creates)
+    {
+        // A listener may end this membership or retire the engine.
+        if (!lifetime->active) return;
+        Session* current = find_session(session_id);
+        if (!current || current->callback_lifetime != lifetime) return;
+        observer_->on_prim_created(session_id, prim_path, request_id);
+    }
 }
 
 void CollabEngine::advance_server_seq(Session& s, uint64_t server_seq)
@@ -743,7 +853,9 @@ uint64_t CollabEngine::request_create_prim(const std::string& session_id, const 
     }
 
     // The prim is materialized later by the server's broadcast echo, not here.
-    return s->socket->send_create_prim(edit);
+    const uint64_t request_id = s->socket->send_create_prim(edit);
+    if (request_id != 0) s->outstanding_creates.insert(request_id);
+    return request_id;
 }
 
 uint64_t CollabEngine::request_set_prim_active(const std::string& session_id, const std::string& prim_path, bool active)

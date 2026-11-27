@@ -32,6 +32,19 @@ scene conversion has finished. Observe the stage/activity state for applied chan
 `transform_broadcast_received` covers only transforms. Identical create requests
 remain separate requests and can create separate children.
 
+`prim_created(session_id, prim_path, request_id)` reports each prim created while
+the session is live, by this client or another. For this client's create,
+`request_id` is the ID `request_create_prim` returned and the signal follows its
+`ack_received`; for another client's create it is 0. It is emitted after the
+prim's node was converted and added under the stage node, so the node can be
+looked up right away; for a payload, the asset's contents may still be loading.
+Prims replayed by the join snapshot are not reported: they are part of the state
+the stage holds once `snapshot_complete` fires. While the session is not live
+(rebuilding after a layer reload or reconnect, or waiting for the requested
+snapshot), a prim this membership has not seen before is reported once the
+session is live again, so a create made meanwhile, or while disconnected, still
+reaches the listener; its own request keeps its `request_id`.
+
 ## Creating primitives and assets
 
 `parent_path` is an absolute USD path in the bound stage's namespace. It is not a
