@@ -75,7 +75,7 @@ def _build_ixwebsocket(env):
 
     if platform.is_android:
         ndk_root  = env.get("android_ndk_root", os.environ.get("ANDROID_NDK_ROOT", ""))
-        api_level = int(env.get("android_api_level", 30))
+        api_level = int(env.get("android_api_level", android_platform.DEFAULT_API_LEVEL))
         cmake_args.extend(android_platform.cmake_toolchain_args(ndk_root, api_level))
         # Point FindMbedTLS.cmake at the libs mbedtls.py installed. Pre-seeding
         # its result cache vars satisfies the find_path/find_library calls so it

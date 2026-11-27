@@ -6,6 +6,8 @@ Registers the SCons env method ``BuildGodotCPPV2``.
 """
 import os
 
+from SCons.Script import ARGUMENTS
+
 from scons.core.fetcher import ThirdPartySource
 from scons.platforms import android as android_platform
 
@@ -46,7 +48,11 @@ def _build_godot_cpp(env):
 
     if platform.is_android:
         env["platform"] = "android"
-        env["android_api_level"] = str(env.get("android_api_level", 24))
+        # Must match profile.py's API level: NDK uses emulated TLS below 29 and native TLS
+        # above, and a mismatch leaves godot::Wrapped's thread_locals unresolved at dlopen.
+        # godot-cpp's Variables read ARGUMENTS (default "24") and would overwrite env.
+        ARGUMENTS.setdefault("android_api_level", str(env.get("android_api_level", android_platform.DEFAULT_API_LEVEL)))
+        env["android_api_level"] = ARGUMENTS["android_api_level"]
         # Force godot-cpp to read ANDROID_NDK_ROOT instead of constructing a
         # path from ANDROID_HOME + a hardcoded NDK version.
         ndk_root = env.get("android_ndk_root", os.environ.get("ANDROID_NDK_ROOT", ""))

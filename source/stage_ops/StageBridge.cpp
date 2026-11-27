@@ -171,7 +171,7 @@ void StageBridge::_on_objects_changed(const pxr::UsdNotice::ObjectsChanged& noti
     auto consider = [&](const pxr::SdfPath& path) {
         const pxr::SdfPath prim_path = path.IsPropertyPath() ? path.GetPrimPath() : path;
         const std::string key = prim_path.GetString();
-        const bool is_tracked = tracked_.find(key) != tracked_.end();        
+        const bool is_tracked = tracked_.find(key) != tracked_.end();
         if (tracked_.find(key) == tracked_.end()) return;
         if (!reported.insert(key).second) return;
 

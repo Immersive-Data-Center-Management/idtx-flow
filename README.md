@@ -89,6 +89,8 @@ or for Android use:
 ```bash
 checked_out_repo_dir $>scons platform=android ANDROID_NDK_ROOT=C:\Users\<your-user>\AppData\Local\Android\Sdk\ndk\29.0.14206865 target=template_release    
 ```
+
+The minimum Android API level is set with `android_api_level=NN` (default `30`, defined as `DEFAULT_API_LEVEL` in `scons/platforms/android.py`). All Android libraries (godot-cpp, OpenUSD, oneTBB, protobuf, mbedTLS, IXWebSocket and the extension) must be built with the same level, so changing it means rebuilding all of them. Mixing levels below and above 29 makes the library fail to load on the device with `dlopen failed: cannot locate symbol`.
 ---------------------
 
 > Please be patient, as the first initial build will download and compile openUSD from source. Depending on the used hardware this may take up to 40 minutes or more.

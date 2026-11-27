@@ -65,7 +65,7 @@ def _build_mbedtls(env):
     ndk_root  = env.get("android_ndk_root", os.environ.get("ANDROID_NDK_ROOT", ""))
     # Match the extension's own API level (SConstruct default 30) so the whole
     # Android build stays on one toolchain/ABI.
-    api_level = int(env.get("android_api_level", 30))
+    api_level = int(env.get("android_api_level", android_platform.DEFAULT_API_LEVEL))
 
     cmake_args = android_platform.cmake_toolchain_args(ndk_root, api_level) + [
         "-DCMAKE_BUILD_TYPE=Release",

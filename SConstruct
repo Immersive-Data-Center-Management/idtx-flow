@@ -106,7 +106,7 @@ if platform.is_android:
     # openusd-android, oneTBB-android) can reconstruct the toolchain args.
     import scons.platforms.android as android_platform
     env["android_ndk_root"]  = android_platform.resolve_ndk_root(ARGUMENTS)
-    env["android_api_level"] = int(ARGUMENTS.get("android_api_level", "30"))
+    env["android_api_level"] = int(ARGUMENTS.get("android_api_level", android_platform.DEFAULT_API_LEVEL))
 else:
     env = Environment(
         ENV=os.environ.copy(),
