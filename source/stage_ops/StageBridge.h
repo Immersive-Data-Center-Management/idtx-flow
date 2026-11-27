@@ -90,6 +90,9 @@ class StageBridge : public net::ports::IStageBridge, public pxr::TfWeakBase
     /// Read current USD as this node's display transform, including its fixed presentation.
     /// This does not write USD, update placement metadata, or deliver node notifications.
     bool read_display_transform(const std::string& prim_path, godot::Transform3D& out) const;
+    /// As above, for a caller that already holds the node representing @p prim_path
+    /// (what find_prim_node returns), so it is not searched again.
+    bool read_display_transform(const std::string& prim_path, godot::Node3D* node, godot::Transform3D& out) const;
     /// Finish USD and Godot updates before reporting changed local transforms;
     /// External edits do not produce those callbacks.
     void author_edit(const net::model::PrimEdit& edit, net::ports::EditOrigin origin) override;
@@ -182,6 +185,7 @@ class StageBridge : public net::ports::IStageBridge, public pxr::TfWeakBase
     // built-in spine-axis presentation is established (Plane, unmarked or missing nodes).
     // Keep the type set in sync with StageConverter's Cylinder/Cone/Capsule branches.
     xform::SpineAxis spine_axis_for(const std::string& prim_path) const;
+    xform::SpineAxis spine_axis_for(const std::string& prim_path, const godot::Node3D* node) const;
 
     UsdStageNode3D* stage_node_ = nullptr; // non-owning
     pxr::UsdStageRefPtr stage_;
