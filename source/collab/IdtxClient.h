@@ -178,7 +178,12 @@ class IdtxClient : public godot::Node, public idtxflow::net::CollabObserver
     /// Create a prim under `parent_path`. `spec`:
     ///   { "type": String }                            built-in (e.g. "Cube"/"Plane")
     ///   { "reference_path": String, "payload": bool }  reference/payload holder
-    ///   { "transform": Transform3D }                   optional initial placement
+    ///   { "transform": Transform3D }                   optional raw parent-local placement
+    ///   { "attributes": Array }                        optional typed initial defaults
+    /// Attribute entries contain name, scalar type_name and a value Dictionary with
+    /// explicit is_array plus doubles/ints/uints/bools/strings Arrays. uints use
+    /// decimal Strings to preserve uint64. Invalid input returns zero without sending;
+    /// core validates authorability and rejects the whole Create on invalid_attribute.
     int64_t request_create_prim(const godot::String& session_id, const godot::String& parent_path,
                                 const godot::Dictionary& spec);
     /// Soft-delete a prim (author active=false); return its submitted ID, or zero.

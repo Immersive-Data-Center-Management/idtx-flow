@@ -2,7 +2,7 @@
 
 /**
  * @file AttributeTypes.h
- * @brief Plain typed attribute records shared by inbound edits and USD conversion.
+ * @brief Plain typed attribute records shared by structural requests, edits and USD conversion.
  *
  * Preserve scalar type roles, array identity and signed/unsigned value ranges
  * as plain data, independent of rendering, serialization and USD runtime objects.

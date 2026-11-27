@@ -813,7 +813,8 @@ void CollabEngine::try_arm(Session& s)
 uint64_t CollabEngine::request_create_prim(const std::string& session_id, const std::string& parent_path,
                                            const std::string& prim_type, bool is_reference, bool is_payload,
                                            const std::string& reference_path, bool has_transform,
-                                           const model::Mat4& transform)
+                                           const model::Mat4& transform,
+                                           const std::vector<model::PrimAttribute>& attributes)
 {
     Session* s = find_session(session_id);
     if (!s) return 0;
@@ -835,6 +836,7 @@ uint64_t CollabEngine::request_create_prim(const std::string& session_id, const 
     model::PrimEdit edit;
     edit.kind = model::PrimEdit::Kind::CreatePrim;
     edit.prim_path = parent_path;
+    edit.attributes = attributes;
     if (is_reference)
     {
         edit.has_ref = true;

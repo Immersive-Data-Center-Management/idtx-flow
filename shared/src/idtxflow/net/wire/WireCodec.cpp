@@ -464,6 +464,24 @@ std::string encode_create_prim_request(const std::string& session_id, const mode
     }
 
     fill_create_transform(req, edit);
+    for (const auto& attribute: edit.attributes)
+    {
+        auto* wire = req->add_attributes();
+        wire->set_name(attribute.name);
+        wire->set_type_name(attribute.type_name);
+        auto* value = wire->mutable_value();
+        value->set_is_array(attribute.value.is_array);
+        for (double component: attribute.value.doubles)
+            value->add_doubles(component);
+        for (int64_t component: attribute.value.ints)
+            value->add_ints(component);
+        for (uint64_t component: attribute.value.uints)
+            value->add_uints(component);
+        for (bool component: attribute.value.bools)
+            value->add_bools(component);
+        for (const auto& component: attribute.value.strings)
+            value->add_strings(component);
+    }
 
     std::string bytes;
     msg.SerializeToString(&bytes);

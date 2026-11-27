@@ -10,6 +10,7 @@
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
 
 #include "stage_ops/TransformCodec.h"
+#include "stage_ops/AttributeCodec.h"
 #include <idtxflow/net/CollabComposition.h>
 #include <idtxflow/net/ports/IStageBridge.h>
 
@@ -315,7 +316,16 @@ void IdtxClient::unbind_session(const String& session_id)
 
 int64_t IdtxClient::request_create_prim(const String& session_id, const String& parent_path, const Dictionary& spec)
 {
-    // Unpack the editor's Variant spec into plain values; the engine builds the
+    std::vector<idtxflow::net::model::PrimAttribute> attributes;
+    std::string attribute_error;
+    if (spec.has("attributes") &&
+        !idtxflow::collab::attributes::decode_attributes(spec["attributes"], attributes, attribute_error))
+    {
+        IDTX_LOG(IDTX_WARN, "Create attributes rejected: {}", attribute_error);
+        return 0;
+    }
+
+    // Unpack the caller's Variant spec into plain values; the engine builds the
     // request and applies the reference-vs-type decision and the placement.
     const bool is_reference = spec.has("reference_path");
     const std::string reference_path = is_reference ? String(spec["reference_path"]).utf8().get_data() : std::string();
@@ -331,7 +341,7 @@ int64_t IdtxClient::request_create_prim(const String& session_id, const String& 
 
     return static_cast<int64_t>(engine_.request_create_prim(session_id.utf8().get_data(), parent_path.utf8().get_data(),
                                                             prim_type, is_reference, is_payload, reference_path,
-                                                            has_transform, transform));
+                                                            has_transform, transform, attributes));
 }
 
 int64_t IdtxClient::request_delete_prim(const String& session_id, const String& prim_path)
