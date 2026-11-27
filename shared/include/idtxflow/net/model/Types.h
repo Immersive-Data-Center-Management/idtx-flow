@@ -12,6 +12,8 @@
 #include <string>
 #include <vector>
 
+#include <idtxflow/net/model/AttributeTypes.h>
+
 namespace idtxflow
 {
 namespace net
@@ -51,7 +53,7 @@ struct SeparateXform
 
 /// A single collaborative edit to one prim. An edit is either a transform
 /// (carried as a full matrix or separate T/R/S), the creation of a built-in
-/// prim, or an active-state change (soft delete / undo). The kind is modelled
+/// prim, typed attribute defaults, or an active-state change (soft delete / undo). The kind is modelled
 /// explicitly so the shape can grow without changing call sites.
 ///
 /// A CreatePrim edit may additionally carry Plane dimensions, a reference/payload
@@ -62,8 +64,9 @@ struct PrimEdit
     enum class Kind
     {
         Transform,
-        CreatePrim, ///< author a built-in prim of `prim_type` at `prim_path`
-        SetActive   ///< author `active` metadata on `prim_path`
+        CreatePrim,   ///< author a built-in prim of `prim_type` at `prim_path`
+        SetActive,    ///< author `active` metadata on `prim_path`
+        SetAttributes ///< author typed default values on `prim_path`
     };
 
     /// How a reference prim holds its target: a USD reference or a payload.
@@ -76,6 +79,8 @@ struct PrimEdit
 
     Kind kind = Kind::Transform;
     std::string prim_path;
+    /// Initial Create defaults or the accepted subset of an attribute update.
+    std::vector<PrimAttribute> attributes;
 
     // --- Transform ---
     bool is_matrix = true; ///< choose matrix vs. separate representation

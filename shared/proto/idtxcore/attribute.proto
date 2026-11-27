@@ -1,0 +1,69 @@
+syntax = "proto3";
+package idtxcore;
+
+// Generic typed value for any USD attribute. The owning PrimAttribute.type_name
+// decides how the lanes are reinterpreted and how many wire components make up
+// one logical element (float3 -> 3 doubles, matrix4d -> 16, quatf -> 4, ...).
+// type_name is ALWAYS the scalar token; is_array is the sole array signal.
+message AttributeValue {
+  repeated double doubles  = 1;  // half/float/double scalars + float/double vec, matrix, quat components
+  repeated sint64 ints     = 2;  // int / int64  and the integer vecs (Vec*i)
+  repeated uint64 uints    = 3;  // uchar / uint / uint64   (kept separate so >2^63 round-trips)
+  repeated bool   bools    = 4;  // bool
+  repeated string strings  = 5;  // string / token / asset  (one entry per element)
+  bool            is_array = 6;  // false = scalar; true = array (incl. empty and length-1)
+}
+
+// One attribute to author. name may be any valid USD property identifier,
+// including namespaced (e.g. "primvars:displayColor") and non-schema custom names.
+message PrimAttribute {
+  string         name      = 1;
+  string         type_name = 2;  // scalar USD type token: "float","double3","color3f","token","bool","int","string","asset"
+  AttributeValue value     = 3;
+}
+
+// Client -> server. Author all listed attributes on one prim as a batch.
+message SetPrimAttributesRequest {
+  string session_id = 1;
+  string prim_path  = 2;                 // like TransformUpdate.prim_path
+  repeated PrimAttribute attributes = 3;
+}
+
+// Server -> ALL clients (including the initiator) and replayed in the join
+// snapshot. Carries ONLY the attributes that were successfully authored.
+message SetPrimAttributesBroadcast {
+  string prim_path = 1;
+  repeated PrimAttribute attributes = 2;
+}
+
+enum AttributeFailureReason {
+  ATTRIBUTE_FAILURE_UNSPECIFIED        = 0;  // never sent; proto3 default
+  ATTRIBUTE_FAILURE_PRIM_NOT_FOUND     = 1;  // prim_path empty/invalid or not on stage  (prim-level)
+  ATTRIBUTE_FAILURE_PRIM_NOT_EDITABLE  = 2;  // inactive / instance proxy / in prototype (prim-level)
+  ATTRIBUTE_FAILURE_INVALID_NAME       = 3;  // not a valid USD property identifier, or duplicate in request
+  ATTRIBUTE_FAILURE_RESERVED_ATTRIBUTE = 4;  // xformOp:* / xformOpOrder -> use TransformUpdate
+  ATTRIBUTE_FAILURE_UNKNOWN_TYPE       = 5;  // type_name does not resolve to an SdfValueTypeName
+  ATTRIBUTE_FAILURE_UNSUPPORTED_TYPE   = 6;  // resolves, but the codec has no handler yet
+  ATTRIBUTE_FAILURE_TYPE_MISMATCH      = 7;  // existing composed attribute has a different type
+  ATTRIBUTE_FAILURE_INVALID_VALUE      = 8;  // lanes do not decode to type_name (count/range/bucket)
+  ATTRIBUTE_FAILURE_NOT_AUTHORABLE     = 9;  // Sdf spec creation / SetDefaultValue rejected it
+  ATTRIBUTE_FAILURE_QUEUE_FULL         = 10; // transport: session command queue full (whole request)
+  ATTRIBUTE_FAILURE_SESSION_CLOSING    = 11; // transport: session shutting down (whole request)
+  ATTRIBUTE_FAILURE_PROPERTY_KIND_MISMATCH = 12; // name belongs to a relationship
+  ATTRIBUTE_FAILURE_REQUEST_TOO_LARGE  = 13; // configured parseable-request/value budget exceeded
+}
+
+message AttributeError {
+  string                 name   = 1;  // echoes PrimAttribute.name
+  AttributeFailureReason reason = 2;
+  string                 detail = 3;  // optional human-readable context
+}
+
+// Server -> initiator only. One normal response attempt per request;
+// BaseMessage.request_id correlates. Recover missing responses via resnapshot.
+// `failed` empty  => every attribute authored (full success).
+// `failed` == all => nothing authored (prim-level failure or transport rejection).
+message SetPrimAttributesAck {
+  string                  prim_path = 1;
+  repeated AttributeError failed    = 2;
+}

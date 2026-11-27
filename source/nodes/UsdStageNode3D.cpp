@@ -20,6 +20,7 @@
 #include "stage_ops/StageActivityController.h"
 #include "stage_ops/StageSaveController.h"
 #include "stage_ops/PayloadPlacement.h"
+#include "stage_ops/PayloadAttributes.h"
 #include <idtxflow/resolver/HttpResolver.h>
 
 using namespace godot;
@@ -437,6 +438,8 @@ void UsdStageNode3D::_convert_stage()
     // during conversion ends it with stage_loading_cancelled instead.
     const uint64_t generation = load_generation_;
 
+    idtxflow::collab::payload::prepare_attributes(*this, result.stage);
+
     // instantiate the stage converter and convert the contents of the stage into Godot Node3D entities
     auto stage_converter =
         std::make_unique<idtxflow::converter::UsdStageConverter<idtxflow::types::TargetEngineGodot>>(this, nullptr);
@@ -489,6 +492,8 @@ void UsdStageNode3D::_load_converted_stage()
     // during conversion ends it with stage_loading_cancelled instead.
     const uint64_t generation = load_generation_;
 
+    idtxflow::collab::payload::prepare_attributes(*this, result.stage);
+
     // store the stage handle
     stage_handle_ = std::make_unique<idtxflow::converter::StageHandle>(std::move(result.stage));
 
@@ -537,6 +542,9 @@ void UsdStageNode3D::_load_converted_stage()
     // Build the authoring bridge over the restored stage + children so transform
     // edits can be authored into it. No-op when no factory is registered.
     if (idtxflow::net::ports::IStageBridge* author_bridge = get_or_create_bridge()) author_bridge->build_index();
+
+    idtxflow::collab::payload::refresh_loaded_attributes(*this);
+    if (ObjectDB::get_instance(identity) != this) return;
 
     get_activity_controller().reconcile();
     if (ObjectDB::get_instance(identity) != this) return;

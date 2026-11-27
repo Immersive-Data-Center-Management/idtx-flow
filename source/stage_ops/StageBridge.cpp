@@ -1,6 +1,7 @@
 #include "StageBridge.h"
 
 #include <cmath>
+#include <algorithm>
 #include <vector>
 
 #include <godot_cpp/classes/node.hpp>
@@ -18,9 +19,11 @@
 #include <pxr/usd/sdf/payload.h>
 #include <pxr/usd/sdf/primSpec.h>
 #include <pxr/usd/sdf/reference.h>
+#include <pxr/usd/sdf/schema.h>
 #include <pxr/usd/sdf/types.h>
 #include <pxr/usd/sdf/valueTypeName.h>
 #include <pxr/usd/usd/prim.h>
+#include <pxr/usd/usd/primDefinition.h>
 #include <pxr/usd/usd/editContext.h>
 #include <pxr/usd/usdGeom/xformable.h>
 #include <pxr/usd/usdGeom/cone.h>
@@ -30,12 +33,15 @@
 #include <pxr/usd/usdGeom/metrics.h>
 
 #include <idtxflow/resolver/UsdAssetPath.h>
+#include <idtxflow/stage_ops/AttributeCodec.h>
 #include <idtxflow_godot/nodes/IUsdNode3D.h>
 #include <idtxflow_godot/nodes/UsdStageNode3D.h>
 
 #include "TransformCodec.h"
 #include "PayloadPlacement.h"
+#include "PayloadAttributes.h"
 #include "StageActivityController.h"
+#include "StageAttributeController.h"
 
 namespace gxform = idtxflow::collab::xform;
 namespace gpayload = idtxflow::collab::payload;
@@ -204,6 +210,12 @@ void StageBridge::_on_objects_changed(const pxr::UsdNotice::ObjectsChanged& noti
     auto observe = [&](const pxr::SdfPath& path) {
         const pxr::SdfPath prim_path = path.IsPropertyPath() ? path.GetPrimPath() : path;
         if (prim_path.IsPrimPath()) pending_transforms_.insert(prim_path.GetString());
+        if (path.IsPropertyPath())
+        {
+            const auto name = path.GetName();
+            if (name != "xformOpOrder" && name.rfind("xformOp:", 0) != 0)
+                pending_attributes_[prim_path.GetString()].insert(name);
+        }
     };
     // Copy notice paths because the notice is temporary and can arrive
     // before a transform write has finished.
@@ -283,6 +295,25 @@ std::vector<StageBridge::ObservedEdit> StageBridge::finish_changes()
         std::set<pxr::SdfPath> paths;
         paths.swap(pending_resyncs_);
         reconcile_structural(paths);
+        if (!state->alive) return {};
+        for (auto it = inactive_attributes_.begin(); it != inactive_attributes_.end();)
+        {
+            const auto prim = stage_->GetPrimAtPath(pxr::SdfPath(it->first));
+            if (prim && prim.IsActive())
+            {
+                pending_attributes_[it->first].insert(it->second.begin(), it->second.end());
+                it = inactive_attributes_.erase(it);
+            }
+            else
+                ++it;
+        }
+    }
+
+    std::map<std::string, std::set<std::string>> attributes;
+    attributes.swap(pending_attributes_);
+    for (const auto& [path, names]: attributes)
+    {
+        refresh_attributes(path, names);
         if (!state->alive) return {};
     }
 
@@ -375,6 +406,9 @@ void StageBridge::author_edit(const net::model::PrimEdit& edit, net::ports::Edit
             break;
         case net::model::PrimEdit::Kind::SetActive:
             author_set_active(edit);
+            break;
+        case net::model::PrimEdit::Kind::SetAttributes:
+            author_attributes(edit);
             break;
         }
         if (!state->alive) return;
@@ -495,6 +529,73 @@ void StageBridge::author_transform(const net::model::PrimEdit& edit, bool extern
                                                             true);
 }
 
+void StageBridge::author_attributes(const net::model::PrimEdit& edit)
+{
+    if (!stage_) return;
+    const auto layer = edit_target_ == EditTarget::RootLayer ? stage_->GetRootLayer() : stage_->GetSessionLayer();
+    std::vector<stage_ops::PreparedAttribute> prepared;
+    std::string error;
+    const pxr::SdfPath path(edit.prim_path);
+    if (!stage_ops::prepare_attributes(stage_, layer, path, edit.attributes, prepared, error))
+    {
+        IDTX_LOG(IDTX_WARN, "Ignored attribute batch for '{}': {}", edit.prim_path, error);
+        return;
+    }
+    const pxr::SdfChangeBlock block;
+    if (!stage_ops::author_attributes(layer, path, prepared))
+        IDTX_LOG(IDTX_WARN, "Could not author attribute batch for '{}'", edit.prim_path);
+    // Repeated values and pruned descendants need not produce a USD property notice.
+    for (const auto& item: prepared)
+        pending_attributes_[edit.prim_path].insert(item.name);
+}
+
+void StageBridge::refresh_attributes(const std::string& path, const std::set<std::string>& names)
+{
+    if (!stage_ || !stage_node_) return;
+    const auto state = dispatch_state_;
+    const auto prim = stage_->GetPrimAtPath(pxr::SdfPath(path));
+    if (!prim || !prim.IsActive())
+    {
+        inactive_attributes_[path].insert(names.begin(), names.end());
+        return;
+    }
+    const auto tracked = tracked_.find(path);
+    Node3D* node = tracked != tracked_.end() ? Object::cast_to<Node3D>(ObjectDB::get_instance(tracked->second.node_id))
+                                             : stage_node_->find_prim_node(String(path.c_str()));
+    if (!node) return;
+    const uint64_t id = node->get_instance_id();
+    if (auto* carrier = Object::cast_to<UsdStageNode3D>(node);
+        carrier && gpayload::is_builtin_payload_carrier(*carrier))
+    {
+        gpayload::update_attributes(*carrier, names);
+        return;
+    }
+    StageAttributeController::refresh(prim, node, names);
+    if (!state->alive) return;
+    node = Object::cast_to<Node3D>(ObjectDB::get_instance(id));
+    if (!node) return;
+    if (names.count("axis") && spine_axis_for(path, node) != gxform::SpineAxis::None)
+    {
+        Transform3D display;
+        if (read_display_transform(path, node, display))
+        {
+            const bool blocked = node->is_blocking_signals();
+            node->set_block_signals(true);
+            node->set_transform(display);
+            if (!state->alive) return;
+            node = Object::cast_to<Node3D>(ObjectDB::get_instance(id));
+            if (!node) return;
+            node->set_block_signals(blocked);
+            flush_transform_notifications(path);
+            if (!state->alive) return;
+        }
+    }
+    node = Object::cast_to<Node3D>(ObjectDB::get_instance(id));
+    // finish_changes confirms indexed prims once. Only placement roots are absent from that index.
+    if (node && names.count("axis") && is_stage_root(path))
+        stage_node_->get_activity_controller().confirm_node(node, true);
+}
+
 void StageBridge::author_create(const net::model::PrimEdit& edit)
 {
     // The stage may have been released between the inbound message being queued
@@ -537,78 +638,116 @@ void StageBridge::author_create(const net::model::PrimEdit& edit)
     pxr::SdfLayerHandle target_layer =
         (edit_target_ == EditTarget::RootLayer) ? stage_->GetRootLayer() : stage_->GetSessionLayer();
 
-    // One SdfChangeBlock makes the def, its attributes, any reference/payload arc
-    // and the local transform visible to USD composition together. Update Godot
-    // nodes after the full authoring call finishes so conversion reads the
-    // complete prim. Authoring at the Sdf level avoids the
-    // Usd-DefinePrim-inside-a-change-block pattern USD advises against.
-    pxr::SdfChangeBlock block;
-    if (pxr::SdfPrimSpecHandle spec = pxr::SdfCreatePrimInLayer(target_layer, path))
+    // Convert dedicated shape fields into attributes, then merge the broadcast's
+    // attribute list, replacing entries with the same name.
+    std::vector<net::model::PrimAttribute> attributes;
+    auto dimension = [&](const char* name, bool present, double value) {
+        if (!present) return;
+        net::model::PrimAttribute attribute;
+        attribute.name = name;
+        attribute.type_name = "double";
+        attribute.value.doubles = {value};
+        attributes.push_back(std::move(attribute));
+    };
+    if (!edit.has_ref)
     {
+        dimension("size", edit.has_size, edit.size);
+        dimension("height", edit.has_height, edit.height);
+        dimension("radius", edit.has_radius, edit.radius);
+        dimension("width", edit.has_width, edit.width);
+        dimension("length", edit.has_length, edit.length);
+        if (edit.has_axis)
+        {
+            net::model::PrimAttribute axis;
+            axis.name = "axis";
+            axis.type_name = "token";
+            axis.value.strings = {edit.axis};
+            attributes.push_back(std::move(axis));
+        }
+    }
+    for (const auto& attribute: edit.attributes)
+    {
+        attributes.erase(std::remove_if(attributes.begin(), attributes.end(),
+                                        [&](const auto& item) { return item.name == attribute.name; }),
+                         attributes.end());
+        attributes.push_back(attribute);
+    }
+    std::vector<stage_ops::PreparedAttribute> prepared;
+    std::string error;
+    if (!stage_ops::prepare_attributes(stage_, target_layer, path, attributes, prepared, error, edit.prim_type))
+    {
+        IDTX_LOG(IDTX_WARN, "Ignored Create attributes for '{}': {}", edit.prim_path, error);
+        return;
+    }
+    if (!target_layer || !target_layer->PermissionToEdit()) return;
+    const auto state = dispatch_state_;
+    // Batch the initial prim, arc, attribute and placement writes at the Sdf level;
+    // avoid UsdStage::DefinePrim inside a change block. Convert nodes only after
+    // this authoring call finishes, including the reference-schema adjustment below.
+    {
+        const pxr::SdfChangeBlock block;
+        const auto spec = pxr::SdfCreatePrimInLayer(target_layer, path);
+        if (!spec) return;
         spec->SetSpecifier(pxr::SdfSpecifierDef);
-
-        // The local reference-holder spec is typeless and carries a reference or payload arc to
-        // the target asset; a built-in prim carries its schema type and the shape
-        // defaults the server sent.
+        // Asset holders are locally typeless; the referenced content supplies the
+        // composed type. Built-in prims receive their schema type explicitly.
         if (edit.has_ref)
         {
             if (edit.ref_kind == net::model::PrimEdit::RefKind::Payload)
-                spec->GetPayloadList().GetExplicitItems().push_back(
-                    pxr::SdfPayload(arc_asset, asset_target.target_prim));
+                spec->GetPayloadList().GetExplicitItems() = {pxr::SdfPayload(arc_asset, asset_target.target_prim)};
             else
-                spec->GetReferenceList().GetExplicitItems().push_back(
-                    pxr::SdfReference(arc_asset, asset_target.target_prim));
+                spec->GetReferenceList().GetExplicitItems() = {pxr::SdfReference(arc_asset, asset_target.target_prim)};
         }
         else
-        {
             spec->SetTypeName(pxr::TfToken(edit.prim_type));
+        if (!stage_ops::author_attributes(target_layer, path, prepared))
+            IDTX_LOG(IDTX_WARN, "Could not author Create defaults for '{}'", edit.prim_path);
+        for (const auto& item: prepared)
+            pending_attributes_[edit.prim_path].insert(item.name);
 
-            // Author the built-in shape defaults the server sent. Only the fields
-            // that apply to the type are present (has-field semantics).
-            auto author_double = [&](const pxr::TfToken& name, double value) {
-                if (pxr::SdfAttributeSpecHandle attr =
-                        pxr::SdfAttributeSpec::New(spec, name.GetString(), pxr::SdfValueTypeNames->Double))
-                    attr->SetDefaultValue(pxr::VtValue(value));
-            };
-            if (edit.has_size) author_double(pxr::UsdGeomTokens->size, edit.size);
-            if (edit.has_height) author_double(pxr::UsdGeomTokens->height, edit.height);
-            if (edit.has_radius) author_double(pxr::UsdGeomTokens->radius, edit.radius);
-            if (edit.has_width) author_double(pxr::UsdGeomTokens->width, edit.width);
-            if (edit.has_length) author_double(pxr::UsdGeomTokens->length, edit.length);
-            if (edit.has_axis)
-            {
-                // axis is a uniform token on the gprim schema.
-                if (pxr::SdfAttributeSpecHandle attr =
-                        pxr::SdfAttributeSpec::New(spec, pxr::UsdGeomTokens->axis.GetString(),
-                                                   pxr::SdfValueTypeNames->Token, pxr::SdfVariabilityUniform))
-                    attr->SetDefaultValue(pxr::VtValue(pxr::TfToken(edit.axis)));
-            }
-        }
-
-        // Optional create-time LOCAL transform, authored verbatim as a single
-        // matrix xformOp:transform. The server authored it with no spine-axis
-        // presentation bake, so it is written as-is (no strip_spine_axis) —
-        // unlike an inbound transform edit for a marked built-in visual, whose
-        // raw value needs the bake re-applied. Resolved to a matrix here; a separate branch composes via
-        // the shared transform codec.
+        // Create placement is already raw parent-local USD. Resolve it to a matrix
+        // without applying or stripping a presentation-axis rotation; visual
+        // conversion applies that correction later. This placement remains
+        // independent of generic matrix attributes.
         if (edit.has_create_transform)
         {
-            const Transform3D node_xform =
-                gxform::to_transform(edit.create_is_matrix, edit.create_matrix, edit.create_separate);
-            const pxr::GfMatrix4d m = transform_to_gfmatrix(node_xform);
-            if (pxr::SdfAttributeSpecHandle attr =
-                    pxr::SdfAttributeSpec::New(spec, "xformOp:transform", pxr::SdfValueTypeNames->Matrix4d))
-                attr->SetDefaultValue(pxr::VtValue(m));
-            if (pxr::SdfAttributeSpecHandle order =
-                    pxr::SdfAttributeSpec::New(spec, pxr::UsdGeomTokens->xformOpOrder.GetString(),
-                                               pxr::SdfValueTypeNames->TokenArray, pxr::SdfVariabilityUniform))
+            auto matrix = target_layer->GetAttributeAtPath(path.AppendProperty(pxr::TfToken("xformOp:transform")));
+            if (!matrix)
+                matrix = pxr::SdfAttributeSpec::New(spec, "xformOp:transform", pxr::SdfValueTypeNames->Matrix4d);
+            auto order = target_layer->GetAttributeAtPath(path.AppendProperty(pxr::UsdGeomTokens->xformOpOrder));
+            if (!order)
+                order = pxr::SdfAttributeSpec::New(spec, "xformOpOrder", pxr::SdfValueTypeNames->TokenArray,
+                                                   pxr::SdfVariabilityUniform);
+            if (matrix && order && matrix->GetTypeName() == pxr::SdfValueTypeNames->Matrix4d &&
+                order->GetTypeName() == pxr::SdfValueTypeNames->TokenArray)
+            {
+                matrix->SetDefaultValue(pxr::VtValue(transform_to_gfmatrix(
+                    gxform::to_transform(edit.create_is_matrix, edit.create_matrix, edit.create_separate))));
                 order->SetDefaultValue(pxr::VtValue(pxr::VtTokenArray{pxr::TfToken("xformOp:transform")}));
+            }
         }
     }
-    else
+    if (!state->alive) return;
+    // A new reference is typeless until its arc composes. Preserve the schema flags before conversion.
+    if (edit.has_ref && !prepared.empty())
     {
-        IDTX_LOG(IDTX_WARN, "author_create: could not create prim spec for '{}'", edit.prim_path);
+        const auto prim = stage_->GetPrimAtPath(path);
+        if (prim)
+        {
+            const auto& definition = prim.GetPrimDefinition();
+            const pxr::SdfChangeBlock block;
+            for (const auto& item: prepared)
+                if (const auto declared = definition.GetAttributeDefinition(pxr::TfToken(item.name));
+                    declared && declared.GetTypeName() == item.type)
+                    if (const auto attribute =
+                            target_layer->GetAttributeAtPath(path.AppendProperty(pxr::TfToken(item.name))))
+                    {
+                        attribute->SetCustom(false);
+                        attribute->SetInfo(pxr::SdfFieldKeys->Variability, pxr::VtValue(declared.GetVariability()));
+                    }
+        }
     }
+    if (!state->alive) return;
     IDTX_LOG(IDTX_DEBUG, "authored create of {} '{}'", edit.has_ref ? "reference" : edit.prim_type.c_str(),
              edit.prim_path);
 }

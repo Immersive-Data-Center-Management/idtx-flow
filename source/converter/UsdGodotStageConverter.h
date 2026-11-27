@@ -33,6 +33,8 @@
 #include "nodes/UsdMultiMeshInstanceNode3D.h"
 #include "nodes/UsdRestDatasourceNode3D.h"
 #include "stage_ops/PayloadPlacement.h"
+#include "stage_ops/PayloadAttributes.h"
+#include "BuiltinGeometryPresentation.h"
 
 /**
  * Implement Godot engine specialization of the UsdStageConverter
@@ -125,7 +127,6 @@ inline void AddAnimation(const converter::AnimationDescription<types::TargetEngi
 
 namespace converter
 {
-constexpr float MIN_SPHERE_RADIUS = 1e-6f;
 
 template <>
 inline IExecBridgeHandler* UsdStageConverter<types::TargetEngineGodot>::GetExecBridgeHandler(godot::Node3D* node)
@@ -158,28 +159,10 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCube(
 {
     godot::Ref<godot::BoxMesh> box;
     box.instantiate();
-    box->set_size(godot::Vector3(cube_size, cube_size, cube_size));
+    builtin::configure(*box.ptr(), cube_size);
 
-    godot::Ref<godot::StandardMaterial3D> standard_material;
-    if (material.has_value())
-    {
-        standard_material = material.value();
-    }
-    else
-    {
-        // use a default material if none could be created
-        standard_material.instantiate();
-        // if the current Mesh prim authored a display color as a constant value, pass this into the
-        // default material as base albedo color.
-        if (!display_colors.empty() && color_interpolation == pxr::UsdGeomTokens->constant)
-        {
-            godot::Color albedo = TypeConverter::toColor(display_colors[0]);
-            standard_material->set_albedo(albedo);
-            if (albedo.a < 1.0f) standard_material->set_transparency(godot::BaseMaterial3D::TRANSPARENCY_ALPHA);
-        }
-        else
-            standard_material->set_flag(godot::BaseMaterial3D::FLAG_ALBEDO_FROM_VERTEX_COLOR, true);
-    }
+    godot::Ref<godot::StandardMaterial3D> standard_material =
+        material.has_value() ? material.value() : builtin::fallback_material(display_colors, color_interpolation);
 
     box->set_material(standard_material);
 
@@ -205,30 +188,10 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCylind
     godot::Ref<godot::CylinderMesh> cylinder;
     cylinder.instantiate();
 
-    cylinder->set_top_radius(cylinder_radius);
-    cylinder->set_bottom_radius(cylinder_radius);
-    cylinder->set_height(cylinder_height);
+    builtin::configure(*cylinder.ptr(), cylinder_radius, cylinder_height, false);
 
-    godot::Ref<godot::StandardMaterial3D> standard_material;
-    if (material.has_value())
-    {
-        standard_material = material.value();
-    }
-    else
-    {
-        // use a default material if none could be created
-        standard_material.instantiate();
-        // if the current Mesh prim authored a display color as a constant value, pass this into the
-        // default material as base albedo color.
-        if (!display_colors.empty() && color_interpolation == pxr::UsdGeomTokens->constant)
-        {
-            godot::Color albedo = TypeConverter::toColor(display_colors[0]);
-            standard_material->set_albedo(albedo);
-            if (albedo.a < 1.0f) standard_material->set_transparency(godot::BaseMaterial3D::TRANSPARENCY_ALPHA);
-        }
-        else
-            standard_material->set_flag(godot::BaseMaterial3D::FLAG_ALBEDO_FROM_VERTEX_COLOR, true);
-    }
+    godot::Ref<godot::StandardMaterial3D> standard_material =
+        material.has_value() ? material.value() : builtin::fallback_material(display_colors, color_interpolation);
 
     cylinder->set_material(standard_material);
 
@@ -255,30 +218,10 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCone(
     godot::Ref<godot::CylinderMesh> cylinder;
     cylinder.instantiate();
 
-    cylinder->set_top_radius(0.0);
-    cylinder->set_bottom_radius(cone_radius);
-    cylinder->set_height(cone_height);
+    builtin::configure(*cylinder.ptr(), cone_radius, cone_height, true);
 
-    godot::Ref<godot::StandardMaterial3D> standard_material;
-    if (material.has_value())
-    {
-        standard_material = material.value();
-    }
-    else
-    {
-        // use a default material if none could be created
-        standard_material.instantiate();
-        // if the current Mesh prim authored a display color as a constant value, pass this into the
-        // default material as base albedo color.
-        if (!display_colors.empty() && color_interpolation == pxr::UsdGeomTokens->constant)
-        {
-            godot::Color albedo = TypeConverter::toColor(display_colors[0]);
-            standard_material->set_albedo(albedo);
-            if (albedo.a < 1.0f) standard_material->set_transparency(godot::BaseMaterial3D::TRANSPARENCY_ALPHA);
-        }
-        else
-            standard_material->set_flag(godot::BaseMaterial3D::FLAG_ALBEDO_FROM_VERTEX_COLOR, true);
-    }
+    godot::Ref<godot::StandardMaterial3D> standard_material =
+        material.has_value() ? material.value() : builtin::fallback_material(display_colors, color_interpolation);
 
     cylinder->set_material(standard_material);
 
@@ -304,31 +247,10 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertSphere
 {
     godot::Ref<godot::SphereMesh> sphere;
     sphere.instantiate();
-    // ensure that the sphere radius never get 0.0 as this would cause the following error downstream
-    // servers/rendering/renderer_scene_cull.cpp:991 - Condition "!v.is_finite()" is true.
-    sphere->set_radius(std::max(sphere_radius, MIN_SPHERE_RADIUS));
-    sphere->set_height(sphere_radius * 2.0f);
+    builtin::configure(*sphere.ptr(), sphere_radius);
 
-    godot::Ref<godot::StandardMaterial3D> standard_material;
-    if (material.has_value())
-    {
-        standard_material = material.value();
-    }
-    else
-    {
-        // use a default material if none could be created
-        standard_material.instantiate();
-        // if the current Mesh prim authored a display color as a constant value, pass this into the
-        // default material as base albedo color.
-        if (!display_colors.empty() && color_interpolation == pxr::UsdGeomTokens->constant)
-        {
-            godot::Color albedo = TypeConverter::toColor(display_colors[0]);
-            standard_material->set_albedo(albedo);
-            if (albedo.a < 1.0f) standard_material->set_transparency(godot::BaseMaterial3D::TRANSPARENCY_ALPHA);
-        }
-        else
-            standard_material->set_flag(godot::BaseMaterial3D::FLAG_ALBEDO_FROM_VERTEX_COLOR, true);
-    }
+    godot::Ref<godot::StandardMaterial3D> standard_material =
+        material.has_value() ? material.value() : builtin::fallback_material(display_colors, color_interpolation);
 
     sphere->set_material(standard_material);
 
@@ -358,34 +280,10 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertPlane(
     // orientation preserves USD width/length axes without rotating the authored node transform.
     // For axis X, USD width spans Z and length spans Y; the spine-axis
     // rotation around Z would swap those dimensions.
-    plane->set_size(godot::Vector2(plane_width, plane_length));
-    if (axis == pxr::UsdGeomTokens->x)
-        plane->set_orientation(godot::PlaneMesh::FACE_X);
-    else if (axis == pxr::UsdGeomTokens->y)
-        plane->set_orientation(godot::PlaneMesh::FACE_Y);
-    else
-        plane->set_orientation(godot::PlaneMesh::FACE_Z);
+    builtin::configure(*plane.ptr(), plane_width, plane_length, axis);
 
-    godot::Ref<godot::StandardMaterial3D> standard_material;
-    if (material.has_value())
-    {
-        standard_material = material.value();
-    }
-    else
-    {
-        // use a default material if none could be created
-        standard_material.instantiate();
-        // if the current Mesh prim authored a display color as a constant value, pass this into the
-        // default material as base albedo color.
-        if (!display_colors.empty() && color_interpolation == pxr::UsdGeomTokens->constant)
-        {
-            godot::Color albedo = TypeConverter::toColor(display_colors[0]);
-            standard_material->set_albedo(albedo);
-            if (albedo.a < 1.0f) standard_material->set_transparency(godot::BaseMaterial3D::TRANSPARENCY_ALPHA);
-        }
-        else
-            standard_material->set_flag(godot::BaseMaterial3D::FLAG_ALBEDO_FROM_VERTEX_COLOR, true);
-    }
+    godot::Ref<godot::StandardMaterial3D> standard_material =
+        material.has_value() ? material.value() : builtin::fallback_material(display_colors, color_interpolation);
 
     plane->set_material(standard_material);
 
@@ -411,35 +309,10 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertCapsul
     godot::Ref<godot::CapsuleMesh> capsule;
     capsule.instantiate();
 
-    // ensure that the capsule radius never get 0.0 as this would produce non-finite geometry downstream
-    capsule->set_radius(std::max(capsuleRadius, MIN_SPHERE_RADIUS));
+    builtin::configure(*capsule.ptr(), capsuleRadius, capsuleHeight);
 
-    // set the correct total height of the capsule mesh
-    // the usd authored height attribute excludes the radii of the half spheres on both ends of the cylinder
-    // while the height attribute in godot represents the total height of the capsule including the half spheres
-    // to set the correct height in godot the radius of both half spheres is added to the authored height attribute
-    capsule->set_height(capsuleHeight + capsuleRadius * 2.0f);
-
-    godot::Ref<godot::StandardMaterial3D> standard_material;
-    if (material.has_value())
-    {
-        standard_material = material.value();
-    }
-    else
-    {
-        // use a default material if none could be created
-        standard_material.instantiate();
-        // if the current Mesh prim authored a display color as a constant value, pass this into the
-        // default material as base albedo color.
-        if (!display_colors.empty() && color_interpolation == pxr::UsdGeomTokens->constant)
-        {
-            godot::Color albedo = TypeConverter::toColor(display_colors[0]);
-            standard_material->set_albedo(albedo);
-            if (albedo.a < 1.0f) standard_material->set_transparency(godot::BaseMaterial3D::TRANSPARENCY_ALPHA);
-        }
-        else
-            standard_material->set_flag(godot::BaseMaterial3D::FLAG_ALBEDO_FROM_VERTEX_COLOR, true);
-    }
+    godot::Ref<godot::StandardMaterial3D> standard_material =
+        material.has_value() ? material.value() : builtin::fallback_material(display_colors, color_interpolation);
 
     capsule->set_material(standard_material);
 
@@ -472,28 +345,10 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertPlane(
     // which in Godot makes the width the x attribute and the length the y attribute of the plane size Vector2
     // currently rotation to align the plane to a different axis is achieved using the transformation therefore
     // other axis orientations dont need to be handled here since the plane orientation in Godot is not changed
-    plane->set_size(godot::Vector2(planeWidth, planeLength));
+    builtin::configure(*plane.ptr(), planeWidth, planeLength, pxr::UsdGeomTokens->y);
 
-    godot::Ref<godot::StandardMaterial3D> standard_material;
-    if (material.has_value())
-    {
-        standard_material = material.value();
-    }
-    else
-    {
-        // use a default material if none could be created
-        standard_material.instantiate();
-        // if the current Mesh prim authored a display color as a constant value, pass this into the
-        // default material as base albedo color.
-        if (!display_colors.empty() && color_interpolation == pxr::UsdGeomTokens->constant)
-        {
-            godot::Color albedo = TypeConverter::toColor(display_colors[0]);
-            standard_material->set_albedo(albedo);
-            if (albedo.a < 1.0f) standard_material->set_transparency(godot::BaseMaterial3D::TRANSPARENCY_ALPHA);
-        }
-        else
-            standard_material->set_flag(godot::BaseMaterial3D::FLAG_ALBEDO_FROM_VERTEX_COLOR, true);
-    }
+    godot::Ref<godot::StandardMaterial3D> standard_material =
+        material.has_value() ? material.value() : builtin::fallback_material(display_colors, color_interpolation);
 
     plane->set_material(standard_material);
 
@@ -974,6 +829,10 @@ inline godot::Node3D* UsdStageConverter<types::TargetEngineGodot>::ConvertPrimPo
     usd_node->set_prim_path(usd_prim.GetPath().GetText());
     usd_node->set_prim_type(usd_prim.GetTypeName().GetText());
     usd_node->set_stage_path(Stage->GetRootLayer()->GetRealPath().c_str());
+
+    if (auto* carrier = godot::Object::cast_to<UsdStageNode3D>(converted_prim);
+        carrier && idtxflow::collab::payload::is_builtin_payload_carrier(*carrier))
+        idtxflow::collab::payload::initialize_attributes(*carrier, usd_prim);
 
     return converted_prim;
 }
