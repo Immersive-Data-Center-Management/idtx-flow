@@ -180,4 +180,35 @@ bool decode_attributes(const godot::Variant& input, std::vector<net::model::Prim
     out = std::move(decoded);
     return true;
 }
+godot::Array encode_attributes(const std::vector<net::model::PrimAttribute>& attributes)
+{
+    const auto string = [](const std::string& value) { return String::utf8(value.data(), value.size()); };
+    Array result;
+    for (const auto& attribute: attributes)
+    {
+        Dictionary item, value;
+        item["name"] = string(attribute.name);
+        item["type_name"] = string(attribute.type_name);
+        value["is_array"] = attribute.value.is_array;
+        Array doubles, ints, uints, bools, strings;
+        for (double component: attribute.value.doubles)
+            doubles.push_back(component);
+        for (int64_t component: attribute.value.ints)
+            ints.push_back(component);
+        for (uint64_t component: attribute.value.uints)
+            uints.push_back(string(std::to_string(component)));
+        for (bool component: attribute.value.bools)
+            bools.push_back(component);
+        for (const auto& component: attribute.value.strings)
+            strings.push_back(string(component));
+        value["doubles"] = doubles;
+        value["ints"] = ints;
+        value["uints"] = uints;
+        value["bools"] = bools;
+        value["strings"] = strings;
+        item["value"] = value;
+        result.push_back(item);
+    }
+    return result;
+}
 } // namespace idtxflow::collab::attributes

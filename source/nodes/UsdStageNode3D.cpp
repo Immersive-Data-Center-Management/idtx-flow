@@ -21,6 +21,9 @@
 #include "stage_ops/StageSaveController.h"
 #include "stage_ops/PayloadPlacement.h"
 #include "stage_ops/PayloadAttributes.h"
+#include "stage_ops/AttributeCodec.h"
+#include "stage_ops/TransformCodec.h"
+#include <idtxflow/stage_ops/PrimCreateSpecBuilder.h>
 #include <idtxflow/resolver/HttpResolver.h>
 
 using namespace godot;
@@ -82,6 +85,61 @@ String UsdStageNode3D::get_default_prim_path() const
     // source and selected conversion root.
     const auto path = root->GetDefaultPrimAsPath();
     return path.IsEmpty() ? String() : String(path.GetText());
+}
+
+Dictionary UsdStageNode3D::get_prim_create_spec(const String& prim_path) const
+{
+    const auto stage = is_loading() ? UsdStageRefPtr() : get_stage();
+    const auto bytes = prim_path.utf8();
+    const std::string path(bytes.get_data(), static_cast<size_t>(bytes.length()));
+    idtxflow::stage_ops::PrimCreateSpecResult captured;
+    if (stage && !SdfPath::IsValidPathString(path))
+    {
+        captured.error = "invalid_source";
+        captured.message = "The source must be an absolute USD prim path.";
+    }
+    else
+        captured = idtxflow::stage_ops::PrimCreateSpecBuilder::Build(stage, stage ? SdfPath(path) : SdfPath());
+
+    Dictionary result, spec;
+    Array warnings;
+    for (const auto& warning: captured.warnings)
+        warnings.push_back(String::utf8(warning.c_str()));
+    if (captured.ok)
+    {
+        // The shared reader retains URI escaping. Create's file identifiers are
+        // unescaped paths; convert once at this binding, never in USD inspection.
+        const auto root_identifier = stage->GetRootLayer()->GetIdentifier();
+        const bool http = root_identifier.rfind("http://", 0) == 0 || root_identifier.rfind("https://", 0) == 0;
+        const auto asset = [http](const std::string& value) {
+            const auto text = String::utf8(value.data(), value.size());
+            return http ? text.uri_decode() : text;
+        };
+        auto& creation = captured.spec;
+        if (!creation.reference_path.empty())
+        {
+            spec["reference_path"] = asset(creation.reference_path);
+            spec["payload"] = creation.payload;
+        }
+        else
+            spec["type"] = String::utf8(creation.type.c_str());
+        if (creation.has_transform) spec["transform"] = idtxflow::collab::xform::mat4_to_transform(creation.transform);
+        if (http)
+            for (auto& attribute: creation.attributes)
+                if (attribute.type_name == "asset")
+                    for (auto& value: attribute.value.strings)
+                    {
+                        const auto decoded = asset(value).utf8();
+                        value.assign(decoded.get_data(), decoded.length());
+                    }
+        spec["attributes"] = idtxflow::collab::attributes::encode_attributes(creation.attributes);
+    }
+    result["ok"] = captured.ok;
+    result["error"] = String::utf8(captured.error.c_str());
+    result["message"] = String::utf8(captured.message.c_str());
+    result["spec"] = spec;
+    result["warnings"] = warnings;
+    return result;
 }
 
 void UsdStageNode3D::_flush_prim_activity(int64_t generation)
@@ -766,6 +824,7 @@ void UsdStageNode3D::_bind_methods()
 
     ClassDB::bind_method(D_METHOD("get_prim_activity", "prim_path"), &UsdStageNode3D::get_prim_activity);
     ClassDB::bind_method(D_METHOD("get_default_prim_path"), &UsdStageNode3D::get_default_prim_path);
+    ClassDB::bind_method(D_METHOD("get_prim_create_spec", "prim_path"), &UsdStageNode3D::get_prim_create_spec);
     ClassDB::bind_method(D_METHOD("_flush_prim_activity", "generation"), &UsdStageNode3D::_flush_prim_activity);
     ClassDB::bind_method(D_METHOD("_on_prim_activity_node_added", "node"),
                          &UsdStageNode3D::_on_prim_activity_node_added);
