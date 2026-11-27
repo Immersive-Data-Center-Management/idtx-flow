@@ -239,7 +239,7 @@ DecodeStatus DecodeBools(const net::model::AttributeValue& in, const bool is_arr
     if (!is_array)
     {
         if (count != 1) return DecodeStatus::InvalidValue;
-        out = pxr::VtValue(in.bools[0]);
+        out = pxr::VtValue(static_cast<bool>(in.bools[0]));
         return DecodeStatus::Ok;
     }
     pxr::VtArray<bool> arr(count);
